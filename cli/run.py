@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from textual import work
+from textual.app import App, ComposeResult
+from textual.containers import Vertical, VerticalScroll
+from textual.message import Message
+from textual.widgets import Input
+
+from agents.driver.agent import DriverAgentConfig, create_driver_agent
+from cli.components import (
+    AIBubble,
+    ChatInput,
+    ReasonStream,
+    RuntimeBar,
+    ToolStream,
+    UserBubble,
+    WorkingSpinner,
+)
+from cli.slash_commands.registry import SlashCommandRegistry
+from cli.utilities.streaming import iter_agent_turn
+from core.session.events import EventType
+from core.session.session_manager import SessionManager
+
+
+class AgentStream(Message):
+    """Worker thread event for live tool/reason updates."""
+
+    def __init__(self, kind: str, payload: dict) -> None:
+        self.kind = kind
+        self.payload = payload
+        super().__init__()
+
+
+class AgentFinished(Message):
+    """Worker completed a turn."""
+
+    def __init__(self, text: str, error: str | None = None) -> None:
+        self.text = text
+        self.error = error
+        super().__init__()
+
+
+class QuasipilotApp(App):
+    """Textual chat shell for the driver agent."""
+
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+
+    #chat-scroll {
+        height: 1fr;
+        margin: 1 1 0 1;
+    }
+
+    #chat-log {
+        width: 100%;
+        height: auto;
+    }
+
+    #bottom-bar {
+        height: auto;
+        width: 100%;
+    }
+    """
+
+    BINDINGS = [("ctrl+c", "quit", "Quit")]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cwd = Path.cwd()
+        self._model = os.getenv("QUASIPILOT_DRIVER_MODEL", "google_genai:gemini-3.5-flash")
+        self.session_id: str | None = None
+        self._manager: SessionManager | None = None
+        self._agent = None
+        self._commands = SlashCommandRegistry()
+        self._busy = False
+        self._spinner: WorkingSpinner | None = None
+
+    @property
+    def manager(self) -> SessionManager | None:
+        return self._manager
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="chat-scroll"):
+            yield Vertical(id="chat-log")
+        with Vertical(id="bottom-bar"):
+            yield ChatInput()
+            yield RuntimeBar(self._model, str(self._cwd))
+
+    def on_mount(self) -> None:
+        self.query_one(ChatInput).focus()
+
+    def reset_session(self) -> None:
+        self.session_id = None
+        self._manager = None
+        self._agent = None
+        self._clear_chat()
+
+    def load_session(self, session_id: str) -> None:
+        self.session_id = session_id
+        self._manager = SessionManager(session_id=session_id)
+        self._agent = create_driver_agent(
+            DriverAgentConfig(cwd=self._cwd, model=self._model, session_id=session_id)
+        )
+        self._clear_chat()
+        self._render_history()
+
+    def _ensure_session(self) -> SessionManager:
+        if self._manager is None:
+            self._manager = SessionManager()
+            self.session_id = self._manager.session_id
+            self._agent = create_driver_agent(
+                DriverAgentConfig(cwd=self._cwd, model=self._model, session_id=self.session_id)
+            )
+        return self._manager
+
+    def _chat_log(self) -> Vertical:
+        return self.query_one("#chat-log", Vertical)
+
+    def _clear_chat(self) -> None:
+        chat = self._chat_log()
+        chat.remove_children()
+        chat.scroll_home(animate=False)
+
+    def _render_history(self) -> None:
+        if self._manager is None:
+            return
+        chat = self._chat_log()
+        for event in self._manager.read_curated():
+            if event.type not in {EventType.USER, EventType.ASSISTANT}:
+                continue
+            content = str(event.payload.get("content", ""))
+            if event.type == EventType.USER:
+                chat.mount(UserBubble(content))
+            else:
+                chat.mount(AIBubble(content))
+        chat.scroll_end(animate=False)
+
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        chat_input = self.query_one(ChatInput)
+        chat_input.disabled = busy
+
+    def _show_spinner(self) -> None:
+        if self._spinner is not None:
+            return
+        self._spinner = WorkingSpinner()
+        self._chat_log().mount(self._spinner)
+        self._chat_log().scroll_end(animate=False)
+
+    def _hide_spinner(self) -> None:
+        if self._spinner is not None:
+            self._spinner.remove()
+            self._spinner = None
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if not isinstance(event.input, ChatInput):
+            return
+        text = event.value.strip()
+        event.input.value = ""
+        if not text or self._busy:
+            return
+
+        if self._commands.is_command(text):
+            self._commands.dispatch(self, text)
+            return
+
+        self._chat_log().mount(UserBubble(text))
+        self._chat_log().scroll_end(animate=False)
+        self._set_busy(True)
+        self._show_spinner()
+        self.run_turn(text)
+
+    @work(thread=True, exclusive=True)
+    def run_turn(self, text: str) -> None:
+        error: str | None = None
+        assistant_text = ""
+        try:
+            self._ensure_session()
+            assert self._agent is not None
+
+            def on_event(kind: str, payload: dict) -> None:
+                self.post_message(AgentStream(kind, payload))
+
+            assistant_text = iter_agent_turn(self._agent, text, on_event)
+        except Exception as exc:  # pragma: no cover - surfaced in UI
+            error = str(exc)
+        self.post_message(AgentFinished(assistant_text, error))
+
+    def on_agent_stream(self, event: AgentStream) -> None:
+        chat = self._chat_log()
+        if event.kind == "tool":
+            chat.mount(ToolStream(event.payload.get("name", "tool"), event.payload.get("args", "")))
+        elif event.kind == "reason":
+            chat.mount(ReasonStream(event.payload.get("text", "")))
+        chat.scroll_end(animate=False)
+
+    def on_agent_finished(self, event: AgentFinished) -> None:
+        self._hide_spinner()
+        self._set_busy(False)
+        if event.error:
+            self._chat_log().mount(AIBubble(f"error: {event.error}"))
+        elif event.text:
+            self._chat_log().mount(AIBubble(event.text))
+        self._chat_log().scroll_end(animate=False)
+        self.query_one(ChatInput).focus()
+
+
+def main() -> None:
+    QuasipilotApp().run()
+
+
+if __name__ == "__main__":
+    main()

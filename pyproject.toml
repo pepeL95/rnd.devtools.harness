@@ -25,8 +25,11 @@ dev = [
   "pytest>=8.0",
 ]
 
+[project.scripts]
+quasipilot = "cli.run:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["agents", "core"]
+packages = ["agents", "core", "cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
