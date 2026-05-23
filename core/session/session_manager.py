@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import Any, Iterable
 from uuid import uuid4
 
-from core.middleware._compat import BaseMessage, make_message, message_role
+from langchain_core.messages import BaseMessage
+
+from core.utilities.messages import make_message, message_role
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.io import append_events, read_events, replace_events, session_paths
-from core.session.turns import conversational_events, next_turn
+from core.session.turns import agent_history_events, next_turn
 
 
 class SessionManager:
@@ -76,7 +78,7 @@ class SessionManager:
 
     def load_curated_messages(self) -> list[BaseMessage]:
         restored: list[BaseMessage] = []
-        for event in conversational_events(self.read_curated()):
+        for event in agent_history_events(self.read_curated()):
             role = str(event.payload.get("role") or event.type.value)
             content = event.payload.get("content", "")
             restored.append(make_message(role=role, content=content))

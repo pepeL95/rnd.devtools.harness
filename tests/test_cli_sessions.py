@@ -4,6 +4,7 @@ from unittest import TestCase
 
 from core.session.events import EventType, SessionEvent
 from core.session.io import append_events, session_paths
+from cli.components.session_picker import _item_dom_id, _session_id_from_dom_id
 from cli.utilities.messages import format_tool_call, message_text
 from cli.utilities.sessions import clear_session_files, list_sessions
 
@@ -41,6 +42,14 @@ class CliSessionUtilityTests(TestCase):
 
             self.assertFalse(dump.exists())
             self.assertFalse(curated.exists())
+
+
+class SessionPickerIdTests(TestCase):
+    def test_session_dom_ids_are_textual_safe(self) -> None:
+        session_id = "7f7de5f3753a4c69ba2f8926189fafe9"
+        dom_id = _item_dom_id(session_id)
+        self.assertTrue(dom_id[0].isalpha())
+        self.assertEqual(_session_id_from_dom_id(dom_id), session_id)
 
 
 class CliMessageUtilityTests(TestCase):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.middleware._compat import AgentMiddleware, AgentState
+from langchain.agents.middleware import AgentMiddleware, AgentState
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.session_manager import SessionManager
 

@@ -8,9 +8,12 @@ class ChatInput(Input):
 
     DEFAULT_CSS = """
     ChatInput {
-        margin: 0 1 0 1;
-        height: 3;
-        border: tall $primary;
+        margin: 0 1;
+        padding: 1;
+        border: none;
+    }
+    ChatInput:focus {
+        border: none;
     }
     """
 

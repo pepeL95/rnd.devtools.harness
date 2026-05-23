@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.middleware._compat import AgentMiddleware, AgentState, reset_messages_update
+from langchain.agents.middleware import AgentMiddleware, AgentState
+
+from core.session.restore import reset_messages_update
 from core.session.session_manager import SessionManager
 
 

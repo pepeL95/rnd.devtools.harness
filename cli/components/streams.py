@@ -16,7 +16,7 @@ class ToolStream(Static):
 
     def __init__(self, name: str, args: str = "") -> None:
         label = f"{name} {args}".strip()
-        super().__init__(label)
+        super().__init__(label, markup=False)
 
 
 class ReasonStream(Static):
@@ -32,4 +32,4 @@ class ReasonStream(Static):
     """
 
     def __init__(self, text: str) -> None:
-        super().__init__(text)
+        super().__init__(text, markup=False)

@@ -4,8 +4,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from core.middleware._compat import AgentMiddleware, ModelHandler, ModelRequest, ModelResponse
-from core.middleware._compat import system_message_with_appended_text
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+
+from core.utilities.messages import system_message_with_appended_text
 from core.session.events import RuntimeSnapshot
 from core.utilities.git import git_branch, git_dirty
 
@@ -28,7 +29,7 @@ class RuntimeContextMiddleware(AgentMiddleware):
     def wrap_model_call(
         self,
         request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse] | ModelHandler,
+        handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         snapshot = self.snapshot(getattr(request, "runtime", None))
         updated = request.override(

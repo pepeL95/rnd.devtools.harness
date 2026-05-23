@@ -9,7 +9,21 @@ class SlashCommandRegistryTests(TestCase):
         registry = SlashCommandRegistry()
         app = MagicMock()
 
-        self.assertTrue(registry.is_command("/exit"))
-        registry.dispatch(app, "/exit")
+        self.assertTrue(registry.is_known_command("/exit"))
+        should_exit = registry.dispatch(app, "/exit")
 
+        self.assertTrue(should_exit)
         app.exit.assert_called_once()
+
+    def test_unknown_slash_is_not_known(self) -> None:
+        registry = SlashCommandRegistry()
+
+        self.assertTrue(registry.is_slash("/session"))
+        self.assertFalse(registry.is_known_command("/session"))
+        self.assertEqual(registry.slash_name("/session"), "session")
+
+    def test_plain_slash_is_unknown(self) -> None:
+        registry = SlashCommandRegistry()
+
+        self.assertTrue(registry.is_slash("/"))
+        self.assertFalse(registry.is_known_command("/"))

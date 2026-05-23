@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cli.utilities.display import content_to_plaintext
 from core.session.events import EventType
 from core.session.io import default_session_root, read_events, session_paths
 
@@ -19,8 +20,7 @@ class SessionSummary:
 def _latest_user_preview(events: list) -> str:
     for event in reversed(events):
         if event.type == EventType.USER:
-            content = event.payload.get("content", "")
-            text = content if isinstance(content, str) else str(content)
+            text = content_to_plaintext(event.payload.get("content", ""))
             return _truncate(text)
     return ""
 

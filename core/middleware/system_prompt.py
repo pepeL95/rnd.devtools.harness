@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from core.middleware._compat import AgentMiddleware, ModelHandler, ModelRequest, ModelResponse
-from core.middleware._compat import system_message_with_appended_text
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+
+from core.utilities.messages import system_message_with_appended_text
 
 
 class SystemPromptMiddleware(AgentMiddleware):
@@ -24,7 +25,7 @@ class SystemPromptMiddleware(AgentMiddleware):
     def wrap_model_call(
         self,
         request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse] | ModelHandler,
+        handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         prompt = self.load_prompt()
         if not prompt:

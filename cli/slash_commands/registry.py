@@ -14,22 +14,27 @@ class SlashCommandRegistry:
         for command in (SessionsCommand(), ClearCommand(), ExitCommand()):
             self._commands[command.name] = command
 
-    def dispatch(self, app, raw: str) -> bool:
-        stripped = raw.strip()
-        if not stripped.startswith("/"):
-            return False
-        body = stripped[1:].strip()
+    @staticmethod
+    def is_slash(raw: str) -> bool:
+        return raw.strip().startswith("/")
+
+    def slash_name(self, raw: str) -> str:
+        body = raw.strip()[1:].strip()
         if not body:
+            return ""
+        return body.split(maxsplit=1)[0].lower()
+
+    def is_known_command(self, raw: str) -> bool:
+        if not self.is_slash(raw):
             return False
-        name, _, args = body.partition(" ")
-        command = self._commands.get(name.lower())
+        return self.slash_name(raw) in self._commands
+
+    def dispatch(self, app, raw: str) -> bool:
+        """Run a known slash command. Returns True when the app should exit."""
+
+        name = self.slash_name(raw)
+        command = self._commands.get(name)
         if command is None:
             return False
+        _, _, args = raw.strip()[1:].strip().partition(" ")
         return command.run(app, args.strip())
-
-    def is_command(self, raw: str) -> bool:
-        stripped = raw.strip()
-        if not stripped.startswith("/"):
-            return False
-        name = stripped[1:].strip().split(maxsplit=1)[0].lower()
-        return name in self._commands

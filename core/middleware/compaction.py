@@ -4,7 +4,7 @@ from typing import Any
 
 from core.compaction.compactor import Compactor
 from core.compaction.token_counter import TokenCounter
-from core.middleware._compat import AgentMiddleware, AgentState
+from langchain.agents.middleware import AgentMiddleware, AgentState
 from core.session.session_manager import SessionManager
 
 

@@ -9,14 +9,14 @@ class RuntimeBar(Static):
     DEFAULT_CSS = """
     RuntimeBar {
         height: 1;
-        padding: 0 1;
+        padding: 0 0 0 2;
         color: $text-muted;
-        background: $panel;
+        background: transparent;
     }
     """
 
     def __init__(self, model: str, cwd: str) -> None:
-        super().__init__(self._label(model, cwd))
+        super().__init__(self._label(model, cwd), markup=False)
         self._model = model
         self._cwd = cwd
 

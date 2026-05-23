@@ -7,6 +7,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
+from textual.widget import Widget
 from textual.widgets import Input
 
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
@@ -20,6 +21,7 @@ from cli.components import (
     WorkingSpinner,
 )
 from cli.slash_commands.registry import SlashCommandRegistry
+from cli.utilities.display import content_to_plaintext
 from cli.utilities.streaming import iter_agent_turn
 from core.session.events import EventType
 from core.session.session_manager import SessionManager
@@ -53,7 +55,7 @@ class QuasipilotApp(App):
 
     #chat-scroll {
         height: 1fr;
-        margin: 1 1 0 1;
+        
     }
 
     #chat-log {
@@ -94,6 +96,9 @@ class QuasipilotApp(App):
     def on_mount(self) -> None:
         self.query_one(ChatInput).focus()
 
+    def notify_warning(self, message: str) -> None:
+        self.notify(message, timeout=3, markup=False, severity="warning")
+
     def reset_session(self) -> None:
         self.session_id = None
         self._manager = None
@@ -121,10 +126,26 @@ class QuasipilotApp(App):
     def _chat_log(self) -> Vertical:
         return self.query_one("#chat-log", Vertical)
 
+    def _chat_scroll(self) -> VerticalScroll:
+        return self.query_one("#chat-scroll", VerticalScroll)
+
+    def _is_chat_at_bottom(self) -> bool:
+        return self._chat_scroll().is_vertical_scroll_end
+
+    def _scroll_chat_to_bottom(self, *, animate: bool = False) -> None:
+        # Defer until after layout so max_scroll_y reflects newly mounted content.
+        self._chat_scroll().scroll_end(animate=animate, immediate=False)
+
+    def _mount_chat(self, widget: Widget) -> None:
+        """Mount a widget and follow the end when the user is already at the bottom."""
+        at_bottom = self._is_chat_at_bottom()
+        self._chat_log().mount(widget)
+        if at_bottom:
+            self._scroll_chat_to_bottom()
+
     def _clear_chat(self) -> None:
-        chat = self._chat_log()
-        chat.remove_children()
-        chat.scroll_home(animate=False)
+        self._chat_log().remove_children()
+        self._chat_scroll().scroll_home(animate=False)
 
     def _render_history(self) -> None:
         if self._manager is None:
@@ -133,12 +154,12 @@ class QuasipilotApp(App):
         for event in self._manager.read_curated():
             if event.type not in {EventType.USER, EventType.ASSISTANT}:
                 continue
-            content = str(event.payload.get("content", ""))
+            content = content_to_plaintext(event.payload.get("content", ""))
             if event.type == EventType.USER:
                 chat.mount(UserBubble(content))
             else:
                 chat.mount(AIBubble(content))
-        chat.scroll_end(animate=False)
+        self._scroll_chat_to_bottom()
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -149,8 +170,7 @@ class QuasipilotApp(App):
         if self._spinner is not None:
             return
         self._spinner = WorkingSpinner()
-        self._chat_log().mount(self._spinner)
-        self._chat_log().scroll_end(animate=False)
+        self._mount_chat(self._spinner)
 
     def _hide_spinner(self) -> None:
         if self._spinner is not None:
@@ -165,12 +185,15 @@ class QuasipilotApp(App):
         if not text or self._busy:
             return
 
-        if self._commands.is_command(text):
-            self._commands.dispatch(self, text)
+        if self._commands.is_slash(text):
+            if self._commands.is_known_command(text):
+                self._commands.dispatch(self, text)
+            else:
+                name = self._commands.slash_name(text) or "?"
+                self.notify_warning(f"unknown command: /{name}")
             return
 
-        self._chat_log().mount(UserBubble(text))
-        self._chat_log().scroll_end(animate=False)
+        self._mount_chat(UserBubble(text))
         self._set_busy(True)
         self._show_spinner()
         self.run_turn(text)
@@ -192,21 +215,18 @@ class QuasipilotApp(App):
         self.post_message(AgentFinished(assistant_text, error))
 
     def on_agent_stream(self, event: AgentStream) -> None:
-        chat = self._chat_log()
         if event.kind == "tool":
-            chat.mount(ToolStream(event.payload.get("name", "tool"), event.payload.get("args", "")))
+            self._mount_chat(ToolStream(event.payload.get("name", "tool"), event.payload.get("args", "")))
         elif event.kind == "reason":
-            chat.mount(ReasonStream(event.payload.get("text", "")))
-        chat.scroll_end(animate=False)
+            self._mount_chat(ReasonStream(event.payload.get("text", "")))
 
     def on_agent_finished(self, event: AgentFinished) -> None:
         self._hide_spinner()
         self._set_busy(False)
         if event.error:
-            self._chat_log().mount(AIBubble(f"error: {event.error}"))
+            self._mount_chat(AIBubble(f"error: {event.error}"))
         elif event.text:
-            self._chat_log().mount(AIBubble(event.text))
-        self._chat_log().scroll_end(animate=False)
+            self._mount_chat(AIBubble(event.text))
         self.query_one(ChatInput).focus()
 
 

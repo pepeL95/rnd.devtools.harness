@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from unittest import TestCase
 
-from core.middleware._compat import SystemMessage
+from langchain_core.messages import SystemMessage
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
 from core.middleware.system_prompt import SystemPromptMiddleware
@@ -14,7 +14,7 @@ from core.session.session_manager import SessionManager
 
 @dataclass(frozen=True)
 class FakeModelRequest:
-    system_message: SystemMessage
+    system_message: SystemMessage | None
     messages: list[Any]
     runtime: Any = None
 
@@ -31,11 +31,29 @@ class MiddlewareTests(TestCase):
 
         self.assertIn("Use concise answers.", str(response.content))
 
+    def test_system_prompt_middleware_handles_missing_system_message(self) -> None:
+        middleware = SystemPromptMiddleware(prompt="Use concise answers.")
+        request = FakeModelRequest(system_message=None, messages=[])
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+        self.assertIn("Use concise answers.", str(response.content))
+
     def test_runtime_middleware_injects_cwd(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory)
             middleware = RuntimeContextMiddleware(cwd=path)
             request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+            response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+            self.assertIn(str(path.resolve()), str(response.content))
+
+    def test_runtime_middleware_handles_missing_system_message(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory)
+            middleware = RuntimeContextMiddleware(cwd=path)
+            request = FakeModelRequest(system_message=None, messages=[])
 
             response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
 

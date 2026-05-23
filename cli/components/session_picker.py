@@ -7,27 +7,43 @@ from textual.widgets import Label, ListItem, ListView
 
 from cli.utilities.sessions import SessionSummary
 
+_SESSION_ITEM_PREFIX = "session-"
+
+
+def _item_dom_id(session_id: str) -> str:
+    """Map session id to a valid Textual DOM identifier."""
+    return f"{_SESSION_ITEM_PREFIX}{session_id}"
+
+
+def _session_id_from_dom_id(dom_id: str | None) -> str | None:
+    if dom_id and dom_id.startswith(_SESSION_ITEM_PREFIX):
+        return dom_id[len(_SESSION_ITEM_PREFIX) :]
+    return None
+
 
 class SessionPickerScreen(ModalScreen[str | None]):
     """Multiselect-style session picker ordered by recent activity."""
 
     DEFAULT_CSS = """
     SessionPickerScreen {
-        align: center middle;
+        
     }
 
     #picker-panel {
-        width: 80%;
-        max-width: 90;
+        width: 90%;
         height: 70%;
-        border: tall $primary;
-        background: $panel;
+        border: none;
         padding: 1 2;
+    }
+
+    #picker-panel:focus {
+        border: none;
     }
 
     #picker-list {
         height: 1fr;
         margin-top: 1;
+        background: transparent;
     }
 
     .session-preview {
@@ -43,22 +59,21 @@ class SessionPickerScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker-panel"):
-            yield Label("/sessions")
+            yield Label("/sessions", markup=False)
             items = [self._item(summary) for summary in self._sessions]
             if items:
                 yield ListView(*items, id="picker-list")
             else:
-                yield Label("no sessions", classes="session-preview")
+                yield Label("no sessions", classes="session-preview", markup=False)
 
     def _item(self, summary: SessionSummary) -> ListItem:
         stamp = summary.modified_at.astimezone().strftime("%Y-%m-%d %H:%M")
         preview = summary.preview or "—"
         label = f"{stamp}  {summary.session_id[:8]}  {preview}"
-        return ListItem(Label(label), id=summary.session_id)
+        return ListItem(Label(label, markup=False), id=_item_dom_id(summary.session_id))
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        session_id = event.item.id or None
-        self.dismiss(session_id)
+        self.dismiss(_session_id_from_dom_id(event.item.id))
 
     def action_cancel(self) -> None:
         self.dismiss(None)

@@ -31,3 +31,24 @@ class SessionIOTests(TestCase):
 
             self.assertEqual([message.content for message in messages], ["hello", "hi"])
 
+    def test_load_curated_messages_skips_tool_output(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "run git status"}),
+                    SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "ok"}),
+                    SessionEvent(
+                        type=EventType.TOOL_OUTPUT,
+                        turn=1,
+                        payload={"role": "tool", "content": "on branch main"},
+                    ),
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            self.assertEqual(len(messages), 2)
+            self.assertEqual(messages[0].content, "run git status")
+            self.assertEqual(messages[1].content, "ok")
+

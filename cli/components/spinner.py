@@ -19,7 +19,7 @@ class WorkingSpinner(Static):
     """
 
     def __init__(self) -> None:
-        super().__init__("")
+        super().__init__("", markup=False)
         self._started = time.monotonic()
         self._frame = 0
         self._timer = None
