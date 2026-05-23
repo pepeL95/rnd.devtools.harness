@@ -8,7 +8,7 @@ from core.telemetry.events import TelemetryEvent
 
 
 def default_telemetry_root() -> Path:
-    return Path.home() / ".quasipilot" / "temeletry"
+    return Path.home() / ".quasipilot" / "telemetry"
 
 
 def telemetry_session_path(
@@ -19,7 +19,7 @@ def telemetry_session_path(
     """Return the per-session telemetry path.
 
     The directory name intentionally follows the current product spec spelling:
-    ~/.quasipilot/temeletry/[yyyy]/[mm]/[dd]/[session-id].jsonl.
+    ~/.quasipilot/telemetry/[yyyy]/[mm]/[dd]/[session-id].jsonl.
     """
 
     instant = timestamp or datetime.now(timezone.utc)
