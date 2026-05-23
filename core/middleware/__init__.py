@@ -1,0 +1,27 @@
+"""LangChain middleware for the harness."""
+
+from importlib import import_module
+from typing import Any
+
+__all__ = [
+    "CompactionMiddleware",
+    "RuntimeContextMiddleware",
+    "SessionDumpMiddleware",
+    "SessionLoadMiddleware",
+    "SystemPromptMiddleware",
+]
+
+_EXPORTS = {
+    "CompactionMiddleware": "core.middleware.compaction",
+    "RuntimeContextMiddleware": "core.middleware.runtime",
+    "SessionDumpMiddleware": "core.middleware.session_dump",
+    "SessionLoadMiddleware": "core.middleware.session_load",
+    "SystemPromptMiddleware": "core.middleware.system_prompt",
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _EXPORTS:
+        raise AttributeError(name)
+    module = import_module(_EXPORTS[name])
+    return getattr(module, name)
