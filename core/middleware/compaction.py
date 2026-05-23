@@ -21,12 +21,18 @@ class CompactionMiddleware(AgentMiddleware):
         self.compactor = compactor
         self.token_counter = token_counter or TokenCounter()
 
+    def before_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
+        self._compact_if_needed()
+        return None
+
     def after_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
+        self._compact_if_needed()
+        return None
+
+    def _compact_if_needed(self) -> None:
         events = self.manager.read_curated()
         estimated = self.token_counter.count_events(events)
         if not self.compactor.policy.should_compact(estimated):
-            return None
+            return
         result = self.compactor.compact(events, token_estimate=estimated)
         self.manager.replace_curated(result.events)
-        return None
-

@@ -132,6 +132,32 @@ class CompactionTests(TestCase):
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
             self.assertEqual(curated[1].payload["content"], "new")
 
+    def test_compaction_middleware_compacts_before_session_load(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    event(1, EventType.USER, "old"),
+                    event(2, EventType.USER, "new"),
+                ]
+            )
+            compactor = Compactor(
+                generator=ScriptedGenerator(
+                    [
+                        "EPISODE 1: old\nTURNS: 1 to 1",
+                        "CURATED MEMORY",
+                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                    ]
+                ),
+                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+            )
+            middleware = CompactionMiddleware(manager, compactor, token_counter=FixedTokenCounter(999))
+
+            middleware.before_agent({"messages": []}, runtime=None)
+
+            curated = manager.read_curated()
+            self.assertEqual(curated[0].payload["kind"], "memory_restore")
+
     def test_memory_restore_message_matches_injection_contract(self) -> None:
         content = memory_restore_message("DOC")
 
@@ -139,4 +165,3 @@ class CompactionTests(TestCase):
         self.assertIn("DOC", content)
         self.assertIn("[END MEMORY RESTORE]", content)
         self.assertTrue(content.endswith("Your task continues below."))
-

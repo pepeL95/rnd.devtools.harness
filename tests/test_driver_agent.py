@@ -2,7 +2,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from agents.driver.agent import _local_shell_backend
+from agents.driver.agent import _init_driver_model, _local_shell_backend
+from agents.driver.agent import DriverAgentConfig, create_driver_agent
 
 
 class BackendWithVirtualEnv:
@@ -37,3 +38,15 @@ class DriverAgentTests(TestCase):
 
             self.assertEqual(backend.root_dir, str(path))
             self.assertIs(backend.inherit_env, True)
+
+    def test_driver_agent_builds_with_telemetry_middleware(self) -> None:
+        with TemporaryDirectory() as directory:
+            agent = create_driver_agent(DriverAgentConfig(cwd=Path(directory), session_id="test-session"))
+
+            self.assertEqual(type(agent).__name__, "CompiledStateGraph")
+
+    def test_google_driver_model_disables_retries_by_default(self) -> None:
+        model = _init_driver_model("google_genai:gemini-3.5-flash", retries=0)
+
+        self.assertEqual(model.model, "gemini-3.5-flash")
+        self.assertEqual(model.max_retries, 0)
