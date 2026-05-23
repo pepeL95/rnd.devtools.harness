@@ -1,4 +1,6 @@
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
@@ -36,7 +38,42 @@ def event(turn: int, event_type: EventType, content: str) -> SessionEvent:
     return SessionEvent(type=event_type, turn=turn, payload={"role": role, "content": content})
 
 
+def dated_event(turn: int, when: datetime, content: str = "x") -> SessionEvent:
+    return SessionEvent(
+        type=EventType.USER,
+        turn=turn,
+        timestamp=when.isoformat(),
+        payload={"role": "user", "content": content},
+    )
+
+
 class CompactionTests(TestCase):
+    def test_compaction_policy_triggers_on_age(self) -> None:
+        policy = CompactionPolicy(trigger_tokens=1000, trigger_after=timedelta(hours=2))
+        events = [dated_event(1, datetime(2026, 5, 23, 10, tzinfo=timezone.utc))]
+
+        decision = policy.compaction_decision(
+            10,
+            events=events,
+            now=datetime(2026, 5, 23, 13, tzinfo=timezone.utc),
+        )
+
+        self.assertTrue(decision.should_compact)
+        self.assertEqual(decision.reason, "age")
+
+    def test_compaction_policy_triggers_on_day_change(self) -> None:
+        policy = CompactionPolicy(trigger_tokens=1000, trigger_on_day_change=True)
+        events = [dated_event(1, datetime(2026, 5, 22, 23, tzinfo=timezone.utc))]
+
+        decision = policy.compaction_decision(
+            10,
+            events=events,
+            now=datetime(2026, 5, 23, 1, tzinfo=timezone.utc),
+        )
+
+        self.assertTrue(decision.should_compact)
+        self.assertEqual(decision.reason, "day_change")
+
     def test_split_compaction_window_keeps_last_k_turns(self) -> None:
         events = [
             event(1, EventType.USER, "u1"),
@@ -157,6 +194,32 @@ class CompactionTests(TestCase):
 
             curated = manager.read_curated()
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
+
+    def test_compaction_middleware_uses_date_policy(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    dated_event(1, datetime(2026, 5, 22, 23, tzinfo=timezone.utc), "old"),
+                    dated_event(2, datetime(2026, 5, 22, 23, 30, tzinfo=timezone.utc), "new"),
+                ]
+            )
+            compactor = Compactor(
+                generator=ScriptedGenerator(
+                    [
+                        "EPISODE 1: old\nTURNS: 1 to 1",
+                        "DATE MEMORY",
+                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                    ]
+                ),
+                policy=CompactionPolicy(trigger_tokens=1000, keep_last_turns=1, trigger_on_day_change=True),
+            )
+            middleware = CompactionMiddleware(manager, compactor, token_counter=FixedTokenCounter(1))
+
+            runtime = SimpleNamespace(context={"now": datetime(2026, 5, 23, 1, tzinfo=timezone.utc)})
+            middleware.before_agent({"messages": []}, runtime=runtime)
+
+            self.assertEqual(manager.read_curated()[0].payload["kind"], "memory_restore")
 
     def test_memory_restore_message_matches_injection_contract(self) -> None:
         content = memory_restore_message("DOC")
