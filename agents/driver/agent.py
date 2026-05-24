@@ -68,5 +68,5 @@ def _local_shell_backend(backend_cls: type[Any], cwd: Path) -> Any:
     if "virtual_env" in parameters:
         kwargs["virtual_env"] = False
     if "virtual_mode" in parameters:
-        kwargs["virtual_mode"] = True
+        kwargs["virtual_mode"] = False
     return backend_cls(**kwargs)
