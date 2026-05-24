@@ -13,6 +13,62 @@ from core.session.events import EventType, SessionEvent
 from core.session.session_manager import SessionManager
 
 
+COMPLETE_MEMORY_DOCUMENT = """## Episodic Memory
+
+### Task Requirement Synthesis
+#### Compaction contract
+- FULL-FIDELITY REF: turns [1-2]
+- TASK TIMESTAMPS: 2026-05-23T10:00:00+00:00 -> 2026-05-23T10:15:00+00:00
+- TASK REQUEST SYNTHESIS: Stabilize compaction output so older trajectory state can be compressed without losing the exact continuation edge for the next turn.
+- TASK EXECUTION SYNTHESIS: The session converged on a compaction design where resumability matters more than transcript fidelity. The important state transition was moving from raw history retention to a synthesized memory record that still preserves constraints, current state, and the lens the next agent needs when it enters the preserved tail.
+- PRIORITY SIGNALS: preserve exact file paths, favor semantic synthesis, keep the resumption contract intact.
+- OPEN LOOP: Validate that revisions keep improving semantic density without eroding the restore contract.
+
+### Current State
+- `core/compaction/prompts.py` is modified and tests are passing.
+- The compactor is expected to replace older curated events with a memory restore record while retaining the latest turn.
+
+### Work Completed
+- Implemented the compaction pipeline and verified the memory restore injection contract in tests.
+
+### Failed Approaches
+- APPROACH: Using transcript-like summaries with weak structure.
+- FAILURE MECHANISM: The result preserves wording but loses reusable judgment and leaves the next agent to reread the trajectory.
+- REUSABLE LESSON: Compaction should preserve mechanisms, constraints, and state transitions instead of replaying the session.
+- STATUS: abandoned
+
+### Open Problems
+- No active blocker in this fixture. The remaining question is whether the critic loop keeps the summary dense enough.
+
+### Implicit Tasks Discovered
+- The compactor needs a stable heading contract so downstream tooling can reason about the memory document.
+
+### Next Steps
+- Keep validating that compaction revisions preserve resumability while increasing semantic density.
+
+## Semantic Memory
+
+### Codebase Characteristics
+- The session layer stores curated history as JSONL events and expects compaction to reinsert a synthetic user memory record.
+
+### Task-Approach Pairs
+- TASK CLASS: trajectory compaction for coding agents
+- EFFECTIVE APPROACH: use segmentation plus a critique loop that pushes toward mechanism-rich summaries.
+- PITFALLS: transcript replay, vague failed approaches, and missing exact file paths.
+- CONFIDENCE: high
+
+### Generalizable Insights
+- Compaction quality improves when the system optimizes for causal structure and next-step utility instead of preserving long verbatim spans. This transfers to any agent that resumes from compressed state. Confidence: high.
+
+## Handoff
+
+### Session Narrative
+The fixture represents a compaction run where the important requirement is structural fidelity plus semantic density. The exact wording is not important; the resumable state and learned constraints are.
+
+The next agent should be able to continue without rereading the raw trajectory because the durable constraints, current state, and continuation plan are all explicit.
+"""
+
+
 class ScriptedGenerator:
     def __init__(self, responses: list[str]) -> None:
         self.responses = responses
@@ -91,7 +147,7 @@ class CompactionTests(TestCase):
         generator = ScriptedGenerator(
             [
                 "EPISODE 1: setup\nTURNS: 1 to 1",
-                "MEMORY DOCUMENT",
+                COMPLETE_MEMORY_DOCUMENT,
                 "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
             ]
         )
@@ -112,16 +168,16 @@ class CompactionTests(TestCase):
         self.assertEqual(len(result.events), 2)
         self.assertEqual(result.events[0].payload["kind"], "memory_restore")
         self.assertIn("[MEMORY RESTORE]", result.events[0].payload["content"])
-        self.assertIn("MEMORY DOCUMENT", result.events[0].payload["content"])
+        self.assertIn("### Task Requirement Synthesis", result.events[0].payload["content"])
         self.assertEqual(result.events[1].payload["content"], "continue")
 
     def test_compactor_runs_revision_loop_until_approved(self) -> None:
         generator = ScriptedGenerator(
             [
                 "EPISODE 1: setup\nTURNS: 1 to 1",
-                "DRAFT MEMORY",
+                COMPLETE_MEMORY_DOCUMENT,
                 "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 1\n  RECOMMENDED ACTION: revise targeted sections",
-                "REVISED MEMORY",
+                COMPLETE_MEMORY_DOCUMENT.replace("tests are passing", "tests remain passing after revision"),
                 "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
             ]
         )
@@ -138,8 +194,34 @@ class CompactionTests(TestCase):
         )
 
         self.assertEqual(result.revisions, 1)
-        self.assertEqual(result.memory_document, "REVISED MEMORY")
+        self.assertIn("tests remain passing after revision", result.memory_document)
         self.assertEqual(len(result.critiques), 2)
+
+    def test_compactor_revises_legacy_quote_heavy_draft_before_model_critic(self) -> None:
+        generator = ScriptedGenerator(
+            [
+                "EPISODE 1: setup\nTURNS: 1 to 1",
+                'ORIGINAL TASK\n"repeat the whole prompt verbatim because that feels safe"\nUSER DIRECTIVES\n"quote everything back"',
+                COMPLETE_MEMORY_DOCUMENT,
+                "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+            ]
+        )
+        compactor = Compactor(
+            generator=generator,
+            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+        )
+
+        result = compactor.compact(
+            [
+                event(1, EventType.USER, "original task"),
+                event(2, EventType.USER, "latest"),
+            ]
+        )
+
+        self.assertEqual(result.revisions, 1)
+        self.assertEqual(len(result.critiques), 2)
+        self.assertIn("LOCAL QUALITY REVIEW", result.critiques[0].text)
+        self.assertIn("### Task Requirement Synthesis", result.memory_document)
 
     def test_compaction_middleware_replaces_curated_history(self) -> None:
         with TemporaryDirectory() as directory:
@@ -154,7 +236,7 @@ class CompactionTests(TestCase):
                 generator=ScriptedGenerator(
                     [
                         "EPISODE 1: old\nTURNS: 1 to 1",
-                        "CURATED MEMORY",
+                        COMPLETE_MEMORY_DOCUMENT,
                         "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
                     ]
                 ),
@@ -182,7 +264,7 @@ class CompactionTests(TestCase):
                 generator=ScriptedGenerator(
                     [
                         "EPISODE 1: old\nTURNS: 1 to 1",
-                        "CURATED MEMORY",
+                        COMPLETE_MEMORY_DOCUMENT,
                         "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
                     ]
                 ),
@@ -208,7 +290,7 @@ class CompactionTests(TestCase):
                 generator=ScriptedGenerator(
                     [
                         "EPISODE 1: old\nTURNS: 1 to 1",
-                        "DATE MEMORY",
+                        COMPLETE_MEMORY_DOCUMENT,
                         "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
                     ]
                 ),

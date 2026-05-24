@@ -1,0 +1,49 @@
+{
+  "aggregate": {
+    "average_semantic_richness_score": 0.0
+  },
+  "errors": [
+    {
+      "case": {
+        "id": "cli_telemetry_resource_exhaustion",
+        "title": "Troubleshoot quasipilot chat hang and enrich driver telemetry"
+      },
+      "error": {
+        "message": "[Errno 8] nodename nor servname provided, or not known",
+        "type": "ConnectError"
+      }
+    },
+    {
+      "case": {
+        "id": "base_chat_model_setup_and_compaction",
+        "title": "Replace string model names with BaseChatModel and validate setup"
+      },
+      "error": {
+        "message": "[Errno 8] nodename nor servname provided, or not known",
+        "type": "ConnectError"
+      }
+    },
+    {
+      "case": {
+        "id": "setup_script_dependency_bootstrap",
+        "title": "Bootstrap conda environment and make setup.sh developer-ready"
+      },
+      "error": {
+        "message": "[Errno 8] nodename nor servname provided, or not known",
+        "type": "ConnectError"
+      }
+    }
+  ],
+  "fixture": {
+    "case_count": 3,
+    "name": "compaction_semantic_richness",
+    "version": 1
+  },
+  "run": {
+    "created_at": "2026-05-24T13:00:56.695859+00:00",
+    "error_count": 3,
+    "output_dir": "eval_results/compaction_semantic_richness/20260524T130056Z",
+    "scored_case_count": 0
+  },
+  "scores": []
+}

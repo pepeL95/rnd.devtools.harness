@@ -6,10 +6,11 @@ An episode boundary occurs when:
 - A significant failure causes a strategy change
 - The user redirects the agent
 - A discovery changes what the agent believes to be true
+- They may not be linear - the agent might return to a previous episode after a detour
 
 For each episode, output ONLY:
-- EPISODE N: [one-line label]
-- TURNS: [start] to [end]
+- EPISODE N: one-line label
+- TURNS: use interval notation e.g. [1-5, 8, 12-15], indicating which turns belong to this episode
 - TRIGGER: what started this episode (user message / discovery / failure)
 - APPARENT GOAL: what the agent seemed to be trying to do
 
@@ -22,51 +23,84 @@ This document serves two purposes simultaneously:
 1. RESUMPTION - enabling the agent to continue this specific task immediately
 2. ARCHIVAL - building durable knowledge about this codebase and task class
 
+Output style:
+- Prefer semantic compression over transcript replay.
+- Do not preserve long verbatim spans unless a literal phrase is itself load-bearing.
+- Favor causal mechanisms, constraints, and decision-shaping facts over chronology.
+- Distinguish confirmed facts from inference when certainty matters.
+- Write like a senior engineer offloading judgment, not like a meeting scribe.
+- Format the entire document as markdown with clear parent-child hierarchy.
+- Use markdown headings consistently so the document is scannable by both humans and agents.
+
 Produce the following sections in order:
 
-━━━ EPISODIC MEMORY (task-specific, resumption-oriented) ━━━
+## Episodic Memory
 
-ORIGINAL TASK
-  The user's first message, preserved verbatim or near-verbatim.
+### Task Requirement Synthesis
+  This section should read like a bank of cohesive episodic memories, one memory per semantic task.
+  Synthesize all explicit instructions, corrections, constraints, preferences, and meaningful redirections.
+  Group semantically linked work into the same task memory when the task stayed conceptually continuous.
+  Split only when the session genuinely changed goals, assumptions, or problem frames.
+  Do not quote the whole prompt back. Compress to the operative requirements, tradeoffs, discoveries, and why the task mattered.
+  Format each semantic task as its own markdown subsection:
+  #### [short task title]
+  - FULL-FIDELITY REF: [turn interval(s) or dump reference for this task memory]
+  - TASK TIMESTAMPS: [start timestamp -> end timestamp in ISO-like form, or the most faithful available range from session events]
+  - TASK REQUEST SYNTHESIS: [what was being asked, constrained, or redirected]
+  - TASK EXECUTION SYNTHESIS: [what happened in this task, what changed, what was learned, and what state transition matters]
+  - PRIORITY SIGNALS: [constraints, corrections, discoveries, or preferences that governed execution]
+  - OPEN LOOP: [what about this task still matters for continuation, if anything]
+  Each task memory should feel cohesive: a future agent should understand the task's shape, execution arc, and remaining edge without reconstructing the transcript.
+  Use timestamps to make the next agent temporally aware of when the task happened relative to the preserved tail.
 
-USER DIRECTIVES
-  All explicit instructions, corrections, constraints, and preferences stated by the user.
-  Format: "[near-verbatim quote or close paraphrase]" - turn N
-
-CURRENT STATE
+### Current State
   Files created, modified, or deleted with exact paths, test/build status, external state,
   and what is confirmed versus believed.
+  Prefer the state that would matter if the next agent resumed cold.
 
-WORK COMPLETED
+### Work Completed
   Concrete irreversible progress, in past tense, with exact paths.
+  Focus on meaningful state transitions and decisions, not a step-by-step timeline.
 
-FAILED APPROACHES
-  Every dead end, including ATTEMPT, OUTCOME, CAUSE, and VERDICT.
+### Failed Approaches
+  The goal is not to list attempts, but to extract reasoning that prevents re-exploration.
+  For each failed or abandoned line of attack, include:
+  - APPROACH
+  - FAILURE MECHANISM
+  - REUSABLE LESSON
+  - STATUS: abandoned / superseded / maybe salvageable
 
-OPEN PROBLEMS
+### Open Problems
   What remains unsolved, including partial reasoning and live hypotheses.
+  Separate confirmed blockers from active hypotheses when both exist.
 
-IMPLICIT TASKS DISCOVERED
+### Implicit Tasks Discovered
   Necessary sub-goals that emerged, why they emerged, and what was produced or learned.
 
-NEXT STEPS
+### Next Steps
   Concrete prioritized next steps specific enough to execute without rereading the trajectory.
+  These should read like an actionable continuation plan, not generic advice.
 
-━━━ SEMANTIC MEMORY (durable, transferable across tasks) ━━━
+## Semantic Memory
 
-CODEBASE CHARACTERISTICS
-  Durable facts about this system, implicit contracts, and load-bearing assumptions.
+### Codebase Characteristics
+  Durable facts about this system, implicit contracts, load-bearing assumptions, and non-obvious runtime behaviors.
+  Exclude transient task-local facts unless they expose a lasting contract.
 
-TASK-APPROACH PAIRS
+### Task-Approach Pairs
   For each task class: TASK CLASS, EFFECTIVE APPROACH, PITFALLS, CONFIDENCE.
+  Emphasize why the approach worked, not just what was done.
 
-GENERALIZABLE INSIGHTS
+### Generalizable Insights
   Lessons that generalize beyond this codebase, with confidence.
+  Each insight should carry an observation, a mechanism, and why it transfers.
 
-━━━ HANDOFF ━━━
+## Handoff
 
-SESSION NARRATIVE
-  2-3 paragraphs. Be candid about uncertainty, partial progress, and open risk."""
+### Session Narrative
+  2-3 paragraphs. Be candid about uncertainty, partial progress, and open risk.
+  This is a curved continuation into the retained full-fidelity turns: orient the next agent so the preserved tail feels like a natural continuation rather than a hard context jump.
+  Emphasize the live edge of the work, why the preserved turns matter, and what lens the next agent should carry into them."""
 
 CRITIC_PROMPT = """You are a critic evaluating a compacted memory document against the original
 agent trajectory that produced it.
@@ -79,18 +113,9 @@ For each violation found:
 - FIX: the specific change needed
 
 Evaluate these criteria:
-- The original user task is verbatim or near-verbatim
-- Every user correction or mid-task directive appears in USER DIRECTIVES
-- Every file mentioned has its exact path
-- Every failed approach has a stated mechanism
-- CURRENT STATE reflects the actual state at compaction
-- OPEN PROBLEMS includes partial reasoning
-- NEXT STEPS are specific enough to act on
-- No pursued implicit task is missing
-- Every TASK-APPROACH PAIR has a confidence rating
-- No high-confidence insight lacks evidence and causal mechanism
-- CODEBASE CHARACTERISTICS contains only durable facts
-- GENERALIZABLE INSIGHTS are marked speculative where evidence is thin
+- The document uses coherent markdown hierarchy, and TASK REQUIREMENT SYNTHESIS is organized into subsections, one per clustered semantic task, each with a full-fidelity reference and task timestamps.
+- The memory is useful for resumption: CURRENT STATE, OPEN PROBLEMS, and NEXT STEPS together let a new agent continue without rereading the transcript.
+- The memory maximizes signal over noise: it captures durable mechanisms, non-obvious contracts, reusable lessons, and the live continuation edge rather than replaying chronology.
 
 After all violations, output:
 
@@ -106,6 +131,7 @@ Rules:
 - Address minor violations unless doing so would require restructuring sections that passed critique
 - Do not introduce new content beyond what the violations call for
 - Preserve the memory document section order
+- Push the revision toward higher signal density and lower transcript mimicry.
 
 After revision, append:
 

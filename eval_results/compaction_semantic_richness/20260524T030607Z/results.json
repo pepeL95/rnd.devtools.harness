@@ -1,0 +1,172 @@
+{
+  "aggregate": {
+    "average_semantic_richness_score": 1.0
+  },
+  "errors": [
+    {
+      "case": {
+        "id": "setup_script_dependency_bootstrap",
+        "title": "Bootstrap conda environment and make setup.sh developer-ready"
+      },
+      "error": {
+        "message": "Error calling model 'gemini-3.5-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\\nPlease retry in 31.387850083s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-3.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '31s'}]}}",
+        "type": "ChatGoogleGenerativeAIError"
+      }
+    }
+  ],
+  "fixture": {
+    "case_count": 3,
+    "name": "compaction_semantic_richness",
+    "version": 1
+  },
+  "run": {
+    "created_at": "2026-05-24T03:07:28.650210+00:00",
+    "error_count": 1,
+    "output_dir": "eval_results/compaction_semantic_richness/20260524T030607Z",
+    "scored_case_count": 2
+  },
+  "scores": [
+    {
+      "atom_details": [
+        {
+          "id": "original_task_path_typo_preserved",
+          "label": "Original telemetry path typo from the user is preserved or explained",
+          "matched": "~/.quasipilot/temeletry",
+          "passed": true
+        },
+        {
+          "id": "corrected_telemetry_path",
+          "label": "Correct final telemetry path is recorded",
+          "matched": "~/.quasipilot/telemetry",
+          "passed": true
+        },
+        {
+          "id": "resource_exhaustion_symptom",
+          "label": "The chat hang and 429 symptom is retained",
+          "matched": "429 resource",
+          "passed": true
+        },
+        {
+          "id": "middleware_order_reason",
+          "label": "Middleware order and LangChain wrapping semantics are retained",
+          "matched": "outermost",
+          "passed": true
+        },
+        {
+          "id": "token_counts",
+          "label": "Token count telemetry is retained",
+          "matched": "token counts",
+          "passed": true
+        },
+        {
+          "id": "model_exceptions",
+          "label": "Model exception telemetry is retained",
+          "matched": "model exceptions",
+          "passed": true
+        },
+        {
+          "id": "tool_metadata",
+          "label": "Tool call metadata is retained",
+          "matched": "latency",
+          "passed": true
+        },
+        {
+          "id": "date_aware_triggers",
+          "label": "Date-aware compaction triggers are retained",
+          "matched": "trigger_after",
+          "passed": true
+        },
+        {
+          "id": "tests_status",
+          "label": "Test status and relevant test files are retained",
+          "matched": "tests/test_telemetry.py",
+          "passed": true
+        }
+      ],
+      "atom_score": 1.0,
+      "compacted_event_count": 12,
+      "id": "cli_telemetry_resource_exhaustion",
+      "missing_sections": [],
+      "passed_atoms": 9,
+      "present_sections": 12,
+      "retained_event_count": 4,
+      "revisions": 1,
+      "section_score": 1.0,
+      "semantic_richness_score": 1.0,
+      "title": "Troubleshoot quasipilot chat hang and enrich driver telemetry",
+      "total_atoms": 9,
+      "total_sections": 12
+    },
+    {
+      "atom_details": [
+        {
+          "id": "user_directive_basechatmodel",
+          "label": "The BaseChatModel-only directive is retained",
+          "matched": "BaseChatModel",
+          "passed": true
+        },
+        {
+          "id": "removed_leftovers",
+          "label": "Removed leftover string model helpers are retained",
+          "matched": "_build_model",
+          "passed": true
+        },
+        {
+          "id": "defaults_file",
+          "label": "Default model helper path is retained",
+          "matched": "core/utilities/defaults.py",
+          "passed": true
+        },
+        {
+          "id": "env_compat",
+          "label": "Environment behavior and legacy compatibility are retained",
+          "matched": "QUASIPILOT_GOOGLE_MODEL",
+          "passed": true
+        },
+        {
+          "id": "driver_change",
+          "label": "Driver wiring is retained",
+          "matched": "agents/driver/agent.py",
+          "passed": true
+        },
+        {
+          "id": "compaction_change",
+          "label": "Compaction BaseChatModel wiring is retained",
+          "matched": "core/compaction/policy.py",
+          "passed": true
+        },
+        {
+          "id": "dataclass_field_failure",
+          "label": "The pydantic.Field/dataclass mismatch is retained",
+          "matched": "pydantic.Field",
+          "passed": true
+        },
+        {
+          "id": "validation",
+          "label": "Validation results are retained",
+          "matched": "bash -n setup.sh",
+          "passed": true
+        },
+        {
+          "id": "commit_push",
+          "label": "Commit and push state are retained",
+          "matched": "0810c4b",
+          "passed": true
+        }
+      ],
+      "atom_score": 1.0,
+      "compacted_event_count": 10,
+      "id": "base_chat_model_setup_and_compaction",
+      "missing_sections": [],
+      "passed_atoms": 9,
+      "present_sections": 12,
+      "retained_event_count": 3,
+      "revisions": 0,
+      "section_score": 1.0,
+      "semantic_richness_score": 1.0,
+      "title": "Replace string model names with BaseChatModel and validate setup",
+      "total_atoms": 9,
+      "total_sections": 12
+    }
+  ]
+}

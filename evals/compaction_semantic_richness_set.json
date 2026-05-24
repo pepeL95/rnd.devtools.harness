@@ -1,0 +1,533 @@
+{
+  "name": "compaction_semantic_richness",
+  "version": 1,
+  "description": "Realistic coding-agent trajectories for measuring whether compaction preserves rich, resumable semantics rather than generic summaries.",
+  "cases": [
+    {
+      "id": "cli_telemetry_resource_exhaustion",
+      "title": "Troubleshoot quasipilot chat hang and enrich driver telemetry",
+      "keep_last_turns": 2,
+      "events": [
+        {
+          "turn": 1,
+          "type": "user",
+          "timestamp": "2026-05-23T09:05:00+00:00",
+          "payload": {
+            "role": "user",
+            "content": "Orient yourself in the codebase -- a lot has been added by the dev team while you were sleeping... Lets enable telemetry on the driver agent -- the telemetry must be dumped at ~/.quasipilot/temeletry/[yyyy]/[mm]/[dd]/[session-id].jsonl. We are having an undesired behavior in the quasipilot chat cli where any message we send, hangs, and eventually we get a 429 resource exausted -- please explore and troubleshoot"
+          }
+        },
+        {
+          "turn": 1,
+          "type": "assistant",
+          "timestamp": "2026-05-23T09:07:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Read docs/specs/core.md, docs/specs/cli.md, agents/driver/agent.py, cli/run.py, core/session/session_manager.py, and middleware modules. Found that the driver did not yet include telemetry middleware and the chat CLI created a fresh agent on each message without pre-loading curated history correctly."
+          }
+        },
+        {
+          "turn": 1,
+          "type": "tool",
+          "timestamp": "2026-05-23T09:09:00+00:00",
+          "payload": {
+            "name": "rg",
+            "args": "rg -n \"create_driver_agent|SessionLoadMiddleware|telemetry|invoke\" agents cli core tests",
+            "reason": "Trace the chat invocation path and middleware order."
+          }
+        },
+        {
+          "turn": 1,
+          "type": "tool_output",
+          "timestamp": "2026-05-23T09:09:04+00:00",
+          "payload": {
+            "content": "agents/driver/agent.py builds middleware list. cli/run.py calls create_driver_agent from _ensure_session. core/middleware/session_load.py prepends curated history in before_agent. No TelemetryMiddleware in the driver path."
+          }
+        },
+        {
+          "turn": 2,
+          "type": "assistant",
+          "timestamp": "2026-05-23T09:18:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Implemented TelemetryStore and TelemetryEvent. Added TelemetryMiddleware around the driver. Used the user's path spelling first: ~/.quasipilot/temeletry/[yyyy]/[mm]/[dd]/[session-id].jsonl. Also added tests around JSONL writes and middleware model lifecycle events."
+          }
+        },
+        {
+          "turn": 3,
+          "type": "user",
+          "timestamp": "2026-05-23T09:25:00+00:00",
+          "payload": {
+            "role": "user",
+            "content": "alright -- let's ensure we capture token counts and model exceptions in the telemetry please"
+          }
+        },
+        {
+          "turn": 3,
+          "type": "assistant",
+          "timestamp": "2026-05-23T09:36:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Added token counting via core/compaction/token_counter.py. TelemetryMiddleware now records prompt_tokens, completion_tokens, total_tokens when available and falls back to local token estimates when provider usage is absent. Model exceptions are serialized with exception type, message, and model metadata."
+          }
+        },
+        {
+          "turn": 4,
+          "type": "tool",
+          "timestamp": "2026-05-23T09:42:00+00:00",
+          "payload": {
+            "name": "pytest",
+            "args": "pytest tests/test_telemetry.py tests/test_driver_agent.py",
+            "reason": "Verify telemetry writes, token counts, and driver middleware order."
+          }
+        },
+        {
+          "turn": 4,
+          "type": "tool_output",
+          "timestamp": "2026-05-23T09:42:04+00:00",
+          "payload": {
+            "content": "FAILED tests/test_driver_agent.py::test_driver_agent_builds_with_telemetry_middleware - AssertionError: SessionLoadMiddleware saw the compacted memory after the current turn, causing the next invoke to resend full curated history and contribute to repeated model calls."
+          }
+        },
+        {
+          "turn": 5,
+          "type": "assistant",
+          "timestamp": "2026-05-23T09:50:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Root cause: middleware order was wrong for LangChain wrapping semantics. The first middleware in the list becomes outermost. Telemetry must be outermost to observe all failures, compaction must run before session load on before_agent, session load must inject curated history before the model call, and session dump must run after the completed turn so the new turn is persisted. Reordered driver middleware accordingly and left an in-code comment documenting this order."
+          }
+        },
+        {
+          "turn": 6,
+          "type": "user",
+          "timestamp": "2026-05-23T10:03:00+00:00",
+          "payload": {
+            "role": "user",
+            "content": "we should also capture tool call metadata"
+          }
+        },
+        {
+          "turn": 6,
+          "type": "assistant",
+          "timestamp": "2026-05-23T10:15:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Extended TelemetryMiddleware to record tool name, args preview, call id, latency, success/failure status, and structured tool exception payloads. Added tests in tests/test_telemetry.py for normal tool calls and tool exceptions."
+          }
+        },
+        {
+          "turn": 7,
+          "type": "user",
+          "timestamp": "2026-05-23T10:24:00+00:00",
+          "payload": {
+            "role": "user",
+            "content": "...and also date-aware compaction triggers"
+          }
+        },
+        {
+          "turn": 7,
+          "type": "assistant",
+          "timestamp": "2026-05-23T10:35:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Added CompactionPolicy.compaction_decision with trigger_after and trigger_on_day_change. CompactionMiddleware now passes runtime.context['now'] when present. tests/test_compaction.py covers age-based triggers and day-change triggers."
+          }
+        },
+        {
+          "turn": 8,
+          "type": "user",
+          "timestamp": "2026-05-23T10:40:00+00:00",
+          "payload": {
+            "role": "user",
+            "content": "let's commit to checkpoint"
+          }
+        },
+        {
+          "turn": 8,
+          "type": "assistant",
+          "timestamp": "2026-05-23T10:48:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Ran pytest successfully. Committed changes as 4faf35d Capture tool telemetry and date-aware compaction. Later fixed the spelling from temeletry to telemetry in commit 7378e1f after confirming the actual path should be ~/.quasipilot/telemetry."
+          }
+        }
+      ],
+      "expected_atoms": [
+        {
+          "id": "original_task_path_typo_preserved",
+          "label": "Original telemetry path typo from the user is preserved or explained",
+          "must_include_any": ["~/.quasipilot/temeletry", "temeletry"]
+        },
+        {
+          "id": "corrected_telemetry_path",
+          "label": "Correct final telemetry path is recorded",
+          "must_include_any": ["~/.quasipilot/telemetry/[yyyy]/[mm]/[dd]/[session-id].jsonl", "~/.quasipilot/telemetry"]
+        },
+        {
+          "id": "resource_exhaustion_symptom",
+          "label": "The chat hang and 429 symptom is retained",
+          "must_include_any": ["429 resource", "resource exhausted", "hangs"]
+        },
+        {
+          "id": "middleware_order_reason",
+          "label": "Middleware order and LangChain wrapping semantics are retained",
+          "must_include_any": ["outermost", "first middleware", "Telemetry must be outermost", "compaction must run before session load"]
+        },
+        {
+          "id": "token_counts",
+          "label": "Token count telemetry is retained",
+          "must_include_any": ["prompt_tokens", "completion_tokens", "total_tokens", "token counts"]
+        },
+        {
+          "id": "model_exceptions",
+          "label": "Model exception telemetry is retained",
+          "must_include_any": ["model exceptions", "exception type", "structured model exception"]
+        },
+        {
+          "id": "tool_metadata",
+          "label": "Tool call metadata is retained",
+          "must_include_any": ["tool name", "args preview", "latency", "call id", "tool exception"]
+        },
+        {
+          "id": "date_aware_triggers",
+          "label": "Date-aware compaction triggers are retained",
+          "must_include_any": ["trigger_after", "trigger_on_day_change", "day-change", "age-based"]
+        },
+        {
+          "id": "tests_status",
+          "label": "Test status and relevant test files are retained",
+          "must_include_any": ["tests/test_telemetry.py", "tests/test_compaction.py", "pytest successfully", "Ran pytest"]
+        }
+      ]
+    },
+    {
+      "id": "base_chat_model_setup_and_compaction",
+      "title": "Replace string model names with BaseChatModel and validate setup",
+      "keep_last_turns": 2,
+      "events": [
+        {
+          "turn": 1,
+          "type": "user",
+          "timestamp": "2026-05-23T14:00:00+00:00",
+          "payload": {
+            "role": "user",
+            "content": "orient yourself by reading the git diffs -- understand what was done and remove any unused/left-behind code .. additionally identify where else can we apply the `get_default_model` and replace str model names -- moving forwards we only want to employ BaseChatModel -- lastly, let's ensure the compaction module still works with the new additions properly"
+          }
+        },
+        {
+          "turn": 1,
+          "type": "assistant",
+          "timestamp": "2026-05-23T14:06:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Inspected git diff and found dev-team changes in README.md, setup.sh, agents/driver/agent.py, cli/run.py, core/compaction/policy.py, and a new core/utilities/defaults.py. There were still leftover string-model paths in DriverAgentConfig, _build_model, _init_driver_model, and LangChainTextGenerator.from_model_name."
+          }
+        },
+        {
+          "turn": 2,
+          "type": "tool",
+          "timestamp": "2026-05-23T14:10:00+00:00",
+          "payload": {
+            "name": "rg",
+            "args": "rg -n \"model_name|init_chat_model|str \\| None|BaseChatModel|get_default_model\" agents cli core tests",
+            "reason": "Find every remaining string model configuration path."
+          }
+        },
+        {
+          "turn": 2,
+          "type": "tool_output",
+          "timestamp": "2026-05-23T14:10:02+00:00",
+          "payload": {
+            "content": "agents/driver/agent.py: DriverAgentConfig.model_name and _init_driver_model. core/compaction/llm.py: from_model_name uses init_chat_model. cli/run.py displays model via _get_ls_params. core/compaction/policy.py incorrectly uses pydantic.Field inside a stdlib dataclass."
+          }
+        },
+        {
+          "turn": 3,
+          "type": "assistant",
+          "timestamp": "2026-05-23T14:22:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Created core/utilities/defaults.py with get_default_model() returning a BaseChatModel and get_model_name() for display-only labels. It loads .env from cwd, reads QUASIPILOT_GOOGLE_MODEL or legacy QUASIPILOT_DRIVER_MODEL, strips a google_genai: provider prefix, and returns ChatGoogleGenerativeAI with retries from QUASIPILOT_MODEL_RETRIES."
+          }
+        },
+        {
+          "turn": 4,
+          "type": "assistant",
+          "timestamp": "2026-05-23T14:31:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Updated agents/driver/agent.py so DriverAgentConfig.model is a BaseChatModel with field(default_factory=get_default_model). Removed _build_model and _init_driver_model entirely. create_agent now receives config.model directly."
+          }
+        },
+        {
+          "turn": 5,
+          "type": "assistant",
+          "timestamp": "2026-05-23T14:41:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Updated compaction to use BaseChatModel throughout. CompactionPolicy.model now uses dataclasses.field(default_factory=get_default_model). LangChainTextGenerator now accepts a BaseChatModel through from_chat_model. Compactor constructs LangChainTextGenerator.from_chat_model(self.policy.model). Removed init_chat_model and from_model_name."
+          }
+        },
+        {
+          "turn": 6,
+          "type": "assistant",
+          "timestamp": "2026-05-23T14:50:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Updated cli/run.py to initialize self._model with get_default_model() once and pass that BaseChatModel into each DriverAgentConfig. RuntimeBar receives get_model_name(self._model) for UI text only."
+          }
+        },
+        {
+          "turn": 7,
+          "type": "tool",
+          "timestamp": "2026-05-23T15:03:00+00:00",
+          "payload": {
+            "name": "pytest",
+            "args": "/opt/homebrew/Caskroom/miniforge/base/envs/quasipilot-harness/bin/python -m pytest && bash -n setup.sh",
+            "reason": "Verify the BaseChatModel migration, compaction tests, and setup script syntax."
+          }
+        },
+        {
+          "turn": 7,
+          "type": "tool_output",
+          "timestamp": "2026-05-23T15:03:05+00:00",
+          "payload": {
+            "content": "46 passed in 1.26s. bash -n setup.sh completed silently."
+          }
+        },
+        {
+          "turn": 8,
+          "type": "assistant",
+          "timestamp": "2026-05-23T15:08:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Removed generated __pycache__ directories before commit. Remaining string references are either legacy env-var compatibility in core/utilities/defaults.py, UI labels in cli/components/runtime_bar.py, or tests for provider prefix stripping; no live model configuration path still takes a string model name."
+          }
+        },
+        {
+          "turn": 9,
+          "type": "user",
+          "timestamp": "2026-05-23T15:12:00+00:00",
+          "payload": {
+            "role": "user",
+            "content": "alright -- lets push these changes"
+          }
+        },
+        {
+          "turn": 9,
+          "type": "assistant",
+          "timestamp": "2026-05-23T15:18:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Committed as 0810c4b Use default chat model helper and pushed main to origin/main. Final status was clean and aligned with origin/main."
+          }
+        }
+      ],
+      "expected_atoms": [
+        {
+          "id": "user_directive_basechatmodel",
+          "label": "The BaseChatModel-only directive is retained",
+          "must_include_any": ["BaseChatModel", "only want to employ BaseChatModel", "moving forwards"]
+        },
+        {
+          "id": "removed_leftovers",
+          "label": "Removed leftover string model helpers are retained",
+          "must_include_any": ["_build_model", "_init_driver_model", "from_model_name", "init_chat_model"]
+        },
+        {
+          "id": "defaults_file",
+          "label": "Default model helper path is retained",
+          "must_include_any": ["core/utilities/defaults.py", "get_default_model", "get_model_name"]
+        },
+        {
+          "id": "env_compat",
+          "label": "Environment behavior and legacy compatibility are retained",
+          "must_include_any": ["QUASIPILOT_GOOGLE_MODEL", "QUASIPILOT_DRIVER_MODEL", "google_genai:"]
+        },
+        {
+          "id": "driver_change",
+          "label": "Driver wiring is retained",
+          "must_include_any": ["agents/driver/agent.py", "DriverAgentConfig.model", "create_agent now receives config.model"]
+        },
+        {
+          "id": "compaction_change",
+          "label": "Compaction BaseChatModel wiring is retained",
+          "must_include_any": ["core/compaction/policy.py", "core/compaction/llm.py", "from_chat_model", "Compactor"]
+        },
+        {
+          "id": "dataclass_field_failure",
+          "label": "The pydantic.Field/dataclass mismatch is retained",
+          "must_include_any": ["pydantic.Field", "stdlib dataclass", "dataclasses.field"]
+        },
+        {
+          "id": "validation",
+          "label": "Validation results are retained",
+          "must_include_any": ["46 passed", "bash -n setup.sh", "pytest"]
+        },
+        {
+          "id": "commit_push",
+          "label": "Commit and push state are retained",
+          "must_include_any": ["0810c4b", "origin/main", "clean"]
+        }
+      ]
+    },
+    {
+      "id": "setup_script_dependency_bootstrap",
+      "title": "Bootstrap conda environment and make setup.sh developer-ready",
+      "keep_last_turns": 2,
+      "events": [
+        {
+          "turn": 1,
+          "type": "user",
+          "timestamp": "2026-05-23T12:00:00+00:00",
+          "payload": {
+            "role": "user",
+            "content": "generate a setup.sh to get the 'quasipilot-harness' conda env up and running with python 3.13 and the necessary packages to run the full project -- ensure to include the cli packages needed as well -- the goal is to run the setup.sh and be good to go to use the harness + cli"
+          }
+        },
+        {
+          "turn": 1,
+          "type": "assistant",
+          "timestamp": "2026-05-23T12:08:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Read pyproject.toml and saw project dependencies: chromadb, deepagents, langchain, langchain-google-genai, langgraph, pydantic, python-dotenv, textual, and tiktoken. The quasipilot console script is declared as cli.run:main."
+          }
+        },
+        {
+          "turn": 2,
+          "type": "assistant",
+          "timestamp": "2026-05-23T12:17:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Created setup.sh. It checks for conda, creates or updates a conda env named quasipilot-harness with python=3.13, installs pip/setuptools/wheel/build, then installs the project editable with dev extras using python -m pip install -e '.[dev]'."
+          }
+        },
+        {
+          "turn": 3,
+          "type": "tool",
+          "timestamp": "2026-05-23T12:24:00+00:00",
+          "payload": {
+            "name": "bash",
+            "args": "bash -n setup.sh",
+            "reason": "Check setup script syntax before trying a real environment operation."
+          }
+        },
+        {
+          "turn": 3,
+          "type": "tool_output",
+          "timestamp": "2026-05-23T12:24:01+00:00",
+          "payload": {
+            "content": "No syntax errors."
+          }
+        },
+        {
+          "turn": 4,
+          "type": "tool",
+          "timestamp": "2026-05-23T12:36:00+00:00",
+          "payload": {
+            "name": "setup.sh",
+            "args": "./setup.sh",
+            "reason": "Create the conda environment and install project dependencies."
+          }
+        },
+        {
+          "turn": 4,
+          "type": "tool_output",
+          "timestamp": "2026-05-23T12:45:00+00:00",
+          "payload": {
+            "content": "Network download was restricted in the sandbox. The environment creation and package installation require escalation or a developer-run command outside the sandbox."
+          }
+        },
+        {
+          "turn": 5,
+          "type": "assistant",
+          "timestamp": "2026-05-23T12:55:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Added a manual fallback install list to setup.sh so developers still get the same runtime and CLI packages if editable install fails because the local package metadata cannot be resolved. The fallback includes textual for the CLI."
+          }
+        },
+        {
+          "turn": 6,
+          "type": "assistant",
+          "timestamp": "2026-05-23T13:10:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "Updated final instructions printed by setup.sh: conda activate quasipilot-harness, ensure .env contains GOOGLE_API_KEY or GEMINI_API_KEY, then run quasipilot. Made setup.sh executable."
+          }
+        },
+        {
+          "turn": 7,
+          "type": "tool",
+          "timestamp": "2026-05-23T13:25:00+00:00",
+          "payload": {
+            "name": "pytest",
+            "args": "/opt/homebrew/Caskroom/miniforge/base/envs/quasipilot-harness/bin/python -m pytest",
+            "reason": "Verify the installed environment can run the project tests."
+          }
+        },
+        {
+          "turn": 7,
+          "type": "tool_output",
+          "timestamp": "2026-05-23T13:25:04+00:00",
+          "payload": {
+            "content": "46 passed in 1.26s."
+          }
+        },
+        {
+          "turn": 8,
+          "type": "assistant",
+          "timestamp": "2026-05-23T13:30:00+00:00",
+          "payload": {
+            "role": "assistant",
+            "content": "README.md now points developers to ./setup.sh as the one-command bootstrap path. The script preserves the Python 3.13 requirement and installs the CLI entry point through the editable project install."
+          }
+        }
+      ],
+      "expected_atoms": [
+        {
+          "id": "conda_env",
+          "label": "Conda environment name and Python version are retained",
+          "must_include_any": ["quasipilot-harness", "python=3.13", "Python 3.13"]
+        },
+        {
+          "id": "editable_install",
+          "label": "Editable dev install is retained",
+          "must_include_any": ["pip install -e", ".[dev]", "editable"]
+        },
+        {
+          "id": "cli_package",
+          "label": "CLI package requirement is retained",
+          "must_include_any": ["textual", "quasipilot", "cli.run:main"]
+        },
+        {
+          "id": "dependency_list",
+          "label": "Core runtime dependencies are retained",
+          "must_include_any": ["langchain-google-genai", "deepagents", "chromadb", "tiktoken"]
+        },
+        {
+          "id": "network_failure",
+          "label": "Sandbox/network installation failure mechanism is retained",
+          "must_include_any": ["Network download was restricted", "sandbox", "escalation"]
+        },
+        {
+          "id": "env_keys",
+          "label": "Required model API key guidance is retained",
+          "must_include_any": ["GOOGLE_API_KEY", "GEMINI_API_KEY", ".env"]
+        },
+        {
+          "id": "executable",
+          "label": "Executable setup script state is retained",
+          "must_include_any": ["executable", "chmod", "setup.sh"]
+        },
+        {
+          "id": "validation",
+          "label": "Validation result is retained",
+          "must_include_any": ["46 passed", "pytest", "bash -n setup.sh"]
+        }
+      ]
+    }
+  ]
+}
