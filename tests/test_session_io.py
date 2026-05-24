@@ -54,6 +54,43 @@ class SessionIOTests(TestCase):
             self.assertEqual(messages[0].content, "run git status")
             self.assertEqual(messages[1].content, "ok")
 
+    def test_load_curated_messages_marks_memory_restore_messages(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "[MEMORY RESTORE]\n...", "kind": "memory_restore"},
+                    )
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            self.assertEqual(messages[0].additional_kwargs.get("session_kind"), "memory_restore")
+
+    def test_read_display_history_uses_dump_and_hides_memory_restore(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "[MEMORY RESTORE]\n...", "kind": "memory_restore"},
+                    ),
+                    SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "real user"}),
+                    SessionEvent(type=EventType.ASSISTANT, turn=2, payload={"role": "assistant", "content": "real assistant"}),
+                ],
+                curated=False,
+            )
+
+            history = manager.read_display_history()
+
+            self.assertEqual([event.payload["content"] for event in history], ["real user", "real assistant"])
+
     def test_events_from_messages_emits_reasoning_events_for_assistant_messages(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

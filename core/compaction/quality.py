@@ -5,12 +5,11 @@ from dataclasses import dataclass
 
 
 REQUIRED_HEADINGS = [
-    "TASK MEMORIES",
+    "TASK HISTORY",
     "FAILED APPROACHES",
     "OPEN PROBLEMS",
     "IMPLICIT TASKS DISCOVERED",
     "NEXT STEPS",
-    "CODEBASE CHARACTERISTICS",
     "TASK-APPROACH PAIRS",
     "GENERALIZABLE INSIGHTS",
     "SESSION NARRATIVE",
@@ -57,10 +56,10 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="legacy_heading_shape",
-                location="TASK MEMORIES",
+                location="TASK HISTORY",
                 fix=(
                     "Replace transcript-era headings such as `ORIGINAL TASK` or `USER DIRECTIVES` with "
-                    "semantic task markdown subsections under `TASK MEMORIES`."
+                    "semantic task markdown subsections under `TASK HISTORY`."
                 ),
             )
         )
@@ -81,11 +80,10 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="missing_task_markdown_sections",
-                location="TASK MEMORIES",
+                location="TASK HISTORY",
                 fix=(
                     "Structure each semantic task as its own markdown subsection using `#### [task title]` "
-                    "with FULL-FIDELITY REF, TASK TIMESTAMPS, TASK DESCRIPTION SYNTHESIS, EXECUTION MEMORY, "
-                    "APPROACH AND RESULTS, PRIORITY SIGNALS, and OPEN LOOP."
+                    "with FULL-FIDELITY REF, TASK TIMESTAMPS, TASK DESCRIPTION SYNTHESIS, and EXECUTION MEMORY."
                 ),
             )
         )
@@ -93,11 +91,10 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="thin_task_memories",
-                location="TASK MEMORIES",
+                location="TASK HISTORY",
                 fix=(
-                    "Make each semantic task subsection read like a cohesive memory: include a task-anchored description, "
-                    "a rich execution memory, high-signal approach/results, the governing constraints, a full-fidelity reference, "
-                    "task timestamps, and any open continuation edge."
+                    "Make each semantic task subsection read like a cohesive episodic memory: include a holistic task description, "
+                    "a rich prose execution memory with meaningful findings and results, a full-fidelity reference, and task timestamps."
                 ),
             )
         )
@@ -106,9 +103,9 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="insufficient_resume_signal",
-                location="TASK MEMORIES / OPEN PROBLEMS / NEXT STEPS",
+                location="TASK HISTORY / OPEN PROBLEMS / NEXT STEPS",
                 fix=(
-                    "Make the resumable state sharper through richer task memories plus clearer open problems and next steps."
+                    "Make the resumable state sharper through richer task history plus clearer open problems and next steps."
                 ),
             )
         )
@@ -117,9 +114,9 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="insufficient_transfer_signal",
-                location="CODEBASE CHARACTERISTICS / TASK-APPROACH PAIRS / GENERALIZABLE INSIGHTS",
+                location="TASK-APPROACH PAIRS / GENERALIZABLE INSIGHTS",
                 fix=(
-                    "Increase epistemic transfer by capturing durable mechanisms, non-obvious contracts, and "
+                    "Increase epistemic transfer by capturing durable mechanisms and "
                     "reusable lessons rather than chronology."
                 ),
             )
@@ -166,7 +163,7 @@ def _has_legacy_heading(memory_document: str) -> bool:
 
 
 def _has_task_markdown_sections(memory_document: str) -> bool:
-    body = _section_body(memory_document, "TASK MEMORIES")
+    body = _section_body(memory_document, "TASK HISTORY")
     if body is None:
         return False
     return (
@@ -175,14 +172,11 @@ def _has_task_markdown_sections(memory_document: str) -> bool:
         and "- TASK TIMESTAMPS:" in body
         and "- TASK DESCRIPTION SYNTHESIS:" in body
         and "- EXECUTION MEMORY:" in body
-        and "- APPROACH AND RESULTS:" in body
-        and "- PRIORITY SIGNALS:" in body
-        and "- OPEN LOOP:" in body
     )
 
 
 def _task_memories_too_thin(memory_document: str) -> bool:
-    body = _section_body(memory_document, "TASK MEMORIES")
+    body = _section_body(memory_document, "TASK HISTORY")
     if body is None:
         return False
     sections = [section.strip() for section in re.split(r"(?m)^####\s+", body) if section.strip()]
@@ -194,20 +188,14 @@ def _task_memories_too_thin(memory_document: str) -> bool:
             "- TASK TIMESTAMPS:",
             "- TASK DESCRIPTION SYNTHESIS:",
             "- EXECUTION MEMORY:",
-            "- APPROACH AND RESULTS:",
-            "- PRIORITY SIGNALS:",
-            "- OPEN LOOP:",
         ]
         if any(field not in section for field in required_fields):
             return True
         description_line = _field_value(section, "TASK DESCRIPTION SYNTHESIS")
         execution_line = _field_value(section, "EXECUTION MEMORY")
-        results_line = _field_value(section, "APPROACH AND RESULTS")
-        if description_line is None or len(re.findall(r"\b\w+\b", description_line)) < 10:
+        if description_line is None or len(re.findall(r"\b\w+\b", description_line)) < 12:
             return True
-        if execution_line is None or len(re.findall(r"\b\w+\b", execution_line)) < 18:
-            return True
-        if results_line is None or len(re.findall(r"\b\w+\b", results_line)) < 12:
+        if execution_line is None or len(re.findall(r"\b\w+\b", execution_line)) < 26:
             return True
         timestamp_line = _field_value(section, "TASK TIMESTAMPS")
         if timestamp_line is None or "->" not in timestamp_line:
@@ -220,17 +208,16 @@ def _has_markdown_document_structure(memory_document: str) -> bool:
 
 
 def _missing_resume_signal(memory_document: str) -> bool:
-    task_memories = _section_body(memory_document, "TASK MEMORIES") or ""
+    task_memories = _section_body(memory_document, "TASK HISTORY") or ""
     open_problems = _section_body(memory_document, "OPEN PROBLEMS") or ""
     next_steps = _section_body(memory_document, "NEXT STEPS") or ""
     return not task_memories.strip() or not open_problems.strip() or not next_steps.strip()
 
 
 def _missing_transfer_signal(memory_document: str) -> bool:
-    codebase = _section_body(memory_document, "CODEBASE CHARACTERISTICS") or ""
     task_pairs = _section_body(memory_document, "TASK-APPROACH PAIRS") or ""
     insights = _section_body(memory_document, "GENERALIZABLE INSIGHTS") or ""
-    return not codebase.strip() or not task_pairs.strip() or not insights.strip()
+    return not task_pairs.strip() or not insights.strip()
 
 
 def _section_body(memory_document: str, heading: str) -> str | None:

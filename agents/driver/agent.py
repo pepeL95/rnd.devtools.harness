@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -27,6 +27,7 @@ class DriverAgentConfig:
     model: BaseChatModel = field(default_factory=get_default_model)
     session_id: str | None = None
     reasoning_eagerness: ReasoningEagerness = "low"
+    on_compaction_event: Callable[[str, dict[str, Any]], None] | None = None
 
 
 def create_driver_agent(config: DriverAgentConfig) -> Any:
@@ -52,7 +53,11 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         # Source: https://docs.langchain.com/oss/python/langchain/middleware/custom
         TelemetryMiddleware(TelemetryStore(telemetry_session_path(manager.session_id))),
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
-        CompactionMiddleware(manager, Compactor(policy=CompactionPolicy())),
+        CompactionMiddleware(
+            manager,
+            Compactor(policy=CompactionPolicy()),
+            on_compaction_event=config.on_compaction_event,
+        ),
         SessionLoadMiddleware(manager),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
         RuntimeContextMiddleware(cwd=cwd),

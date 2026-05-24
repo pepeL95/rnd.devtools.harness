@@ -1,38 +1,12 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
-from unittest.mock import patch
 
 from agents.driver.agent import _local_shell_backend
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from core.utilities.defaults import (
     get_default_model,
 )
-from langchain_core.language_models.chat_models import BaseChatModel
-
-
-class FakeReasoningModel(BaseChatModel):
-    model: str = "reasoning-model"
-    reasoning: dict | None = None
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # pragma: no cover - unused
-        raise NotImplementedError
-
-    @property
-    def _llm_type(self) -> str:
-        return "fake-reasoning"
-
-
-class FakeThinkingModel(BaseChatModel):
-    model: str = "thinking-model"
-    thinking: dict | None = None
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # pragma: no cover - unused
-        raise NotImplementedError
-
-    @property
-    def _llm_type(self) -> str:
-        return "fake-thinking"
 
 
 class BackendWithVirtualEnv:

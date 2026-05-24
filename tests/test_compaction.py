@@ -15,15 +15,12 @@ from core.session.session_manager import SessionManager
 
 COMPLETE_MEMORY_DOCUMENT = """## Episodic Memory
 
-### Task Memories
+### Task History
 #### Compaction contract
 - FULL-FIDELITY REF: turns [1-2]
 - TASK TIMESTAMPS: 2026-05-23T10:00:00+00:00 -> 2026-05-23T10:15:00+00:00
 - TASK DESCRIPTION SYNTHESIS: Stabilize compaction output so older trajectory state can be compressed without losing the exact continuation edge for the next turn, while keeping the memory resumable and semantically rich.
-- EXECUTION MEMORY: The session converged on a compaction design where resumability matters more than transcript fidelity. The meaningful transition was moving from raw history retention to a synthesized memory record that still preserves constraints, the live continuation edge, and the lens the next agent needs when it enters the preserved tail.
-- APPROACH AND RESULTS: The compaction path was implemented and validated around a memory-restore event contract. The high-signal result is that older events collapse into a reusable task memory while the latest turn remains available as full-fidelity continuation context.
-- PRIORITY SIGNALS: preserve exact file paths, favor semantic synthesis, keep the resumption contract intact.
-- OPEN LOOP: Validate that revisions keep improving semantic density without eroding the restore contract.
+- EXECUTION MEMORY: The task evolved from a raw-history framing into a resumability-first compaction design. The important thing to remember is not the chronology of edits but the result: older turns can collapse into a compact memory that still carries the live continuation edge, the meaningful constraints, and the context a later agent needs to re-enter the work without rereading the full transcript.
 
 ### Failed Approaches
 - APPROACH: Using transcript-like summaries with weak structure.
@@ -41,9 +38,6 @@ COMPLETE_MEMORY_DOCUMENT = """## Episodic Memory
 - Keep validating that compaction revisions preserve resumability while increasing semantic density.
 
 ## Semantic Memory
-
-### Codebase Characteristics
-- The session layer stores curated history as JSONL events and expects compaction to reinsert a synthetic user memory record.
 
 ### Task-Approach Pairs
 - TASK CLASS: trajectory compaction for coding agents
@@ -162,7 +156,7 @@ class CompactionTests(TestCase):
         self.assertEqual(len(result.events), 2)
         self.assertEqual(result.events[0].payload["kind"], "memory_restore")
         self.assertIn("[MEMORY RESTORE]", result.events[0].payload["content"])
-        self.assertIn("### Task Memories", result.events[0].payload["content"])
+        self.assertIn("### Task History", result.events[0].payload["content"])
         self.assertEqual(result.events[1].payload["content"], "continue")
 
     def test_compactor_runs_revision_loop_until_approved(self) -> None:
@@ -172,8 +166,8 @@ class CompactionTests(TestCase):
                 COMPLETE_MEMORY_DOCUMENT,
                 "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 1\n  RECOMMENDED ACTION: revise targeted sections",
                 COMPLETE_MEMORY_DOCUMENT.replace(
-                    "keep the resumption contract intact.",
-                    "keep the resumption contract intact after revision.",
+                    "preserve resumability while increasing semantic density.",
+                    "preserve resumability while increasing semantic density after revision.",
                 ),
                 "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
             ]
@@ -191,7 +185,7 @@ class CompactionTests(TestCase):
         )
 
         self.assertEqual(result.revisions, 1)
-        self.assertIn("keep the resumption contract intact after revision.", result.memory_document)
+        self.assertIn("preserve resumability while increasing semantic density after revision.", result.memory_document)
         self.assertEqual(len(result.critiques), 2)
 
     def test_compactor_revises_legacy_quote_heavy_draft_before_model_critic(self) -> None:
@@ -218,13 +212,13 @@ class CompactionTests(TestCase):
         self.assertEqual(result.revisions, 1)
         self.assertEqual(len(result.critiques), 2)
         self.assertIn("LOCAL QUALITY REVIEW", result.critiques[0].text)
-        self.assertIn("### Task Memories", result.memory_document)
+        self.assertIn("### Task History", result.memory_document)
 
     def test_compactor_strips_revision_artifacts_from_final_memory(self) -> None:
         generator = ScriptedGenerator(
             [
                 "EPISODE 1: setup\nTURNS: 1 to 1",
-                "junk before heading\n\n## Episodic Memory\n\n### Task Memories\n#### T\n- FULL-FIDELITY REF: turns [1]\n- TASK TIMESTAMPS: 2026-05-23T10:00:00+00:00 -> 2026-05-23T10:01:00+00:00\n- TASK DESCRIPTION SYNTHESIS: summarize the requested task with enough concrete detail for resumption\n- EXECUTION MEMORY: this task changed the approach and captured the important session semantics without replaying the transcript verbatim in a way that remains useful\n- APPROACH AND RESULTS: the agent used a compact task memory and preserved the actionable result from the session for continuation\n- PRIORITY SIGNALS: keep signal high\n- OPEN LOOP: none\n\n### Failed Approaches\n- none\n\n### Open Problems\n- none\n\n### Implicit Tasks Discovered\n- none\n\n### Next Steps\n- continue\n\n## Semantic Memory\n\n### Codebase Characteristics\n- durable fact\n\n### Task-Approach Pairs\n- pair\n\n### Generalizable Insights\n- insight\n\n## Handoff\n\n### Session Narrative\nhandoff\n\nREVISION LOG\n[VIOLATION 1] -> removed noise",
+                "junk before heading\n\n## Episodic Memory\n\n### Task History\n#### T\n- FULL-FIDELITY REF: turns [1]\n- TASK TIMESTAMPS: 2026-05-23T10:00:00+00:00 -> 2026-05-23T10:01:00+00:00\n- TASK DESCRIPTION SYNTHESIS: summarize the requested task with enough concrete detail for resumption and keep the real user intent visible in a task-aware way\n- EXECUTION MEMORY: this task changed the approach and captured the important session semantics in prose, preserving the meaningful findings and results without replaying low-signal operational trivia or critic-side bookkeeping that would pollute the final memory surface\n\n### Failed Approaches\n- none\n\n### Open Problems\n- none\n\n### Implicit Tasks Discovered\n- none\n\n### Next Steps\n- continue\n\n## Semantic Memory\n\n### Task-Approach Pairs\n- TASK CLASS: compact session memory\n- EFFECTIVE APPROACH: preserve signal\n- PITFALLS: replaying noise\n- CONFIDENCE: medium\n\n### Generalizable Insights\n- High-signal memory is more useful than transcript replay when the next agent must resume quickly.\n\n## Handoff\n\n### Session Narrative\nhandoff\n\nREVISION LOG\n[VIOLATION 1] -> removed noise",
                 "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
             ]
         )
@@ -263,6 +257,39 @@ class CompactionTests(TestCase):
             self.assertEqual(len(curated), 2)
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
             self.assertEqual(curated[1].payload["content"], "new")
+
+    def test_compaction_middleware_emits_lifecycle_events(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    event(1, EventType.USER, "old"),
+                    event(2, EventType.USER, "new"),
+                ]
+            )
+            observed: list[tuple[str, dict[str, object]]] = []
+            compactor = Compactor(
+                generator=ScriptedGenerator(
+                    [
+                        "EPISODE 1: old\nTURNS: 1 to 1",
+                        COMPLETE_MEMORY_DOCUMENT,
+                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                    ]
+                ),
+                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+            )
+            middleware = CompactionMiddleware(
+                manager,
+                compactor,
+                token_counter=FixedTokenCounter(999),
+                on_compaction_event=lambda phase, payload: observed.append((phase, payload)),
+            )
+
+            middleware.after_agent({"messages": []}, runtime=None)
+
+            self.assertEqual([phase for phase, _ in observed], ["start", "end"])
+            self.assertEqual(observed[0][1]["estimated_tokens"], 999)
+            self.assertEqual(observed[1][1]["compacted_event_count"], 1)
 
     def test_compaction_middleware_compacts_before_session_load(self) -> None:
         with TemporaryDirectory() as directory:

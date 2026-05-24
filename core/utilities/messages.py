@@ -105,19 +105,24 @@ def message_tool_calls(message: Any) -> list[dict[str, Any]]:
     return normalized
 
 
-def make_message(role: str, content: Any) -> BaseMessage:
+def make_message(role: str, content: Any, *, additional_kwargs: dict[str, Any] | None = None) -> BaseMessage:
     normalized = normalize_message_content(content)
+    extras = dict(additional_kwargs or {})
     if role == "user":
-        return HumanMessage(content=normalized)
+        return HumanMessage(content=normalized, additional_kwargs=extras)
     if role == "assistant":
-        return AIMessage(content=normalized)
+        return AIMessage(content=normalized, additional_kwargs=extras)
     if role == "system":
-        return SystemMessage(content=normalized)
+        return SystemMessage(content=normalized, additional_kwargs=extras)
     if role in {"tool", "tool_output"}:
         tool_call_id = ""
         if isinstance(content, dict):
             tool_call_id = str(content.get("tool_call_id") or "")
-        return ToolMessage(content=str(normalized), tool_call_id=tool_call_id or "restored")
+        return ToolMessage(
+            content=str(normalized),
+            tool_call_id=tool_call_id or "restored",
+            additional_kwargs=extras,
+        )
     raise ValueError(f"Unsupported message role for agent restore: {role}")
 
 

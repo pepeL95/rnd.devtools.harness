@@ -36,22 +36,20 @@ Produce the following sections in order:
 
 ## Episodic Memory
 
-### Task Memories
-  This section should read like a bank of cohesive episodic memories, one memory per semantic task.
+### Task History
+  This section should read like a bank of cohesive episodic memories, one memory per semantic task cluster.
   Synthesize all explicit instructions, corrections, constraints, preferences, and meaningful redirections.
   Group semantically linked work into the same task memory when the task stayed conceptually continuous.
   Split only when the session genuinely changed goals, assumptions, or problem frames.
-  Do not quote the whole prompt back. Compress to the operative requirements, tradeoffs, discoveries, and why the task mattered.
+  Do not quote the whole prompt back. Compress the operative requirements into a holistic, task-aware synthesis that preserves what the user was really asking for.
   Format each semantic task as its own markdown subsection:
-  #### [short task title]
+  #### Task `i`: [short task title]
   - FULL-FIDELITY REF: [turn interval(s) or dump reference for this task memory]
   - TASK TIMESTAMPS: [start timestamp -> end timestamp in ISO-like form, or the most faithful available range from session events]
-  - TASK DESCRIPTION SYNTHESIS: [what was being asked, constrained, redirected, or discovered in operational terms]
-  - EXECUTION MEMORY: [a cohesive memory of how the task unfolded, what actually mattered, what changed, and why]
-  - APPROACH AND RESULTS: [the substantive approach taken and the highest-signal results, findings, or outcomes from the work]
-  - PRIORITY SIGNALS: [constraints, corrections, discoveries, or preferences that governed execution]
-  - OPEN LOOP: [what about this task still matters for continuation, if anything]
-  Each task memory should feel cohesive: a future agent should understand the task's shape, execution arc, meaningful results, and remaining edge without reconstructing the transcript.
+  - TASK DESCRIPTION SYNTHESIS: [holistic synthesis of what the user wanted, including constraints and redirections when they materially shaped the task]
+  - EXECUTION MEMORY: [a prose memory trace of how the task unfolded, highlighting meaningful findings, high-signal results, and what the agent should remember for conversation continuity and self-evolving learnings]
+  Each task memory should feel cohesive: a future agent should understand the task's shape, the important findings and results, and the remaining edge without reconstructing the transcript.
+  Favor prose over listed result inventories. Ignore low-signal items such as routine test pass/fail bookkeeping unless they materially changed the task.
   Use timestamps to make the next agent temporally aware of when the task happened relative to the preserved tail.
 
 ### Failed Approaches
@@ -74,10 +72,6 @@ Produce the following sections in order:
   These should read like an actionable continuation plan, not generic advice.
 
 ## Semantic Memory
-
-### Codebase Characteristics
-  Durable facts about this system, implicit contracts, load-bearing assumptions, and non-obvious runtime behaviors.
-  Exclude transient task-local facts unless they expose a lasting contract.
 
 ### Task-Approach Pairs
   For each task class: TASK CLASS, EFFECTIVE APPROACH, PITFALLS, CONFIDENCE.
@@ -105,8 +99,8 @@ For each violation found:
 - FIX: the specific change needed
 
 Evaluate these criteria:
-- The document uses coherent markdown hierarchy, and TASK MEMORIES is organized into subsections, one per clustered semantic task, each with a full-fidelity reference, task timestamps, rich task description, and session-grounded results.
-- The memory is useful for resumption: the task memories, OPEN PROBLEMS, and NEXT STEPS together let a new agent continue without rereading the transcript.
+- The document uses coherent markdown hierarchy, and TASK HISTORY is organized into subsections, one per clustered semantic task, each with a full-fidelity reference, task timestamps, holistic task description, and a prose execution memory containing session-grounded findings and results.
+- The memory is useful for resumption: the task history, OPEN PROBLEMS, and NEXT STEPS together let a new agent continue without rereading the transcript.
 - The memory maximizes signal over noise: it captures durable mechanisms, non-obvious contracts, reusable lessons, and the live continuation edge rather than replaying chronology.
 - The final document contains only session-related semantics. Do not preserve critic reasoning, reviser reasoning, revision logs, or other compaction-process artifacts.
 

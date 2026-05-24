@@ -167,3 +167,26 @@ class MiddlewareTests(TestCase):
             assistant_events = [event for event in manager.read_curated() if event.type == EventType.ASSISTANT]
             self.assertEqual(len(assistant_events), 1)
             self.assertEqual(assistant_events[0].payload["content"], "prior reply")
+
+    def test_session_dump_skips_restored_memory_restore_messages(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "[MEMORY RESTORE]\n...", "kind": "memory_restore"},
+                    )
+                ]
+            )
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": manager.load_curated_messages()}, runtime=None)
+
+            memory_restore_events = [
+                event
+                for event in manager.read_dump()
+                if event.payload.get("kind") == "memory_restore"
+            ]
+            self.assertEqual(len(memory_restore_events), 1)

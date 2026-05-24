@@ -10,13 +10,17 @@ def next_turn(events: Iterable[SessionEvent]) -> int:
     return highest + 1
 
 
-def conversational_events(events: Iterable[SessionEvent]) -> list[SessionEvent]:
-    allowed = {EventType.USER, EventType.ASSISTANT, EventType.SYSTEM, EventType.TOOL, EventType.TOOL_OUTPUT}
-    return [event for event in events if event.type in allowed]
-
-
 def agent_history_events(events: Iterable[SessionEvent]) -> list[SessionEvent]:
     """Events safe to restore into a LangChain agent transcript."""
     allowed = {EventType.USER, EventType.ASSISTANT}
     return [event for event in events if event.type in allowed]
 
+
+def display_history_events(events: Iterable[SessionEvent]) -> list[SessionEvent]:
+    """User/assistant history suitable for the chat UI from the full dump stream."""
+    return [
+        event
+        for event in events
+        if event.type in {EventType.USER, EventType.ASSISTANT}
+        and event.payload.get("kind") != "memory_restore"
+    ]

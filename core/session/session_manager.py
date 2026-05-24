@@ -15,7 +15,7 @@ from core.utilities.messages import (
 )
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.io import append_events, read_events, replace_events, session_paths
-from core.session.turns import agent_history_events, next_turn
+from core.session.turns import agent_history_events, display_history_events, next_turn
 
 
 class SessionManager:
@@ -133,5 +133,21 @@ class SessionManager:
         for event in agent_history_events(self.read_curated()):
             role = str(event.payload.get("role") or event.type.value)
             content = event.payload.get("content", "")
-            restored.append(make_message(role=role, content=content))
+            restored.append(
+                make_message(
+                    role=role,
+                    content=content,
+                    additional_kwargs=_message_additional_kwargs(event),
+                )
+            )
         return restored
+
+    def read_display_history(self) -> list[SessionEvent]:
+        return display_history_events(self.read_dump())
+
+
+def _message_additional_kwargs(event: SessionEvent) -> dict[str, Any]:
+    kind = event.payload.get("kind")
+    if not kind:
+        return {}
+    return {"session_kind": kind}

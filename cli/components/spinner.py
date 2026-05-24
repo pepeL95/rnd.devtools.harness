@@ -18,11 +18,12 @@ class WorkingSpinner(Static):
     }
     """
 
-    def __init__(self) -> None:
+    def __init__(self, status: str = "working") -> None:
         super().__init__("", markup=False)
         self._started = time.monotonic()
         self._frame = 0
         self._timer = None
+        self._status = status
 
     def on_mount(self) -> None:
         self._refresh_label()
@@ -39,4 +40,8 @@ class WorkingSpinner(Static):
     def _refresh_label(self) -> None:
         elapsed = time.monotonic() - self._started
         frame = _FRAMES[self._frame]
-        self.update(f"{frame} working · {elapsed:0.1f}s")
+        self.update(f"{frame} {self._status} · {elapsed:0.1f}s")
+
+    def set_status(self, status: str) -> None:
+        self._status = status
+        self._refresh_label()

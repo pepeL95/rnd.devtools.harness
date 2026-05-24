@@ -38,6 +38,8 @@ class SessionDumpMiddleware(AgentMiddleware):
         turn = self._active_turn or self.manager.next_turn()
         unseen_events: list[SessionEvent] = []
         for message in state.get("messages", []):
+            if _is_restored_memory_message(message):
+                continue
             for event in self.manager.events_from_messages([message], turn=turn):
                 key = self._event_key(event)
                 if key in self._seen_event_keys:
@@ -79,3 +81,8 @@ class SessionDumpMiddleware(AgentMiddleware):
                 "git_dirty": snapshot.git_dirty,
             },
         )
+
+
+def _is_restored_memory_message(message: Any) -> bool:
+    additional_kwargs = getattr(message, "additional_kwargs", None) or {}
+    return additional_kwargs.get("session_kind") == "memory_restore"

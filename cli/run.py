@@ -67,6 +67,10 @@ class QuasipilotApp(App):
         height: auto;
         width: 100%;
     }
+
+    ChatInput:disabled {
+        opacity: 0.65;
+    }
     """
 
     BINDINGS = [("ctrl+c", "quit", "Quit")]
@@ -108,9 +112,7 @@ class QuasipilotApp(App):
     def load_session(self, session_id: str) -> None:
         self.session_id = session_id
         self._manager = SessionManager(session_id=session_id)
-        self._agent = create_driver_agent(
-            DriverAgentConfig(cwd=self._cwd, model=self._model, session_id=session_id)
-        )
+        self._agent = self._build_agent(session_id)
         self._clear_chat()
         self._render_history()
 
@@ -118,9 +120,7 @@ class QuasipilotApp(App):
         if self._manager is None:
             self._manager = SessionManager()
             self.session_id = self._manager.session_id
-            self._agent = create_driver_agent(
-                DriverAgentConfig(cwd=self._cwd, model=self._model, session_id=self.session_id)
-            )
+            self._agent = self._build_agent(self.session_id)
         return self._manager
 
     def _chat_log(self) -> Vertical:
@@ -129,18 +129,18 @@ class QuasipilotApp(App):
     def _chat_scroll(self) -> VerticalScroll:
         return self.query_one("#chat-scroll", VerticalScroll)
 
-    def _scroll_chat_to_bottom(self, *, animate: bool = False) -> None:
-        self._chat_scroll().scroll_end(animate=animate, immediate=False)
+    def _scroll_chat_to_bottom(self) -> None:
+        self._chat_scroll().scroll_end(animate=False, immediate=True)
 
     def _mount_chat(self, widget: Widget) -> None:
         self._chat_log().mount(widget)
-        self._scroll_chat_to_bottom(animate=True)
+        self._scroll_chat_to_bottom()
 
     def _mount_chat_batch(self, *widgets: Widget) -> None:
         chat = self._chat_log()
         for widget in widgets:
             chat.mount(widget)
-        self._scroll_chat_to_bottom(animate=True)
+        self._scroll_chat_to_bottom()
 
     def _clear_chat(self) -> None:
         self._chat_log().remove_children()
@@ -149,15 +149,25 @@ class QuasipilotApp(App):
     def _render_history(self) -> None:
         if self._manager is None:
             return
-        for event in self._manager.read_curated():
-            if event.type not in {EventType.USER, EventType.ASSISTANT}:
-                continue
+        chat = self._chat_log()
+        for event in self._manager.read_display_history():
             content = content_to_plaintext(event.payload.get("content", ""))
             if event.type == EventType.USER:
-                self._chat_log().mount(UserBubble(content))
+                chat.mount(UserBubble(content))
             else:
-                self._mount_chat_batch(Divider(), AIBubble(content))
-        self._scroll_chat_to_bottom(animate=True)
+                chat.mount(Divider())
+                chat.mount(AIBubble(content))
+        self._scroll_chat_to_bottom()
+
+    def _build_agent(self, session_id: str | None):
+        return create_driver_agent(
+            DriverAgentConfig(
+                cwd=self._cwd,
+                model=self._model,
+                session_id=session_id,
+                on_compaction_event=self._post_compaction_event,
+            )
+        )
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -170,10 +180,28 @@ class QuasipilotApp(App):
         self._spinner = WorkingSpinner()
         self._mount_chat(self._spinner)
 
+    def _set_spinner_status(self, status: str) -> None:
+        if self._spinner is None:
+            self._spinner = WorkingSpinner(status=status)
+            self._mount_chat(self._spinner)
+            return
+        self._spinner.set_status(status)
+
     def _hide_spinner(self) -> None:
         if self._spinner is not None:
             self._spinner.remove()
             self._spinner = None
+
+    def _post_compaction_event(self, phase: str, payload: dict) -> None:
+        self.call_from_thread(self._handle_compaction_event, phase, payload)
+
+    def _handle_compaction_event(self, phase: str, payload: dict) -> None:
+        if phase == "start":
+            tokens = payload.get("estimated_tokens")
+            suffix = f" · {tokens} tokens" if isinstance(tokens, int) else ""
+            self._set_spinner_status(f"compacting session{suffix}")
+        elif phase == "end":
+            self._set_spinner_status("working")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if not isinstance(event.input, ChatInput):
@@ -221,10 +249,13 @@ class QuasipilotApp(App):
     def on_agent_finished(self, event: AgentFinished) -> None:
         self._hide_spinner()
         self._set_busy(False)
-        if event.error:
-            self._mount_chat_batch(Divider(), AIBubble(f"error: {event.error}"))
-        elif event.text:
-            self._mount_chat_batch(Divider(), AIBubble(event.text))
+        self.call_after_refresh(self._finish_agent_turn, event.text, event.error)
+
+    def _finish_agent_turn(self, text: str, error: str | None) -> None:
+        if error:
+            self._mount_chat_batch(Divider(), AIBubble(f"error: {error}"))
+        elif text:
+            self._mount_chat_batch(Divider(), AIBubble(text))
         self.query_one(ChatInput).focus()
 
 
