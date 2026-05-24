@@ -5,6 +5,9 @@ from typing import Any
 from unittest import TestCase
 
 from langchain_core.messages import SystemMessage
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool
+from core.middleware.reasoning import ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
@@ -24,6 +27,81 @@ class FakeModelRequest:
 
 
 class MiddlewareTests(TestCase):
+    def test_reasoning_middleware_appends_low_eagerness_steering_prompt(self) -> None:
+        middleware = ReasoningMiddleware()
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+        self.assertIn("Use the `reasoning` tool selectively", str(response.content))
+        self.assertNotIn("Reason often", str(response.content))
+
+    def test_reasoning_middleware_appends_high_eagerness_steering_prompt(self) -> None:
+        middleware = ReasoningMiddleware(eagerness="high")
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+        self.assertIn("Use the `reasoning` tool often", str(response.content))
+        self.assertIn("Reason often", str(response.content))
+
+    def test_reasoning_middleware_rejects_invalid_eagerness(self) -> None:
+        with self.assertRaises(ValueError):
+            ReasoningMiddleware(eagerness="aggressive")  # type: ignore[arg-type]
+
+    def test_reasoning_middleware_adds_one_shot_reminder_after_tool_failure(self) -> None:
+        middleware = ReasoningMiddleware()
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+        with self.assertRaises(RuntimeError):
+            middleware.wrap_tool_call(
+                object(),
+                lambda _: (_ for _ in ()).throw(RuntimeError("tool failed")),
+            )
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+        self.assertIn("A tool just failed.", str(response.content))
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+        self.assertEqual(str(response.content).count("A tool just failed."), 0)
+
+    def test_reasoning_tool_returns_visible_tool_output(self) -> None:
+        self.assertIsInstance(reasoning_tool, BaseTool)
+
+        result = reasoning_tool.invoke({"reasoning": "Need to inspect the middleware order before retrying."})
+
+        self.assertEqual(
+            result,
+            "Reasoning recorded: Need to inspect the middleware order before retrying.",
+        )
+
+    def test_reasoning_middleware_requests_synthesis_after_long_read_file_output(self) -> None:
+        middleware = ReasoningMiddleware()
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+        middleware.wrap_tool_call(
+            type("Req", (), {"tool_call": {"name": "read_file"}})(),
+            lambda _: ToolMessage(content="x" * 4500, tool_call_id="call-1"),
+        )
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+        self.assertIn("long `read_file` result", str(response.content))
+        self.assertIn("preserve signal for later compaction", str(response.content))
+
+    def test_reasoning_middleware_does_not_trigger_for_short_read_file_output(self) -> None:
+        middleware = ReasoningMiddleware()
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+        middleware.wrap_tool_call(
+            type("Req", (), {"tool_call": {"name": "read_file"}})(),
+            lambda _: ToolMessage(content="short", tool_call_id="call-1"),
+        )
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+        self.assertNotIn("long `read_file` result", str(response.content))
+
     def test_system_prompt_middleware_appends_prompt(self) -> None:
         middleware = SystemPromptMiddleware(prompt="Use concise answers.")
         request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])

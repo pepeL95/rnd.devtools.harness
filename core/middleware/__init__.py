@@ -5,6 +5,7 @@ from typing import Any
 
 __all__ = [
     "CompactionMiddleware",
+    "ReasoningMiddleware",
     "RuntimeContextMiddleware",
     "SessionDumpMiddleware",
     "SessionLoadMiddleware",
@@ -13,6 +14,7 @@ __all__ = [
 
 _EXPORTS = {
     "CompactionMiddleware": "core.middleware.compaction",
+    "ReasoningMiddleware": "core.middleware.reasoning",
     "RuntimeContextMiddleware": "core.middleware.runtime",
     "SessionDumpMiddleware": "core.middleware.session_dump",
     "SessionLoadMiddleware": "core.middleware.session_load",

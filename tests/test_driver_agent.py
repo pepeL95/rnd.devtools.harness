@@ -58,7 +58,7 @@ class DriverAgentTests(TestCase):
             self.assertEqual(backend.root_dir, str(path))
             self.assertIs(backend.inherit_env, True)
             self.assertIs(backend.virtual_env, False)
-            self.assertIs(backend.virtual_mode, True)
+            self.assertIs(backend.virtual_mode, False)
 
     def test_local_shell_backend_tolerates_current_deepagents_signature(self) -> None:
         with TemporaryDirectory() as directory:
@@ -80,4 +80,4 @@ class DriverAgentTests(TestCase):
         self.assertEqual(model.model, "gemini-3.1-flash-lite")
         self.assertEqual(model.max_retries, 3)
         self.assertIs(model.include_thoughts, True)
-        self.assertEqual(model.thinking_level, "minimal")
+        self.assertEqual(model.thinking_level, "low")

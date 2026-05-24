@@ -11,6 +11,7 @@ from agents.driver.prompt import DRIVER_SYSTEM_PROMPT
 from core.compaction.compactor import Compactor
 from core.compaction.policy import CompactionPolicy
 from core.middleware.compaction import CompactionMiddleware
+from core.middleware.reasoning import ReasoningEagerness, ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
@@ -25,6 +26,7 @@ class DriverAgentConfig:
     cwd: Path
     model: BaseChatModel = field(default_factory=get_default_model)
     session_id: str | None = None
+    reasoning_eagerness: ReasoningEagerness = "low"
 
 
 def create_driver_agent(config: DriverAgentConfig) -> Any:
@@ -49,6 +51,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         # the completed turn so curated history can be compacted immediately.
         # Source: https://docs.langchain.com/oss/python/langchain/middleware/custom
         TelemetryMiddleware(TelemetryStore(telemetry_session_path(manager.session_id))),
+        ReasoningMiddleware(eagerness=config.reasoning_eagerness),
         CompactionMiddleware(manager, Compactor(policy=CompactionPolicy())),
         SessionLoadMiddleware(manager),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
@@ -56,7 +59,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         FilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager),
     ]
-    return create_agent(model=config.model, tools=[], middleware=middleware)
+    return create_agent(model=config.model, tools=[reasoning_tool], middleware=middleware)
 
 
 def _local_shell_backend(backend_cls: type[Any], cwd: Path) -> Any:
