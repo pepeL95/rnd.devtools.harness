@@ -18,6 +18,7 @@ from cli.components import (
     ToolStream,
     UserBubble,
     WorkingSpinner,
+    Divider,
 )
 from cli.slash_commands.registry import SlashCommandRegistry
 from cli.utilities.display import content_to_plaintext
@@ -136,10 +137,19 @@ class QuasipilotApp(App):
         self._chat_scroll().scroll_end(animate=animate, immediate=False)
 
     def _mount_chat(self, widget: Widget) -> None:
-        """Mount a widget and follow the end when the user is already at the bottom."""
-        at_bottom = self._is_chat_at_bottom()
+        """Mount a widget and follow the end only while the user is pinned to the bottom."""
+        should_follow = self._is_chat_at_bottom()
         self._chat_log().mount(widget)
-        if at_bottom:
+        if should_follow:
+            self._scroll_chat_to_bottom()
+
+    def _mount_chat_batch(self, *widgets: Widget) -> None:
+        """Mount a related batch of widgets using one bottom snapshot."""
+        should_follow = self._is_chat_at_bottom()
+        chat = self._chat_log()
+        for widget in widgets:
+            chat.mount(widget)
+        if should_follow:
             self._scroll_chat_to_bottom()
 
     def _clear_chat(self) -> None:
@@ -157,7 +167,7 @@ class QuasipilotApp(App):
             if event.type == EventType.USER:
                 chat.mount(UserBubble(content))
             else:
-                chat.mount(AIBubble(content))
+                self._mount_chat_batch(Divider(), AIBubble(content))
         self._scroll_chat_to_bottom()
 
     def _set_busy(self, busy: bool) -> None:
@@ -217,15 +227,15 @@ class QuasipilotApp(App):
         if event.kind == "tool":
             self._mount_chat(ToolStream(event.payload.get("name", "tool"), event.payload.get("args", "")))
         elif event.kind == "reason":
-            self._mount_chat(ReasonStream(event.payload.get("text", "")))
+            self._mount_chat_batch(Divider(), ReasonStream(event.payload.get("text", "")))
 
     def on_agent_finished(self, event: AgentFinished) -> None:
         self._hide_spinner()
         self._set_busy(False)
         if event.error:
-            self._mount_chat(AIBubble(f"error: {event.error}"))
+            self._mount_chat_batch(Divider(), AIBubble(f"error: {event.error}"))
         elif event.text:
-            self._mount_chat(AIBubble(event.text))
+            self._mount_chat_batch(Divider(), AIBubble(event.text))
         self.query_one(ChatInput).focus()
 
 
