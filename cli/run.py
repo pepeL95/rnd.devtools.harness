@@ -81,7 +81,6 @@ class QuasipilotApp(App):
         self._commands = SlashCommandRegistry()
         self._busy = False
         self._spinner: WorkingSpinner | None = None
-        self._pending_auto_scroll = False
 
     @property
     def manager(self) -> SessionManager | None:
@@ -130,36 +129,18 @@ class QuasipilotApp(App):
     def _chat_scroll(self) -> VerticalScroll:
         return self.query_one("#chat-scroll", VerticalScroll)
 
-    def _is_chat_at_bottom(self) -> bool:
-        scroll = self._chat_scroll()
-        return scroll.max_scroll_y <= 0 or scroll.scroll_y >= max(scroll.max_scroll_y - 1, 0)
-
     def _scroll_chat_to_bottom(self, *, animate: bool = False) -> None:
-        # Wait for the next refresh so max_scroll_y includes newly mounted content.
-        if self._pending_auto_scroll:
-            return
-        self._pending_auto_scroll = True
-        self.call_after_refresh(self._flush_pending_auto_scroll, animate)
-
-    def _flush_pending_auto_scroll(self, animate: bool) -> None:
-        self._pending_auto_scroll = False
         self._chat_scroll().scroll_end(animate=animate, immediate=False)
 
     def _mount_chat(self, widget: Widget) -> None:
-        """Mount a widget and follow the end only while the user is pinned to the bottom."""
-        should_follow = self._pending_auto_scroll or self._is_chat_at_bottom()
         self._chat_log().mount(widget)
-        if should_follow:
-            self._scroll_chat_to_bottom()
+        self._scroll_chat_to_bottom(animate=True)
 
     def _mount_chat_batch(self, *widgets: Widget) -> None:
-        """Mount a related batch of widgets using one bottom snapshot."""
-        should_follow = self._pending_auto_scroll or self._is_chat_at_bottom()
         chat = self._chat_log()
         for widget in widgets:
             chat.mount(widget)
-        if should_follow:
-            self._scroll_chat_to_bottom()
+        self._scroll_chat_to_bottom(animate=True)
 
     def _clear_chat(self) -> None:
         self._chat_log().remove_children()
@@ -176,7 +157,7 @@ class QuasipilotApp(App):
                 self._chat_log().mount(UserBubble(content))
             else:
                 self._mount_chat_batch(Divider(), AIBubble(content))
-        self._scroll_chat_to_bottom()
+        self._scroll_chat_to_bottom(animate=True)
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
