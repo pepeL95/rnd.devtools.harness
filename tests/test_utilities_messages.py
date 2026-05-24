@@ -3,6 +3,7 @@ from unittest import TestCase
 from core.utilities.messages import (
     make_message,
     message_role,
+    message_text_content,
     normalize_message_content,
     system_message_with_appended_text,
 )
@@ -21,6 +22,16 @@ class UtilitiesMessagesTests(TestCase):
     def test_normalize_message_content_from_text_blocks(self) -> None:
         content = [{"type": "text", "text": "hello"}, {"type": "text", "text": "world"}]
         self.assertEqual(normalize_message_content(content), "hello\nworld")
+
+    def test_message_text_content_skips_reasoning_blocks(self) -> None:
+        class FakeMessage:
+            content = [
+                {"type": "thinking", "thinking": "private"},
+                {"type": "text", "text": "hello"},
+                {"type": "text", "text": "world"},
+            ]
+
+        self.assertEqual(message_text_content(FakeMessage()), "hello\nworld")
 
     def test_system_message_with_appended_text_preserves_existing_blocks(self) -> None:
         base = SystemMessage(content="Base")

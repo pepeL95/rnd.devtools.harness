@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from langchain_core.messages import BaseMessage
 
-from core.utilities.messages import make_message, message_reasoning_blocks, message_role
+from core.utilities.messages import make_message, message_reasoning_blocks, message_role, message_text_content
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.io import append_events, read_events, replace_events, session_paths
 from core.session.turns import agent_history_events, next_turn
@@ -74,6 +74,20 @@ class SessionManager:
                             },
                         )
                     )
+                assistant_text = message_text_content(message)
+                if assistant_text:
+                    events.append(
+                        SessionEvent(
+                            type=EventType.ASSISTANT,
+                            turn=turn_number,
+                            payload={
+                                "role": role,
+                                "content": assistant_text,
+                                "message_type": message_type,
+                            },
+                        )
+                    )
+                continue
             event_type = {
                 "user": EventType.USER,
                 "assistant": EventType.ASSISTANT,

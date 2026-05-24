@@ -69,9 +69,25 @@ class SessionIOTests(TestCase):
             self.assertEqual([event.type for event in events], [EventType.REASONING, EventType.ASSISTANT])
             self.assertEqual(events[0].payload["content"], "Need to inspect middleware order.")
             self.assertEqual(events[0].payload["signature"], "abc123")
-            self.assertEqual(events[1].payload["content"][1]["text"], "I found the bug.")
+            self.assertEqual(events[1].payload["content"], "I found the bug.")
 
-    def test_load_curated_messages_preserves_reasoning_blocks_in_assistant_content(self) -> None:
+    def test_events_from_messages_does_not_duplicate_reasoning_inside_assistant_payload(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            message = AIMessage(
+                content=[
+                    {"type": "thinking", "thinking": "trace the call graph", "signature": "sig-1"},
+                    {"type": "text", "text": "hi"},
+                ]
+            )
+
+            events = manager.events_from_messages([message], turn=1)
+
+            self.assertEqual(len([event for event in events if event.type == EventType.REASONING]), 1)
+            self.assertEqual(len([event for event in events if event.type == EventType.ASSISTANT]), 1)
+            self.assertEqual(events[1].payload["content"], "hi")
+
+    def test_load_curated_messages_restores_assistant_text_without_reasoning_blocks(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append(
@@ -82,10 +98,7 @@ class SessionIOTests(TestCase):
                         turn=1,
                         payload={
                             "role": "assistant",
-                            "content": [
-                                {"type": "thinking", "thinking": "trace the call graph", "signature": "sig-1"},
-                                {"type": "text", "text": "hi"},
-                            ],
+                            "content": "hi",
                         },
                     ),
                 ]
@@ -93,5 +106,4 @@ class SessionIOTests(TestCase):
 
             messages = manager.load_curated_messages()
 
-            self.assertEqual(messages[1].content[0]["type"], "thinking")
-            self.assertEqual(messages[1].content[0]["signature"], "sig-1")
+            self.assertEqual(messages[1].content, "hi")

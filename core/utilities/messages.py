@@ -68,6 +68,26 @@ def message_reasoning_blocks(message: Any) -> list[dict[str, Any]]:
     return blocks
 
 
+def message_text_content(message: Any) -> str:
+    """Extract only assistant-visible text from a message content payload."""
+
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "text":
+                continue
+            text = block.get("text")
+            if text:
+                parts.append(str(text))
+        return "\n".join(parts).strip()
+    if content is None:
+        return ""
+    return str(content).strip()
+
+
 def make_message(role: str, content: Any) -> BaseMessage:
     normalized = normalize_message_content(content)
     if role == "user":

@@ -30,7 +30,7 @@ class AIBubble(Static):
         width: 100%;
         margin: 1;
         padding: 0 1;
-        color: $text-muted;
+        color: $text;
     }
     """
 
