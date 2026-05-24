@@ -71,6 +71,22 @@ class SessionIOTests(TestCase):
             self.assertEqual(events[0].payload["signature"], "abc123")
             self.assertEqual(events[1].payload["content"], "I found the bug.")
 
+    def test_events_from_messages_emits_tool_events_for_assistant_tool_calls(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            message = AIMessage(
+                content=[{"type": "text", "text": "Reading the file now."}],
+                tool_calls=[{"name": "read_file", "args": {"path": "/tmp/x"}, "id": "call-1"}],
+            )
+
+            events = manager.events_from_messages([message], turn=2)
+
+            self.assertEqual([event.type for event in events], [EventType.TOOL, EventType.ASSISTANT])
+            self.assertEqual(events[0].payload["name"], "read_file")
+            self.assertEqual(events[0].payload["args"], {"path": "/tmp/x"})
+            self.assertEqual(events[0].payload["tool_call_id"], "call-1")
+            self.assertEqual(events[1].payload["content"], "Reading the file now.")
+
     def test_events_from_messages_does_not_duplicate_reasoning_inside_assistant_payload(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

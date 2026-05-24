@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.utilities.messages import message_reasoning_blocks as core_message_reasoning_blocks
+from core.utilities.messages import (
+    message_reasoning_blocks as core_message_reasoning_blocks,
+    message_tool_calls as core_message_tool_calls,
+)
 
 
 def message_text(message: Any) -> str:
@@ -28,20 +31,7 @@ def message_reasoning(message: Any) -> str | None:
 
 
 def message_tool_calls(message: Any) -> list[dict[str, Any]]:
-    tool_calls = getattr(message, "tool_calls", None) or []
-    normalized: list[dict[str, Any]] = []
-    for call in tool_calls:
-        if isinstance(call, dict):
-            normalized.append(call)
-            continue
-        normalized.append(
-            {
-                "name": getattr(call, "name", "tool"),
-                "args": getattr(call, "args", {}),
-                "id": getattr(call, "id", None),
-            }
-        )
-    return normalized
+    return core_message_tool_calls(message)
 
 
 def format_tool_call(call: dict[str, Any]) -> tuple[str, str]:

@@ -6,7 +6,13 @@ from uuid import uuid4
 
 from langchain_core.messages import BaseMessage
 
-from core.utilities.messages import make_message, message_reasoning_blocks, message_role, message_text_content
+from core.utilities.messages import (
+    make_message,
+    message_reasoning_blocks,
+    message_role,
+    message_text_content,
+    message_tool_calls,
+)
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.io import append_events, read_events, replace_events, session_paths
 from core.session.turns import agent_history_events, next_turn
@@ -59,6 +65,21 @@ class SessionManager:
             role = message_role(message)
             message_type = getattr(message, "type", None)
             if role == "assistant":
+                for index, call in enumerate(message_tool_calls(message)):
+                    events.append(
+                        SessionEvent(
+                            type=EventType.TOOL,
+                            turn=turn_number,
+                            payload={
+                                "role": role,
+                                "name": str(call.get("name") or call.get("type") or "tool"),
+                                "args": call.get("args") or call.get("arguments") or {},
+                                "tool_call_id": call.get("id"),
+                                "message_type": message_type,
+                                "index": index,
+                            },
+                        )
+                    )
                 for index, block in enumerate(message_reasoning_blocks(message)):
                     events.append(
                         SessionEvent(

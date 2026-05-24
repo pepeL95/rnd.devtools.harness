@@ -88,6 +88,23 @@ def message_text_content(message: Any) -> str:
     return str(content).strip()
 
 
+def message_tool_calls(message: Any) -> list[dict[str, Any]]:
+    tool_calls = getattr(message, "tool_calls", None) or []
+    normalized: list[dict[str, Any]] = []
+    for call in tool_calls:
+        if isinstance(call, dict):
+            normalized.append(call)
+            continue
+        normalized.append(
+            {
+                "name": getattr(call, "name", "tool"),
+                "args": getattr(call, "args", {}),
+                "id": getattr(call, "id", None),
+            }
+        )
+    return normalized
+
+
 def make_message(role: str, content: Any) -> BaseMessage:
     normalized = normalize_message_content(content)
     if role == "user":

@@ -12,8 +12,9 @@ class SessionDumpMiddleware(AgentMiddleware):
 
     def __init__(self, manager: SessionManager) -> None:
         self.manager = manager
-        self._seen_message_keys: set[tuple[str, str]] = set()
+        self._seen_event_keys: set[tuple[Any, ...]] = set()
         self._active_turn: int | None = None
+        self._prime_seen_events()
 
     def before_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
         self._active_turn = self.manager.next_turn()
@@ -35,13 +36,35 @@ class SessionDumpMiddleware(AgentMiddleware):
 
     def _dump_new_messages(self, state: AgentState) -> None:
         turn = self._active_turn or self.manager.next_turn()
-        unseen = []
+        unseen_events: list[SessionEvent] = []
         for message in state.get("messages", []):
-            key = (str(getattr(message, "type", "")), str(getattr(message, "content", message)))
-            if key not in self._seen_message_keys:
-                self._seen_message_keys.add(key)
-                unseen.append(message)
-        self.manager.append(self.manager.events_from_messages(unseen, turn=turn))
+            for event in self.manager.events_from_messages([message], turn=turn):
+                key = self._event_key(event)
+                if key in self._seen_event_keys:
+                    continue
+                self._seen_event_keys.add(key)
+                unseen_events.append(event)
+        self.manager.append(unseen_events)
+
+    def _event_key(self, event: SessionEvent) -> tuple[Any, ...]:
+        payload = event.payload
+        return (
+            event.type.value,
+            payload.get("role"),
+            payload.get("index"),
+            payload.get("content"),
+            payload.get("name"),
+            repr(payload.get("args")),
+            payload.get("tool_call_id"),
+            payload.get("reasoning_format"),
+            payload.get("signature"),
+        )
+
+    def _prime_seen_events(self) -> None:
+        for event in self.manager.read_dump():
+            if event.type in {EventType.TURN_BEGIN, EventType.TURN_END, EventType.RUNTIME}:
+                continue
+            self._seen_event_keys.add(self._event_key(event))
 
     def _runtime_event(self, runtime: Any) -> SessionEvent:
         context = getattr(runtime, "context", None)
@@ -56,4 +79,3 @@ class SessionDumpMiddleware(AgentMiddleware):
                 "git_dirty": snapshot.git_dirty,
             },
         )
-

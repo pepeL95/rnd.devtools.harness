@@ -6,6 +6,7 @@ from unittest import TestCase
 
 from langchain_core.messages import SystemMessage
 from core.middleware.runtime import RuntimeContextMiddleware
+from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
 from core.middleware.system_prompt import SystemPromptMiddleware
 from core.session.events import EventType, SessionEvent
@@ -71,3 +72,20 @@ class MiddlewareTests(TestCase):
             assert update is not None
             restored_contents = [getattr(message, "content", None) for message in update["messages"]]
             self.assertIn("prior", restored_contents)
+
+    def test_session_dump_does_not_reappend_restored_assistant_text_on_later_turns(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "prior user"}),
+                    SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "prior reply"}),
+                ]
+            )
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": [manager.load_curated_messages()[1]]}, runtime=None)
+
+            assistant_events = [event for event in manager.read_curated() if event.type == EventType.ASSISTANT]
+            self.assertEqual(len(assistant_events), 1)
+            self.assertEqual(assistant_events[0].payload["content"], "prior reply")
