@@ -18,7 +18,7 @@ def get_default_model() -> BaseChatModel:
         temperature=0,
         retries=3,
         include_thoughts=True,
-        thinking_level="minimal",
+        thinking_level="low",
     )
 
 
