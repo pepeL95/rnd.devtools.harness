@@ -4,7 +4,7 @@ from core.compaction.llm import LangChainTextGenerator, TextGenerator
 from core.compaction.models import CompactionResult, Critique
 from core.compaction.policy import CompactionPolicy
 from core.compaction.prompts import CRITIC_PROMPT, REVISION_PROMPT, SEGMENTATION_PROMPT, SYNTHESIS_PROMPT
-from core.compaction.quality import quality_report
+from core.compaction.quality import quality_report, sanitize_memory_document
 from core.compaction.serialization import events_to_trajectory, memory_restore_message
 from core.compaction.token_counter import TokenCounter
 from core.compaction.window import split_compaction_window
@@ -43,7 +43,7 @@ class Compactor:
 
         trajectory = events_to_trajectory(window.compacted)
         segmentation = self._segment(trajectory)
-        memory_document = self._synthesize(trajectory, segmentation)
+        memory_document = sanitize_memory_document(self._synthesize(trajectory, segmentation))
 
         critiques: list[Critique] = []
         revisions = 0
@@ -51,14 +51,14 @@ class Compactor:
         if local_report is not None:
             critique = Critique(local_report)
             critiques.append(critique)
-            memory_document = self._revise(trajectory, memory_document, critique.text)
+            memory_document = sanitize_memory_document(self._revise(trajectory, memory_document, critique.text))
             revisions += 1
         for _ in range(self.policy.max_critic_loops):
             critique = Critique(self._critique(trajectory, memory_document))
             critiques.append(critique)
             if critique.approved:
                 break
-            memory_document = self._revise(trajectory, memory_document, critique.text)
+            memory_document = sanitize_memory_document(self._revise(trajectory, memory_document, critique.text))
             revisions += 1
 
         memory_event = SessionEvent(

@@ -36,7 +36,7 @@ Produce the following sections in order:
 
 ## Episodic Memory
 
-### Task Requirement Synthesis
+### Task Memories
   This section should read like a bank of cohesive episodic memories, one memory per semantic task.
   Synthesize all explicit instructions, corrections, constraints, preferences, and meaningful redirections.
   Group semantically linked work into the same task memory when the task stayed conceptually continuous.
@@ -46,21 +46,13 @@ Produce the following sections in order:
   #### [short task title]
   - FULL-FIDELITY REF: [turn interval(s) or dump reference for this task memory]
   - TASK TIMESTAMPS: [start timestamp -> end timestamp in ISO-like form, or the most faithful available range from session events]
-  - TASK REQUEST SYNTHESIS: [what was being asked, constrained, or redirected]
-  - TASK EXECUTION SYNTHESIS: [what happened in this task, what changed, what was learned, and what state transition matters]
+  - TASK DESCRIPTION SYNTHESIS: [what was being asked, constrained, redirected, or discovered in operational terms]
+  - EXECUTION MEMORY: [a cohesive memory of how the task unfolded, what actually mattered, what changed, and why]
+  - APPROACH AND RESULTS: [the substantive approach taken and the highest-signal results, findings, or outcomes from the work]
   - PRIORITY SIGNALS: [constraints, corrections, discoveries, or preferences that governed execution]
   - OPEN LOOP: [what about this task still matters for continuation, if anything]
-  Each task memory should feel cohesive: a future agent should understand the task's shape, execution arc, and remaining edge without reconstructing the transcript.
+  Each task memory should feel cohesive: a future agent should understand the task's shape, execution arc, meaningful results, and remaining edge without reconstructing the transcript.
   Use timestamps to make the next agent temporally aware of when the task happened relative to the preserved tail.
-
-### Current State
-  Files created, modified, or deleted with exact paths, test/build status, external state,
-  and what is confirmed versus believed.
-  Prefer the state that would matter if the next agent resumed cold.
-
-### Work Completed
-  Concrete irreversible progress, in past tense, with exact paths.
-  Focus on meaningful state transitions and decisions, not a step-by-step timeline.
 
 ### Failed Approaches
   The goal is not to list attempts, but to extract reasoning that prevents re-exploration.
@@ -113,9 +105,10 @@ For each violation found:
 - FIX: the specific change needed
 
 Evaluate these criteria:
-- The document uses coherent markdown hierarchy, and TASK REQUIREMENT SYNTHESIS is organized into subsections, one per clustered semantic task, each with a full-fidelity reference and task timestamps.
-- The memory is useful for resumption: CURRENT STATE, OPEN PROBLEMS, and NEXT STEPS together let a new agent continue without rereading the transcript.
+- The document uses coherent markdown hierarchy, and TASK MEMORIES is organized into subsections, one per clustered semantic task, each with a full-fidelity reference, task timestamps, rich task description, and session-grounded results.
+- The memory is useful for resumption: the task memories, OPEN PROBLEMS, and NEXT STEPS together let a new agent continue without rereading the transcript.
 - The memory maximizes signal over noise: it captures durable mechanisms, non-obvious contracts, reusable lessons, and the live continuation edge rather than replaying chronology.
+- The final document contains only session-related semantics. Do not preserve critic reasoning, reviser reasoning, revision logs, or other compaction-process artifacts.
 
 After all violations, output:
 

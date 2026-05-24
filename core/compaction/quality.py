@@ -5,9 +5,7 @@ from dataclasses import dataclass
 
 
 REQUIRED_HEADINGS = [
-    "TASK REQUIREMENT SYNTHESIS",
-    "CURRENT STATE",
-    "WORK COMPLETED",
+    "TASK MEMORIES",
     "FAILED APPROACHES",
     "OPEN PROBLEMS",
     "IMPLICIT TASKS DISCOVERED",
@@ -59,10 +57,22 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="legacy_heading_shape",
-                location="TASK REQUIREMENT SYNTHESIS",
+                location="TASK MEMORIES",
                 fix=(
                     "Replace transcript-era headings such as `ORIGINAL TASK` or `USER DIRECTIVES` with "
-                    "semantic task markdown subsections under `TASK REQUIREMENT SYNTHESIS`."
+                    "semantic task markdown subsections under `TASK MEMORIES`."
+                ),
+            )
+        )
+
+    if _has_compaction_artifacts(memory_document):
+        issues.append(
+            QualityIssue(
+                rule="compaction_process_artifacts",
+                location="document",
+                fix=(
+                    "Remove critic reasoning, reviser reasoning, revision logs, critique summaries, and any other "
+                    "compaction-process artifacts. The final memory must contain session-related semantics only."
                 ),
             )
         )
@@ -71,11 +81,11 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="missing_task_markdown_sections",
-                location="TASK REQUIREMENT SYNTHESIS",
+                location="TASK MEMORIES",
                 fix=(
                     "Structure each semantic task as its own markdown subsection using `#### [task title]` "
-                    "with FULL-FIDELITY REF, TASK TIMESTAMPS, TASK REQUEST SYNTHESIS, TASK EXECUTION SYNTHESIS, "
-                    "PRIORITY SIGNALS, and OPEN LOOP."
+                    "with FULL-FIDELITY REF, TASK TIMESTAMPS, TASK DESCRIPTION SYNTHESIS, EXECUTION MEMORY, "
+                    "APPROACH AND RESULTS, PRIORITY SIGNALS, and OPEN LOOP."
                 ),
             )
         )
@@ -83,11 +93,11 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="thin_task_memories",
-                location="TASK REQUIREMENT SYNTHESIS",
+                location="TASK MEMORIES",
                 fix=(
-                    "Make each semantic task subsection read like a cohesive memory: include what was being asked, "
-                    "what happened, what changed, the governing constraints, a full-fidelity reference, task timestamps, "
-                    "and any open continuation edge."
+                    "Make each semantic task subsection read like a cohesive memory: include a task-anchored description, "
+                    "a rich execution memory, high-signal approach/results, the governing constraints, a full-fidelity reference, "
+                    "task timestamps, and any open continuation edge."
                 ),
             )
         )
@@ -96,9 +106,9 @@ def quality_issues(memory_document: str) -> list[QualityIssue]:
         issues.append(
             QualityIssue(
                 rule="insufficient_resume_signal",
-                location="CURRENT STATE / OPEN PROBLEMS / NEXT STEPS",
+                location="TASK MEMORIES / OPEN PROBLEMS / NEXT STEPS",
                 fix=(
-                    "Make the resumable state sharper so a new agent can continue without rereading the transcript."
+                    "Make the resumable state sharper through richer task memories plus clearer open problems and next steps."
                 ),
             )
         )
@@ -156,22 +166,23 @@ def _has_legacy_heading(memory_document: str) -> bool:
 
 
 def _has_task_markdown_sections(memory_document: str) -> bool:
-    body = _section_body(memory_document, "TASK REQUIREMENT SYNTHESIS")
+    body = _section_body(memory_document, "TASK MEMORIES")
     if body is None:
         return False
     return (
         "#### " in body
         and "- FULL-FIDELITY REF:" in body
         and "- TASK TIMESTAMPS:" in body
-        and "- TASK REQUEST SYNTHESIS:" in body
-        and "- TASK EXECUTION SYNTHESIS:" in body
+        and "- TASK DESCRIPTION SYNTHESIS:" in body
+        and "- EXECUTION MEMORY:" in body
+        and "- APPROACH AND RESULTS:" in body
         and "- PRIORITY SIGNALS:" in body
         and "- OPEN LOOP:" in body
     )
 
 
 def _task_memories_too_thin(memory_document: str) -> bool:
-    body = _section_body(memory_document, "TASK REQUIREMENT SYNTHESIS")
+    body = _section_body(memory_document, "TASK MEMORIES")
     if body is None:
         return False
     sections = [section.strip() for section in re.split(r"(?m)^####\s+", body) if section.strip()]
@@ -181,18 +192,22 @@ def _task_memories_too_thin(memory_document: str) -> bool:
         required_fields = [
             "- FULL-FIDELITY REF:",
             "- TASK TIMESTAMPS:",
-            "- TASK REQUEST SYNTHESIS:",
-            "- TASK EXECUTION SYNTHESIS:",
+            "- TASK DESCRIPTION SYNTHESIS:",
+            "- EXECUTION MEMORY:",
+            "- APPROACH AND RESULTS:",
             "- PRIORITY SIGNALS:",
             "- OPEN LOOP:",
         ]
         if any(field not in section for field in required_fields):
             return True
-        request_line = _field_value(section, "TASK REQUEST SYNTHESIS")
-        execution_line = _field_value(section, "TASK EXECUTION SYNTHESIS")
-        if request_line is None or len(re.findall(r"\b\w+\b", request_line)) < 8:
+        description_line = _field_value(section, "TASK DESCRIPTION SYNTHESIS")
+        execution_line = _field_value(section, "EXECUTION MEMORY")
+        results_line = _field_value(section, "APPROACH AND RESULTS")
+        if description_line is None or len(re.findall(r"\b\w+\b", description_line)) < 10:
             return True
-        if execution_line is None or len(re.findall(r"\b\w+\b", execution_line)) < 14:
+        if execution_line is None or len(re.findall(r"\b\w+\b", execution_line)) < 18:
+            return True
+        if results_line is None or len(re.findall(r"\b\w+\b", results_line)) < 12:
             return True
         timestamp_line = _field_value(section, "TASK TIMESTAMPS")
         if timestamp_line is None or "->" not in timestamp_line:
@@ -205,10 +220,10 @@ def _has_markdown_document_structure(memory_document: str) -> bool:
 
 
 def _missing_resume_signal(memory_document: str) -> bool:
-    current_state = _section_body(memory_document, "CURRENT STATE") or ""
+    task_memories = _section_body(memory_document, "TASK MEMORIES") or ""
     open_problems = _section_body(memory_document, "OPEN PROBLEMS") or ""
     next_steps = _section_body(memory_document, "NEXT STEPS") or ""
-    return not current_state.strip() or not open_problems.strip() or not next_steps.strip()
+    return not task_memories.strip() or not open_problems.strip() or not next_steps.strip()
 
 
 def _missing_transfer_signal(memory_document: str) -> bool:
@@ -235,3 +250,46 @@ def _field_value(section: str, field: str) -> str | None:
     if not match:
         return None
     return match.group(1).strip()
+
+
+def sanitize_memory_document(memory_document: str) -> str:
+    text = memory_document.strip()
+    text = _drop_before_first_heading(text)
+    text = _drop_revision_log(text)
+    text = _drop_critique_summary(text)
+    text = _drop_escalation(text)
+    return text.strip()
+
+
+def _has_compaction_artifacts(memory_document: str) -> bool:
+    normalized = memory_document.upper()
+    artifact_markers = [
+        "REVISION LOG",
+        "CRITIQUE SUMMARY",
+        "LOCAL QUALITY REVIEW",
+        "ESCALATION:",
+        "MY THOUGHT PROCESS",
+        "'TYPE': 'THINKING'",
+        '"TYPE": "THINKING"',
+        "**MY THOUGHT PROCESS",
+    ]
+    return any(marker in normalized for marker in artifact_markers)
+
+
+def _drop_before_first_heading(text: str) -> str:
+    match = re.search(r"(?m)^##\s+", text)
+    if not match:
+        return text
+    return text[match.start():]
+
+
+def _drop_revision_log(text: str) -> str:
+    return re.sub(r"(?ims)^\s*(?:#+\s*)?REVISION LOG\b.*?(?=^\s*##\s|\Z)", "", text).strip()
+
+
+def _drop_critique_summary(text: str) -> str:
+    return re.sub(r"(?ims)^\s*CRITIQUE SUMMARY\b.*$", "", text).strip()
+
+
+def _drop_escalation(text: str) -> str:
+    return re.sub(r"(?im)^\s*ESCALATION:.*$", "", text).strip()
