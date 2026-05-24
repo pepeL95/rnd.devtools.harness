@@ -81,17 +81,3 @@ class DriverAgentTests(TestCase):
         self.assertEqual(model.max_retries, 3)
         self.assertIs(model.include_thoughts, True)
         self.assertEqual(model.thinking_level, "minimal")
-
-    # def test_default_model_name_accepts_legacy_provider_prefix(self) -> None:
-    #     with patch.dict("os.environ", {"QUASIPILOT_DRIVER_MODEL": "google_genai:gemini-test"}, clear=False):
-    #         self.assertEqual(_default_google_model_name(), "gemini-test")
-    #
-    # def test_default_google_reasoning_kwargs_use_budget_for_gemini_25(self) -> None:
-    #     kwargs = _default_google_reasoning_kwargs("gemini-2.5-flash")
-    #
-    #     self.assertEqual(kwargs["thinking_budget"], -1)
-    #     self.assertIs(kwargs["include_thoughts"], True)
-    #
-    # def test_default_google_reasoning_can_be_disabled(self) -> None:
-    #     with patch.dict("os.environ", {"QUASIPILOT_REASONING_ENABLED": "false"}, clear=False):
-    #         self.assertEqual(_default_google_reasoning_kwargs("gemini-3.5-flash"), {})
