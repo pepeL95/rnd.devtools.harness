@@ -81,6 +81,7 @@ class QuasipilotApp(App):
         self._commands = SlashCommandRegistry()
         self._busy = False
         self._spinner: WorkingSpinner | None = None
+        self._pending_auto_scroll = False
 
     @property
     def manager(self) -> SessionManager | None:
@@ -135,18 +136,25 @@ class QuasipilotApp(App):
 
     def _scroll_chat_to_bottom(self, *, animate: bool = False) -> None:
         # Wait for the next refresh so max_scroll_y includes newly mounted content.
-        self.call_after_refresh(self._chat_scroll().scroll_end, animate=animate, immediate=False)
+        if self._pending_auto_scroll:
+            return
+        self._pending_auto_scroll = True
+        self.call_after_refresh(self._flush_pending_auto_scroll, animate)
+
+    def _flush_pending_auto_scroll(self, animate: bool) -> None:
+        self._pending_auto_scroll = False
+        self._chat_scroll().scroll_end(animate=animate, immediate=False)
 
     def _mount_chat(self, widget: Widget) -> None:
         """Mount a widget and follow the end only while the user is pinned to the bottom."""
-        should_follow = self._is_chat_at_bottom()
+        should_follow = self._pending_auto_scroll or self._is_chat_at_bottom()
         self._chat_log().mount(widget)
         if should_follow:
             self._scroll_chat_to_bottom()
 
     def _mount_chat_batch(self, *widgets: Widget) -> None:
         """Mount a related batch of widgets using one bottom snapshot."""
-        should_follow = self._is_chat_at_bottom()
+        should_follow = self._pending_auto_scroll or self._is_chat_at_bottom()
         chat = self._chat_log()
         for widget in widgets:
             chat.mount(widget)
