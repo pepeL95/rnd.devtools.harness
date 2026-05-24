@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+from langchain_core.language_models.chat_models import BaseChatModel
+
 from core.session.events import SessionEvent
+from core.utilities.defaults import get_default_model
 
 
 @dataclass(frozen=True)
@@ -17,7 +20,7 @@ class CompactionPolicy:
     trigger_tokens: int = 8000
     keep_last_turns: int = 5
     max_critic_loops: int = 2
-    model: str = "google_genai:gemini-3.5-flash"
+    model: BaseChatModel = field(default_factory=get_default_model)
     trigger_after: timedelta | None = None
     trigger_on_day_change: bool = False
 

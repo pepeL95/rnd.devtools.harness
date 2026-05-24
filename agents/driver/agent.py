@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import inspect
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from agents.driver.prompt import DRIVER_SYSTEM_PROMPT
 from core.compaction.compactor import Compactor
@@ -17,13 +18,12 @@ from core.middleware.system_prompt import SystemPromptMiddleware
 from core.middleware.telemetry import TelemetryMiddleware
 from core.session.session_manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
-
+from core.utilities.defaults import get_default_model
 
 @dataclass(frozen=True)
 class DriverAgentConfig:
     cwd: Path
-    model: str = field(default_factory=lambda: os.getenv("QUASIPILOT_DRIVER_MODEL", "google_genai:gemini-3.5-flash"))
-    model_retries: int = field(default_factory=lambda: int(os.getenv("QUASIPILOT_MODEL_RETRIES", "0")))
+    model: BaseChatModel = field(default_factory=get_default_model)
     session_id: str | None = None
 
 
@@ -41,7 +41,6 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     cwd = config.cwd.expanduser().resolve()
     manager = SessionManager(session_id=config.session_id)
     backend = _local_shell_backend(LocalShellBackend, cwd)
-    model = _init_driver_model(config.model, retries=config.model_retries)
     middleware = [
         # Middleware order is load-bearing. LangChain runs before_* hooks
         # first-to-last, after_* hooks last-to-first, and wrap hooks as nested
@@ -57,21 +56,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         FilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager),
     ]
-    return create_agent(model=model, tools=[], middleware=middleware)
-
-
-def _init_driver_model(model_name: str, retries: int) -> Any:
-    if model_name.startswith("google_genai:"):
-        from dotenv import load_dotenv
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
-        load_dotenv(dotenv_path=Path.cwd() / ".env")
-        return ChatGoogleGenerativeAI(
-            model=model_name.removeprefix("google_genai:"),
-            temperature=0,
-            retries=retries,
-        )
-    return model_name
+    return create_agent(model=config.model, tools=[], middleware=middleware)
 
 
 def _local_shell_backend(backend_cls: type[Any], cwd: Path) -> Any:

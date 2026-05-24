@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any, Protocol
 
-from dotenv import load_dotenv
+from langchain_core.language_models.chat_models import BaseChatModel
 
 
 class TextGenerator(Protocol):
@@ -14,15 +13,12 @@ class TextGenerator(Protocol):
 class LangChainTextGenerator:
     """Thin adapter from the compaction pipeline to any LangChain chat model."""
 
-    def __init__(self, model: Any) -> None:
+    def __init__(self, model: BaseChatModel) -> None:
         self.model = model
 
     @classmethod
-    def from_model_name(cls, model_name: str) -> "LangChainTextGenerator":
-        load_dotenv(dotenv_path=Path.cwd() / ".env")
-        from langchain.chat_models import init_chat_model
-
-        return cls(init_chat_model(model_name, temperature=0))
+    def from_chat_model(cls, model: BaseChatModel) -> "LangChainTextGenerator":
+        return cls(model)
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         from langchain_core.messages import HumanMessage, SystemMessage

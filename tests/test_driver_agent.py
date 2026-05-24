@@ -1,9 +1,11 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
-from agents.driver.agent import _init_driver_model, _local_shell_backend
+from agents.driver.agent import _local_shell_backend
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
+from core.utilities.defaults import _default_google_model_name, get_default_model
 
 
 class BackendWithVirtualEnv:
@@ -45,8 +47,12 @@ class DriverAgentTests(TestCase):
 
             self.assertEqual(type(agent).__name__, "CompiledStateGraph")
 
-    def test_google_driver_model_disables_retries_by_default(self) -> None:
-        model = _init_driver_model("google_genai:gemini-3.5-flash", retries=0)
+    def test_default_model_disables_retries_by_default(self) -> None:
+        model = get_default_model()
 
         self.assertEqual(model.model, "gemini-3.5-flash")
         self.assertEqual(model.max_retries, 0)
+
+    def test_default_model_name_accepts_legacy_provider_prefix(self) -> None:
+        with patch.dict("os.environ", {"QUASIPILOT_DRIVER_MODEL": "google_genai:gemini-test"}, clear=False):
+            self.assertEqual(_default_google_model_name(), "gemini-test")

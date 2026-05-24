@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from textual import work
@@ -25,7 +24,7 @@ from cli.utilities.display import content_to_plaintext
 from cli.utilities.streaming import iter_agent_turn
 from core.session.events import EventType
 from core.session.session_manager import SessionManager
-
+from core.utilities.defaults import get_default_model, get_model_name
 
 class AgentStream(Message):
     """Worker thread event for live tool/reason updates."""
@@ -74,7 +73,7 @@ class QuasipilotApp(App):
     def __init__(self) -> None:
         super().__init__()
         self._cwd = Path.cwd()
-        self._model = os.getenv("QUASIPILOT_DRIVER_MODEL", "google_genai:gemini-3.5-flash")
+        self._model = get_default_model()
         self.session_id: str | None = None
         self._manager: SessionManager | None = None
         self._agent = None
@@ -91,7 +90,7 @@ class QuasipilotApp(App):
             yield Vertical(id="chat-log")
         with Vertical(id="bottom-bar"):
             yield ChatInput()
-            yield RuntimeBar(self._model, str(self._cwd))
+            yield RuntimeBar(get_model_name(self._model), str(self._cwd))
 
     def on_mount(self) -> None:
         self.query_one(ChatInput).focus()

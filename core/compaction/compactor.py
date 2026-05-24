@@ -21,7 +21,7 @@ class Compactor:
     ) -> None:
         self.policy = policy or CompactionPolicy()
         self.policy.validate()
-        self.generator = generator or LangChainTextGenerator.from_model_name(self.policy.model)
+        self.generator = generator or LangChainTextGenerator.from_chat_model(self.policy.model)
         self.token_counter = token_counter or TokenCounter()
 
     def compact(

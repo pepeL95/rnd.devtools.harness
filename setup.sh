@@ -40,21 +40,30 @@ echo "Activating environment '$ENV_NAME'"
 conda activate "$ENV_NAME"
 
 echo "Upgrading packaging tools (pip, setuptools, wheel)"
-pip install --upgrade pip setuptools wheel build
+python -m pip install --upgrade pip setuptools wheel build
 
 # Install the project and CLI entrypoint. Prefer editable install to ease development.
 if [ -f "pyproject.toml" ]; then
   echo "Installing project from local source (including optional 'dev' extras)"
-  # Try editable install with dev extras; fall back to regular editable install
-  pip install -e .[dev] || pip install -e . || pip install .
+  python -m pip install -e ".[dev]"
 else
   echo "pyproject.toml not found; installing core runtime and CLI packages manually"
-  pip install chromadb>=1.0 deepagents>=0.6 "langchain>=1.2,<2" langchain-google-genai>=4.0 langgraph>=1.1 pydantic>=2.0 python-dotenv>=1.0 textual>=6.0 tiktoken>=0.12
+  python -m pip install \
+    "chromadb>=1.0" \
+    "deepagents>=0.6" \
+    "langchain>=1.2,<2" \
+    "langchain-google-genai>=4.0" \
+    "langgraph>=1.1" \
+    "pydantic>=2.0" \
+    "python-dotenv>=1.0" \
+    "textual>=6.0" \
+    "tiktoken>=0.12"
 fi
 
 echo
 echo "Done. To start using the harness and CLI:"
 echo "  1) Activate the environment: source $(conda info --base)/etc/profile.d/conda.sh && conda activate $ENV_NAME"
-echo "  2) Run the CLI using: quasipilot --help  (entrypoint installed by pip)"
+echo "  2) Ensure .env contains GOOGLE_API_KEY or GEMINI_API_KEY"
+echo "  3) Run the CLI using: quasipilot"
 echo
 echo "If you want the environment to be created fresh, remove it first with: conda env remove -n $ENV_NAME"
