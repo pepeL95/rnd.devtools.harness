@@ -130,11 +130,12 @@ class QuasipilotApp(App):
         return self.query_one("#chat-scroll", VerticalScroll)
 
     def _is_chat_at_bottom(self) -> bool:
-        return self._chat_scroll().is_vertical_scroll_end
+        scroll = self._chat_scroll()
+        return scroll.max_scroll_y <= 0 or scroll.scroll_y >= max(scroll.max_scroll_y - 1, 0)
 
     def _scroll_chat_to_bottom(self, *, animate: bool = False) -> None:
-        # Defer until after layout so max_scroll_y reflects newly mounted content.
-        self._chat_scroll().scroll_end(animate=animate, immediate=False)
+        # Wait for the next refresh so max_scroll_y includes newly mounted content.
+        self.call_after_refresh(self._chat_scroll().scroll_end, animate=animate, immediate=False)
 
     def _mount_chat(self, widget: Widget) -> None:
         """Mount a widget and follow the end only while the user is pinned to the bottom."""
@@ -159,13 +160,12 @@ class QuasipilotApp(App):
     def _render_history(self) -> None:
         if self._manager is None:
             return
-        chat = self._chat_log()
         for event in self._manager.read_curated():
             if event.type not in {EventType.USER, EventType.ASSISTANT}:
                 continue
             content = content_to_plaintext(event.payload.get("content", ""))
             if event.type == EventType.USER:
-                chat.mount(UserBubble(content))
+                self._chat_log().mount(UserBubble(content))
             else:
                 self._mount_chat_batch(Divider(), AIBubble(content))
         self._scroll_chat_to_bottom()
