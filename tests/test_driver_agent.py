@@ -5,7 +5,37 @@ from unittest.mock import patch
 
 from agents.driver.agent import _local_shell_backend
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
-from core.utilities.defaults import _default_google_model_name, get_default_model
+from core.utilities.defaults import (
+    _default_google_model_name,
+    _default_google_reasoning_kwargs,
+    configure_model_for_reasoning,
+    get_default_model,
+)
+from langchain_core.language_models.chat_models import BaseChatModel
+
+
+class FakeReasoningModel(BaseChatModel):
+    model: str = "reasoning-model"
+    reasoning: dict | None = None
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # pragma: no cover - unused
+        raise NotImplementedError
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-reasoning"
+
+
+class FakeThinkingModel(BaseChatModel):
+    model: str = "thinking-model"
+    thinking: dict | None = None
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # pragma: no cover - unused
+        raise NotImplementedError
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-thinking"
 
 
 class BackendWithVirtualEnv:
@@ -52,7 +82,36 @@ class DriverAgentTests(TestCase):
 
         self.assertEqual(model.model, "gemini-3.5-flash")
         self.assertEqual(model.max_retries, 0)
+        self.assertIs(model.include_thoughts, True)
+        self.assertEqual(model.thinking_level, "low")
 
     def test_default_model_name_accepts_legacy_provider_prefix(self) -> None:
         with patch.dict("os.environ", {"QUASIPILOT_DRIVER_MODEL": "google_genai:gemini-test"}, clear=False):
             self.assertEqual(_default_google_model_name(), "gemini-test")
+
+    def test_default_google_reasoning_kwargs_use_budget_for_gemini_25(self) -> None:
+        kwargs = _default_google_reasoning_kwargs("gemini-2.5-flash")
+
+        self.assertEqual(kwargs["thinking_budget"], -1)
+        self.assertIs(kwargs["include_thoughts"], True)
+
+    def test_default_google_reasoning_can_be_disabled(self) -> None:
+        with patch.dict("os.environ", {"QUASIPILOT_REASONING_ENABLED": "false"}, clear=False):
+            self.assertEqual(_default_google_reasoning_kwargs("gemini-3.5-flash"), {})
+
+    def test_configure_model_for_reasoning_supports_openai_style_field(self) -> None:
+        configured = configure_model_for_reasoning(FakeReasoningModel())
+
+        self.assertEqual(configured.reasoning, {"effort": "low", "summary": "auto"})
+
+    def test_configure_model_for_reasoning_supports_anthropic_style_field(self) -> None:
+        configured = configure_model_for_reasoning(FakeThinkingModel())
+
+        self.assertEqual(configured.thinking, {"type": "enabled", "budget_tokens": 2000})
+
+    def test_configure_model_for_reasoning_preserves_explicit_provider_settings(self) -> None:
+        configured = configure_model_for_reasoning(
+            FakeReasoningModel(reasoning={"effort": "high", "summary": "detailed"})
+        )
+
+        self.assertEqual(configured.reasoning, {"effort": "high", "summary": "detailed"})

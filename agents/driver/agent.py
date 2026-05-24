@@ -18,7 +18,7 @@ from core.middleware.system_prompt import SystemPromptMiddleware
 from core.middleware.telemetry import TelemetryMiddleware
 from core.session.session_manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
-from core.utilities.defaults import get_default_model
+from core.utilities.defaults import configure_model_for_reasoning, get_default_model
 
 @dataclass(frozen=True)
 class DriverAgentConfig:
@@ -56,7 +56,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         FilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager),
     ]
-    return create_agent(model=config.model, tools=[], middleware=middleware)
+    return create_agent(model=configure_model_for_reasoning(config.model), tools=[], middleware=middleware)
 
 
 def _local_shell_backend(backend_cls: type[Any], cwd: Path) -> Any:

@@ -31,6 +31,43 @@ def message_role(message: Any) -> str:
     return str(role or "message")
 
 
+def message_reasoning_blocks(message: Any) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    content = getattr(message, "content", "")
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type not in {"reasoning", "thinking"}:
+                continue
+            text = block.get("reasoning") or block.get("thinking") or block.get("text")
+            if not text:
+                continue
+            extras = block.get("extras") or {}
+            signature = block.get("signature") or extras.get("signature")
+            blocks.append(
+                {
+                    "type": "reasoning",
+                    "text": str(text).strip(),
+                    "format": str(block_type),
+                    "signature": str(signature) if signature else None,
+                }
+            )
+    additional = getattr(message, "additional_kwargs", None) or {}
+    reasoning = additional.get("reasoning") or additional.get("reasoning_content")
+    if reasoning:
+        blocks.append(
+            {
+                "type": "reasoning",
+                "text": str(reasoning).strip(),
+                "format": "additional_kwargs",
+                "signature": None,
+            }
+        )
+    return blocks
+
+
 def make_message(role: str, content: Any) -> BaseMessage:
     normalized = normalize_message_content(content)
     if role == "user":

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.utilities.messages import message_reasoning_blocks as core_message_reasoning_blocks
+
 
 def message_text(message: Any) -> str:
     content = getattr(message, "content", "")
@@ -19,20 +21,9 @@ def message_text(message: Any) -> str:
 
 
 def message_reasoning(message: Any) -> str | None:
-    content = getattr(message, "content", "")
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "reasoning":
-                text = block.get("reasoning") or block.get("text")
-                if text:
-                    parts.append(str(text))
-        if parts:
-            return "\n".join(parts).strip()
-    additional = getattr(message, "additional_kwargs", None) or {}
-    reasoning = additional.get("reasoning") or additional.get("reasoning_content")
-    if reasoning:
-        return str(reasoning).strip()
+    parts = [block["text"] for block in core_message_reasoning_blocks(message) if block.get("text")]
+    if parts:
+        return "\n".join(parts).strip()
     return None
 
 

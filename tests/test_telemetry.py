@@ -73,6 +73,40 @@ class TelemetryTests(TestCase):
             {"input_tokens": 6, "output_tokens": 4, "total_tokens": 10},
         )
 
+    def test_response_usage_sums_nested_reasoning_details(self) -> None:
+        response = ModelResponse(
+            result=[
+                AIMessage(
+                    content="a",
+                    usage_metadata={
+                        "input_tokens": 2,
+                        "output_tokens": 3,
+                        "total_tokens": 5,
+                        "output_token_details": {"reasoning": 7},
+                    },
+                ),
+                AIMessage(
+                    content="b",
+                    usage_metadata={
+                        "input_tokens": 1,
+                        "output_tokens": 4,
+                        "total_tokens": 5,
+                        "output_token_details": {"reasoning": 5},
+                    },
+                ),
+            ]
+        )
+
+        self.assertEqual(
+            _response_usage(response),
+            {
+                "input_tokens": 3,
+                "output_tokens": 7,
+                "total_tokens": 10,
+                "output_token_details": {"reasoning": 12},
+            },
+        )
+
     def test_telemetry_middleware_records_token_counts_and_usage(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "telemetry.jsonl"

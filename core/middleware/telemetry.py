@@ -140,12 +140,22 @@ def _response_usage(response: ModelResponse) -> dict[str, Any]:
 
     totals: dict[str, Any] = {}
     for item in usage_items:
-        for key, value in item.items():
-            if isinstance(value, int):
-                totals[key] = int(totals.get(key, 0)) + value
-            elif key not in totals:
-                totals[key] = value
+        _merge_usage_item(totals, item)
     return totals
+
+
+def _merge_usage_item(target: dict[str, Any], item: dict[str, Any]) -> None:
+    for key, value in item.items():
+        if isinstance(value, int):
+            target[key] = int(target.get(key, 0)) + value
+        elif isinstance(value, dict):
+            existing = target.get(key)
+            if not isinstance(existing, dict):
+                existing = {}
+                target[key] = existing
+            _merge_usage_item(existing, value)
+        elif key not in target:
+            target[key] = value
 
 
 def _exception_payload(exc: Exception) -> dict[str, Any]:

@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from langchain_core.messages import BaseMessage
 
-from core.utilities.messages import make_message, message_role
+from core.utilities.messages import make_message, message_reasoning_blocks, message_role
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.io import append_events, read_events, replace_events, session_paths
 from core.session.turns import agent_history_events, next_turn
@@ -57,6 +57,23 @@ class SessionManager:
         events: list[SessionEvent] = []
         for message in messages:
             role = message_role(message)
+            message_type = getattr(message, "type", None)
+            if role == "assistant":
+                for index, block in enumerate(message_reasoning_blocks(message)):
+                    events.append(
+                        SessionEvent(
+                            type=EventType.REASONING,
+                            turn=turn_number,
+                            payload={
+                                "role": role,
+                                "content": block["text"],
+                                "message_type": message_type,
+                                "reasoning_format": block["format"],
+                                "signature": block["signature"],
+                                "index": index,
+                            },
+                        )
+                    )
             event_type = {
                 "user": EventType.USER,
                 "assistant": EventType.ASSISTANT,
@@ -70,7 +87,7 @@ class SessionManager:
                     payload={
                         "role": role,
                         "content": getattr(message, "content", message),
-                        "message_type": getattr(message, "type", None),
+                        "message_type": message_type,
                     },
                 )
             )
@@ -83,4 +100,3 @@ class SessionManager:
             content = event.payload.get("content", "")
             restored.append(make_message(role=role, content=content))
         return restored
-
