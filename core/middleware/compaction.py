@@ -27,7 +27,6 @@ class CompactionMiddleware(AgentMiddleware):
         self.on_compaction_event = on_compaction_event
 
     def before_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
-        self._compact_if_needed(runtime)
         return None
 
     def after_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
