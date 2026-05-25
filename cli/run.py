@@ -151,7 +151,7 @@ class QuasipilotApp(App):
         return self.query_one("#chat-scroll", VerticalScroll)
 
     def _scroll_chat_to_bottom(self) -> None:
-        self._chat_scroll().scroll_end(animate=False, immediate=True)
+        self.call_after_refresh(lambda: self._chat_scroll().scroll_end(animate=True))
 
     def _mount_chat(self, widget: Widget) -> None:
         self._chat_log().mount(widget)
