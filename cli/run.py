@@ -79,6 +79,10 @@ class QuasipilotApp(App):
         width: 100%;
     }
 
+    #spinner-container {
+        height: 2;
+    }
+
     ChatInput:disabled {
         opacity: 0.65;
     }
@@ -107,6 +111,7 @@ class QuasipilotApp(App):
         with VerticalScroll(id="chat-scroll"):
             yield Vertical(id="chat-log")
         with Vertical(id="bottom-bar"):
+            yield Vertical(id="spinner-container")
             yield ChatInput()
             yield RuntimeBar(get_model_name(self._model), str(self._cwd))
 
@@ -151,7 +156,7 @@ class QuasipilotApp(App):
         return self.query_one("#chat-scroll", VerticalScroll)
 
     def _scroll_chat_to_bottom(self) -> None:
-        self.call_after_refresh(lambda: self._chat_scroll().scroll_end(animate=True))
+        self.call_after_refresh(lambda: self._chat_scroll().scroll_end(animate=False))
 
     def _mount_chat(self, widget: Widget) -> None:
         self._chat_log().mount(widget)
@@ -204,16 +209,19 @@ class QuasipilotApp(App):
         chat_input = self.query_one(ChatInput)
         chat_input.disabled = busy
 
+    def _mount_spinner(self, widget: Widget) -> None:
+        self.query_one("#spinner-container").mount(widget)
+
     def _show_spinner(self) -> None:
         if self._spinner is not None:
             return
         self._spinner = WorkingSpinner()
-        self._mount_chat(self._spinner)
+        self._mount_spinner(self._spinner)
 
     def _set_spinner_status(self, status: str) -> None:
         if self._spinner is None:
             self._spinner = WorkingSpinner(status=status)
-            self._mount_chat(self._spinner)
+            self._mount_spinner(self._spinner)
             return
         self._spinner.set_status(status)
 
