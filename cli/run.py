@@ -69,11 +69,6 @@ class QuasipilotApp(App):
         
     }
 
-    #chat-log {
-        width: 100%;
-        height: auto;
-    }
-
     #bottom-bar {
         height: auto;
         width: 100%;
@@ -108,8 +103,7 @@ class QuasipilotApp(App):
         return self._manager
 
     def compose(self) -> ComposeResult:
-        with VerticalScroll(id="chat-scroll"):
-            yield Vertical(id="chat-log")
+        yield VerticalScroll(id="chat-scroll")
         with Vertical(id="bottom-bar"):
             yield Vertical(id="spinner-container")
             yield ChatInput()
@@ -149,9 +143,6 @@ class QuasipilotApp(App):
             self._sync_compaction_ui()
         return self._manager
 
-    def _chat_log(self) -> Vertical:
-        return self.query_one("#chat-log", Vertical)
-
     def _chat_scroll(self) -> VerticalScroll:
         return self.query_one("#chat-scroll", VerticalScroll)
 
@@ -159,23 +150,23 @@ class QuasipilotApp(App):
         self.call_after_refresh(lambda: self._chat_scroll().scroll_end(animate=False))
 
     def _mount_chat(self, widget: Widget) -> None:
-        self._chat_log().mount(widget)
+        self._chat_scroll().mount(widget)
         self._scroll_chat_to_bottom()
 
     def _mount_chat_batch(self, *widgets: Widget) -> None:
-        chat = self._chat_log()
+        chat = self._chat_scroll()
         for widget in widgets:
             chat.mount(widget)
         self._scroll_chat_to_bottom()
 
     def _clear_chat(self) -> None:
-        self._chat_log().remove_children()
+        self._chat_scroll().remove_children()
         self._chat_scroll().scroll_home(animate=False)
 
     def _render_history(self) -> None:
         if self._manager is None:
             return
-        chat = self._chat_log()
+        chat = self._chat_scroll()
         for event in self._manager.read_display_history():
             content = content_to_plaintext(event.payload.get("content", ""))
             if event.type == EventType.USER:
