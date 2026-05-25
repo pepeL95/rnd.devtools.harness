@@ -8,11 +8,11 @@ from time import sleep
 from unittest import TestCase
 
 from core.session.events import EventType, SessionEvent
-from core.session.session_manager import SessionManager
-from core.trajectory_compaction.compactor import TrajectoryCompactor
-from core.trajectory_compaction.coordinator import TrajectoryCompactionCoordinator
-from core.trajectory_compaction.policy import TrajectoryCompactionPolicy
-from core.trajectory_compaction.serialization import format_turn_interval, trajectory_memory_message
+from core.session.manager import SessionManager
+from core.trajectory.compactor import TrajectoryCompactor
+from core.trajectory.coordinator import TrajectoryCompactionCoordinator
+from core.trajectory.policy import TrajectoryCompactionPolicy
+from core.trajectory.serialization import format_turn_interval, trajectory_memory_message
 
 
 class ScriptedGenerator:

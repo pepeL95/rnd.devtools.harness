@@ -4,10 +4,10 @@ import json
 
 from core.compaction.llm import LangChainTextGenerator, TextGenerator
 from core.session.events import EventType, SessionEvent
-from core.trajectory_compaction.models import TrajectoryCompactionResult, TurnTrajectorySynthesis
-from core.trajectory_compaction.policy import TrajectoryCompactionPolicy
-from core.trajectory_compaction.prompts import SYNTHESIS_PROMPT
-from core.trajectory_compaction.serialization import (
+from core.trajectory.models import TrajectoryCompactionResult, TurnTrajectorySynthesis
+from core.trajectory.policy import TrajectoryCompactionPolicy
+from core.trajectory.prompts import SYNTHESIS_PROMPT
+from core.trajectory.serialization import (
     events_to_internal_trajectory,
     trajectory_memory_message,
 )

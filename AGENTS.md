@@ -28,7 +28,7 @@ The codebase is organized into functional modules to ensure separation of concer
 │   │   └── compaction.py  # Compaction trigger middleware
 │   ├── session/        # Session management and I/O
 │   ├── telemetry/      # Event tracking and storage
-│   └── trajectory_compaction/ # Advanced trajectory synthesis
+│   └── trajectory/ # Advanced trajectory synthesis
 ├── evals/              # Evaluation suites
 └── tests/              # Unit and integration tests
 ```

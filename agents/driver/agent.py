@@ -17,13 +17,13 @@ from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
 from core.middleware.system_prompt import SystemPromptMiddleware
-from core.middleware.trajectory_compaction import TrajectoryCompactionMiddleware
+from core.middleware.trajectory import TrajectoryCompactionMiddleware
 from core.middleware.telemetry import TelemetryMiddleware
-from core.session.session_manager import SessionManager
+from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
-from core.trajectory_compaction.compactor import TrajectoryCompactor
-from core.trajectory_compaction.coordinator import TrajectoryCompactionCoordinator
-from core.trajectory_compaction.policy import TrajectoryCompactionPolicy
+from core.trajectory.compactor import TrajectoryCompactor
+from core.trajectory.coordinator import TrajectoryCompactionCoordinator
+from core.trajectory.policy import TrajectoryCompactionPolicy
 from core.utilities.defaults import get_default_model
 
 @dataclass(frozen=True)

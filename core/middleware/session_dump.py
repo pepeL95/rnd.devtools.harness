@@ -4,7 +4,7 @@ from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
-from core.session.session_manager import SessionManager
+from core.session.manager import SessionManager
 
 
 class SessionDumpMiddleware(AgentMiddleware):

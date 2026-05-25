@@ -18,7 +18,7 @@ core/
     - telemetry.py
     - system_prompt.py
 - session/ -> session (lifecycle + policies) logic .. leveraged at respective middleware
-    - session_manager.py
+    - manager.py
     - events.py
     - io.py
     - turns.py

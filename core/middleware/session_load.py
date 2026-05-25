@@ -5,7 +5,7 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware, AgentState
 
 from core.session.restore import reset_messages_update
-from core.session.session_manager import SessionManager
+from core.session.manager import SessionManager
 
 
 class SessionLoadMiddleware(AgentMiddleware):
@@ -20,4 +20,3 @@ class SessionLoadMiddleware(AgentMiddleware):
             return None
         current = list(state.get("messages", []))
         return {"messages": reset_messages_update([*restored, *current])}
-

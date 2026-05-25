@@ -4,7 +4,7 @@ import json
 from collections.abc import Iterable
 
 from core.session.events import SessionEvent
-from core.trajectory_compaction.models import TurnTrajectorySynthesis
+from core.trajectory.models import TurnTrajectorySynthesis
 
 
 def events_to_internal_trajectory(events: Iterable[SessionEvent]) -> str:

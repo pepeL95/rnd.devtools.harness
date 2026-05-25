@@ -27,7 +27,7 @@ from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.session.events import EventType
-from core.session.session_manager import SessionManager
+from core.session.manager import SessionManager
 from core.utilities.defaults import get_default_model, get_model_name
 
 class AgentStream(Message):
@@ -45,6 +45,14 @@ class AgentFinished(Message):
     def __init__(self, text: str, error: str | None = None) -> None:
         self.text = text
         self.error = error
+        super().__init__()
+
+
+class ManualCompactionFinished(Message):
+    """Worker completed a blocking manual compaction run."""
+
+    def __init__(self, status: str) -> None:
+        self.status = status
         super().__init__()
 
 
@@ -241,15 +249,32 @@ class QuasipilotApp(App):
         if self._manager is None or self._compaction_coordinator is None:
             self.notify_warning("no active session to compact")
             return
-        status = self._compaction_coordinator.request_manual_compaction()
-        if status == "started":
-            self._compaction_active = True
-            self._sync_compaction_ui()
-            self.notify("session compaction queued", timeout=2, markup=False)
-        elif status == "running":
+        if self._busy:
+            self.notify_warning("wait for the active operation to finish")
+            return
+        if self._manager.is_curated_locked():
             self.notify_warning("session compaction already running")
-        else:
+            return
+        self._set_busy(True)
+        self._show_spinner()
+        self.run_manual_compaction()
+
+    @work(thread=True, exclusive=True)
+    def run_manual_compaction(self) -> None:
+        assert self._compaction_coordinator is not None
+        status = self._compaction_coordinator.request_manual_compaction()
+        self.post_message(ManualCompactionFinished(status))
+
+    def on_manual_compaction_finished(self, event: ManualCompactionFinished) -> None:
+        self._hide_spinner()
+        self._set_busy(False)
+        status = event.status
+        if status == "running":
+            self.notify_warning("session compaction already running")
+        elif status == "failed":
             self.notify_warning("session compaction could not be started")
+        elif status != "completed":
+            self.notify_warning("session compaction was not needed")
 
     def _sync_compaction_ui(self) -> None:
         if self._manager is None:

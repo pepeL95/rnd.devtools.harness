@@ -4,7 +4,7 @@ from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
 
-from core.trajectory_compaction.coordinator import TrajectoryCompactionCoordinator
+from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 
 
 class TrajectoryCompactionMiddleware(AgentMiddleware):

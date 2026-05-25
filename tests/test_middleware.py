@@ -13,7 +13,7 @@ from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
 from core.middleware.system_prompt import SystemPromptMiddleware
 from core.session.events import EventType, SessionEvent
-from core.session.session_manager import SessionManager
+from core.session.manager import SessionManager
 
 
 @dataclass(frozen=True)

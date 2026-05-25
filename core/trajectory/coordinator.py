@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from threading import Lock, Thread
 
-from core.session.session_manager import CuratedCompactionLease, SessionManager
-from core.trajectory_compaction.compactor import TrajectoryCompactor
+from core.locks.session import SessionLease
+from core.session.manager import SessionManager
+from core.trajectory.compactor import TrajectoryCompactor
 
 
 class TrajectoryCompactionCoordinator:
@@ -43,7 +44,7 @@ class TrajectoryCompactionCoordinator:
             self._worker.start()
             return "started"
 
-    def _run_compaction(self, lease: CuratedCompactionLease) -> None:
+    def _run_compaction(self, lease: SessionLease) -> None:
         try:
             result = self.compactor.compact(lease.snapshot_events)
             self.manager.finalize_curated_compaction(lease, result.events)

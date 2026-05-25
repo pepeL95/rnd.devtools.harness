@@ -5,7 +5,7 @@ from unittest import TestCase
 from langchain_core.messages import AIMessage
 
 from core.session.events import EventType, SessionEvent
-from core.session.session_manager import SessionManager
+from core.session.manager import SessionManager
 
 
 class SessionIOTests(TestCase):

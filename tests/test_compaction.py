@@ -1,7 +1,5 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from threading import Event
-from time import sleep
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -13,7 +11,7 @@ from core.compaction.serialization import memory_restore_message
 from core.compaction.window import split_compaction_window
 from core.middleware.compaction import CompactionMiddleware
 from core.session.events import EventType, SessionEvent
-from core.session.session_manager import SessionManager
+from core.session.manager import SessionManager
 
 
 COMPLETE_MEMORY_DOCUMENT = """## Episodic Memory
@@ -78,18 +76,6 @@ class FixedTokenCounter:
 
     def count_events(self, events: object) -> int:
         return self.count
-
-
-class BlockingGenerator(ScriptedGenerator):
-    def __init__(self, responses: list[str], started: Event, release: Event) -> None:
-        super().__init__(responses)
-        self.started = started
-        self.release = release
-
-    def generate(self, system_prompt: str, user_prompt: str) -> str:
-        self.started.set()
-        self.release.wait(timeout=2)
-        return super().generate(system_prompt, user_prompt)
 
 
 def event(turn: int, event_type: EventType, content: str) -> SessionEvent:
@@ -245,7 +231,7 @@ class CompactionTests(TestCase):
         self.assertNotIn("junk before heading", result.memory_document)
         self.assertTrue(result.memory_document.startswith("## Episodic Memory"))
 
-    def test_compaction_middleware_schedules_background_compaction(self) -> None:
+    def test_compaction_middleware_runs_compaction_synchronously(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append(
@@ -269,9 +255,7 @@ class CompactionTests(TestCase):
 
             middleware.after_agent({"messages": []}, runtime=None)
 
-            deadline = datetime.now(timezone.utc) + timedelta(seconds=2)
-            while manager.is_curated_locked() and datetime.now(timezone.utc) < deadline:
-                sleep(0.01)
+            self.assertFalse(manager.is_curated_locked())
             curated = manager.read_curated()
             self.assertEqual(len(curated), 2)
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
@@ -305,16 +289,13 @@ class CompactionTests(TestCase):
             )
 
             status = coordinator.request_policy_compaction(runtime=None)
-            self.assertEqual(status, "started")
-            deadline = datetime.now(timezone.utc) + timedelta(seconds=2)
-            while coordinator.is_running() and datetime.now(timezone.utc) < deadline:
-                sleep(0.01)
+            self.assertEqual(status, "completed")
 
             self.assertEqual([phase for phase, _ in observed], ["start", "end"])
             self.assertEqual(observed[0][1]["estimated_tokens"], 999)
             self.assertEqual(observed[1][1]["compacted_event_count"], 1)
 
-    def test_compaction_coordinator_keeps_new_turns_visible_while_lock_is_held(self) -> None:
+    def test_compaction_coordinator_reports_running_when_lock_is_held(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append(
@@ -323,39 +304,24 @@ class CompactionTests(TestCase):
                     event(2, EventType.USER, "new"),
                 ]
             )
-            started = Event()
-            release = Event()
             compactor = Compactor(
-                generator=BlockingGenerator(
+                generator=ScriptedGenerator(
                     [
                         "EPISODE 1: old\nTURNS: 1 to 1",
                         COMPLETE_MEMORY_DOCUMENT,
                         "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
-                    ],
-                    started=started,
-                    release=release,
+                    ]
                 ),
                 policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
             )
             coordinator = CompactionCoordinator(manager, compactor, token_counter=FixedTokenCounter(999))
+            lease = manager.begin_curated_compaction(trigger="trajectory")
+            assert lease is not None
 
             status = coordinator.request_manual_compaction()
-            self.assertEqual(status, "started")
-            self.assertTrue(started.wait(timeout=1))
 
-            manager.append([event(3, EventType.USER, "latest")])
-            visible = manager.read_curated()
-            self.assertEqual([item.payload["content"] for item in visible[1:]], ["new", "latest"])
-            self.assertTrue(manager.is_curated_locked())
-
-            release.set()
-            deadline = datetime.now(timezone.utc) + timedelta(seconds=2)
-            while coordinator.is_running() and datetime.now(timezone.utc) < deadline:
-                sleep(0.01)
-
-            curated = manager.read_curated()
-            self.assertEqual(curated[0].payload["kind"], "memory_restore")
-            self.assertEqual(curated[-1].payload["content"], "latest")
+            self.assertEqual(status, "running")
+            manager.abort_curated_compaction(lease)
 
     def test_compaction_coordinator_uses_date_policy(self) -> None:
         with TemporaryDirectory() as directory:
@@ -380,10 +346,7 @@ class CompactionTests(TestCase):
 
             runtime = SimpleNamespace(context={"now": datetime(2026, 5, 23, 1, tzinfo=timezone.utc)})
             status = coordinator.request_policy_compaction(runtime=runtime)
-            self.assertEqual(status, "started")
-            deadline = datetime.now(timezone.utc) + timedelta(seconds=2)
-            while coordinator.is_running() and datetime.now(timezone.utc) < deadline:
-                sleep(0.01)
+            self.assertEqual(status, "completed")
 
             self.assertEqual(manager.read_curated()[0].payload["kind"], "memory_restore")
 
