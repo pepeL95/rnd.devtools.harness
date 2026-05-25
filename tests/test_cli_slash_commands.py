@@ -27,3 +27,12 @@ class SlashCommandRegistryTests(TestCase):
 
         self.assertTrue(registry.is_slash("/"))
         self.assertFalse(registry.is_known_command("/"))
+
+    def test_compact_dispatches_manual_compaction(self) -> None:
+        registry = SlashCommandRegistry()
+        app = MagicMock()
+
+        should_exit = registry.dispatch(app, "/compact")
+
+        self.assertFalse(should_exit)
+        app.trigger_manual_compaction.assert_called_once()

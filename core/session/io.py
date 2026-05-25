@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Iterable
 
@@ -14,6 +15,14 @@ def default_session_root() -> Path:
 def session_paths(session_id: str, root: Path | None = None) -> tuple[Path, Path]:
     base = root or default_session_root()
     return base / "dump" / f"{session_id}.jsonl", base / "curated" / f"{session_id}.jsonl"
+
+
+def compaction_paths(session_id: str, root: Path | None = None) -> tuple[Path, Path]:
+    base = root or default_session_root()
+    return (
+        base / "compaction-locks" / f"{session_id}.json",
+        base / "compaction-pending" / f"{session_id}.jsonl",
+    )
 
 
 def append_events(path: Path, events: Iterable[SessionEvent]) -> None:
@@ -43,3 +52,21 @@ def replace_events(path: Path, events: Iterable[SessionEvent]) -> None:
             handle.write(json.dumps(event.to_json_dict(), ensure_ascii=False) + "\n")
     temp_path.replace(path)
 
+
+def write_json_exclusive(path: Path, payload: dict) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    try:
+        fd = os.open(path, flags)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False)
+    return True
+
+
+def read_json(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)

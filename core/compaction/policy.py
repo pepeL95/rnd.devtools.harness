@@ -17,7 +17,7 @@ class CompactionDecision:
 
 @dataclass(frozen=True)
 class CompactionPolicy:
-    trigger_tokens: int = 8000
+    trigger_tokens: int = 50_000
     keep_last_turns: int = 5
     max_critic_loops: int = 2
     model: BaseChatModel = field(default_factory=get_default_model)

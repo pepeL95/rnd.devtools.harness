@@ -23,6 +23,9 @@ from cli.components import (
 from cli.slash_commands.registry import SlashCommandRegistry
 from cli.utilities.display import content_to_plaintext
 from cli.utilities.streaming import iter_agent_turn
+from core.compaction.compactor import Compactor
+from core.compaction.coordinator import CompactionCoordinator
+from core.compaction.policy import CompactionPolicy
 from core.session.events import EventType
 from core.session.session_manager import SessionManager
 from core.utilities.defaults import get_default_model, get_model_name
@@ -85,6 +88,8 @@ class QuasipilotApp(App):
         self._commands = SlashCommandRegistry()
         self._busy = False
         self._spinner: WorkingSpinner | None = None
+        self._compaction_coordinator: CompactionCoordinator | None = None
+        self._compaction_active = False
 
     @property
     def manager(self) -> SessionManager | None:
@@ -99,6 +104,7 @@ class QuasipilotApp(App):
 
     def on_mount(self) -> None:
         self.query_one(ChatInput).focus()
+        self._sync_compaction_ui()
 
     def notify_warning(self, message: str) -> None:
         self.notify(message, timeout=3, markup=False, severity="warning")
@@ -107,20 +113,27 @@ class QuasipilotApp(App):
         self.session_id = None
         self._manager = None
         self._agent = None
+        self._compaction_coordinator = None
+        self._compaction_active = False
         self._clear_chat()
+        self._sync_compaction_ui()
 
     def load_session(self, session_id: str) -> None:
         self.session_id = session_id
         self._manager = SessionManager(session_id=session_id)
+        self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
         self._agent = self._build_agent(session_id)
         self._clear_chat()
         self._render_history()
+        self._sync_compaction_ui()
 
     def _ensure_session(self) -> SessionManager:
         if self._manager is None:
             self._manager = SessionManager()
             self.session_id = self._manager.session_id
+            self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
             self._agent = self._build_agent(self.session_id)
+            self._sync_compaction_ui()
         return self._manager
 
     def _chat_log(self) -> Vertical:
@@ -165,8 +178,17 @@ class QuasipilotApp(App):
                 cwd=self._cwd,
                 model=self._model,
                 session_id=session_id,
+                session_manager=self._manager,
                 on_compaction_event=self._post_compaction_event,
+                compaction_coordinator=self._compaction_coordinator,
             )
+        )
+
+    def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
+        return CompactionCoordinator(
+            manager,
+            Compactor(policy=CompactionPolicy()),
+            on_compaction_event=self._post_compaction_event,
         )
 
     def _set_busy(self, busy: bool) -> None:
@@ -197,11 +219,45 @@ class QuasipilotApp(App):
 
     def _handle_compaction_event(self, phase: str, payload: dict) -> None:
         if phase == "start":
+            self._compaction_active = True
             tokens = payload.get("estimated_tokens")
             suffix = f" · {tokens} tokens" if isinstance(tokens, int) else ""
-            self._set_spinner_status(f"compacting session{suffix}")
+            self._sync_compaction_ui()
+            if self._spinner is not None:
+                self._set_spinner_status(f"compacting session{suffix}")
+            self.notify("session compaction started", timeout=2, markup=False)
         elif phase == "end":
-            self._set_spinner_status("working")
+            self._compaction_active = False
+            self._sync_compaction_ui()
+            if self._spinner is not None:
+                self._set_spinner_status("working")
+            self.notify("session compaction finished", timeout=2, markup=False)
+        elif phase == "error":
+            self._compaction_active = False
+            self._sync_compaction_ui()
+            self.notify_warning(f"session compaction failed: {payload.get('error', 'unknown error')}")
+
+    def trigger_manual_compaction(self) -> None:
+        if self._manager is None or self._compaction_coordinator is None:
+            self.notify_warning("no active session to compact")
+            return
+        status = self._compaction_coordinator.request_manual_compaction()
+        if status == "started":
+            self._compaction_active = True
+            self._sync_compaction_ui()
+            self.notify("session compaction queued", timeout=2, markup=False)
+        elif status == "running":
+            self.notify_warning("session compaction already running")
+        else:
+            self.notify_warning("session compaction could not be started")
+
+    def _sync_compaction_ui(self) -> None:
+        if self._manager is None:
+            active = False
+        else:
+            active = self._compaction_active or self._manager.is_curated_locked()
+        status = "compacting session" if active else None
+        self.query_one(RuntimeBar).update_runtime(status=status)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if not isinstance(event.input, ChatInput):

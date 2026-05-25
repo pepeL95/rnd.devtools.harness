@@ -9,6 +9,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from agents.driver.prompt import DRIVER_SYSTEM_PROMPT
 from core.compaction.compactor import Compactor
+from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.middleware.compaction import CompactionMiddleware
 from core.middleware.reasoning import ReasoningEagerness, ReasoningMiddleware, reasoning_tool
@@ -26,8 +27,10 @@ class DriverAgentConfig:
     cwd: Path
     model: BaseChatModel = field(default_factory=get_default_model)
     session_id: str | None = None
+    session_manager: SessionManager | None = None
     reasoning_eagerness: ReasoningEagerness = "low"
     on_compaction_event: Callable[[str, dict[str, Any]], None] | None = None
+    compaction_coordinator: CompactionCoordinator | None = None
 
 
 def create_driver_agent(config: DriverAgentConfig) -> Any:
@@ -42,8 +45,13 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     from langchain.agents import create_agent
 
     cwd = config.cwd.expanduser().resolve()
-    manager = SessionManager(session_id=config.session_id)
+    manager = config.session_manager or SessionManager(session_id=config.session_id)
     backend = _local_shell_backend(LocalShellBackend, cwd)
+    coordinator = config.compaction_coordinator or CompactionCoordinator(
+        manager,
+        Compactor(policy=CompactionPolicy()),
+        on_compaction_event=config.on_compaction_event,
+    )
     middleware = [
         # Middleware order is load-bearing. LangChain runs before_* hooks
         # first-to-last, after_* hooks last-to-first, and wrap hooks as nested
@@ -53,11 +61,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         # Source: https://docs.langchain.com/oss/python/langchain/middleware/custom
         TelemetryMiddleware(TelemetryStore(telemetry_session_path(manager.session_id))),
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
-        CompactionMiddleware(
-            manager,
-            Compactor(policy=CompactionPolicy()),
-            on_compaction_event=config.on_compaction_event,
-        ),
+        CompactionMiddleware(coordinator),
         SessionLoadMiddleware(manager),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
         RuntimeContextMiddleware(cwd=cwd),

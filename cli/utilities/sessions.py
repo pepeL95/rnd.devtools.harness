@@ -6,7 +6,7 @@ from pathlib import Path
 
 from cli.utilities.display import content_to_plaintext
 from core.session.events import EventType
-from core.session.io import default_session_root, read_events, session_paths
+from core.session.io import compaction_paths, default_session_root, read_events, session_paths
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,7 @@ def list_sessions(root: Path | None = None) -> list[SessionSummary]:
 
 def clear_session_files(session_id: str, root: Path | None = None) -> None:
     dump_path, curated_path = session_paths(session_id, root)
-    for path in (dump_path, curated_path):
+    lock_path, pending_path = compaction_paths(session_id, root)
+    for path in (dump_path, curated_path, lock_path, pending_path):
         if path.exists():
             path.unlink()
