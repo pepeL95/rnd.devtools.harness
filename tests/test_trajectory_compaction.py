@@ -78,8 +78,13 @@ class TrajectoryCompactionTests(TestCase):
 
         self.assertEqual(result.compacted_turns, [1, 2])
         self.assertEqual(result.compacted_event_count, 3)
+        visible_and_memory_contents = [
+            item.payload["content"]
+            for item in result.events
+            if item.type in {EventType.USER, EventType.ASSISTANT} or item.payload.get("kind") == "trajectory_memory"
+        ]
         self.assertEqual(
-            [item.payload["content"] for item in result.events if item.type in {EventType.USER, EventType.ASSISTANT}],
+            visible_and_memory_contents,
             [
                 "user 1",
                 trajectory_memory_message(result.turn_syntheses[0]),
@@ -101,7 +106,16 @@ class TrajectoryCompactionTests(TestCase):
             ],
         )
         self.assertEqual([item.payload.get("kind") for item in result.events if item.payload.get("kind") == "trajectory_memory"], ["trajectory_memory", "trajectory_memory"])
-        self.assertFalse(any(item.type in {EventType.TOOL, EventType.TOOL_OUTPUT, EventType.REASONING} and item.turn in {1, 2} for item in result.events))
+        self.assertFalse(
+            any(
+                (
+                    item.type in {EventType.TOOL, EventType.TOOL_OUTPUT}
+                    or (item.type == EventType.REASONING and item.payload.get("kind") != "trajectory_memory")
+                )
+                and item.turn in {1, 2}
+                for item in result.events
+            )
+        )
         self.assertTrue(any(item.type == EventType.REASONING and item.turn == 3 for item in result.events))
         self.assertTrue(any(item.type == EventType.REASONING and item.turn == 4 for item in result.events))
         self.assertIn('"turn": 1', compactor.generator.calls[0][1])
@@ -152,8 +166,12 @@ class TrajectoryCompactionTests(TestCase):
         self.assertTrue(any(item.payload.get("kind") == "trajectory_memory" and item.turn == 8 for item in result.events))
         self.assertTrue(any(item.type == EventType.REASONING and item.turn == 9 for item in result.events))
         self.assertTrue(any(item.type == EventType.REASONING and item.turn == 10 for item in result.events))
-        self.assertFalse(any(item.type == EventType.REASONING and item.turn == 7 for item in result.events))
-        self.assertFalse(any(item.type == EventType.REASONING and item.turn == 8 for item in result.events))
+        self.assertFalse(
+            any(item.type == EventType.REASONING and item.turn == 7 and item.payload.get("kind") != "trajectory_memory" for item in result.events)
+        )
+        self.assertFalse(
+            any(item.type == EventType.REASONING and item.turn == 8 and item.payload.get("kind") != "trajectory_memory" for item in result.events)
+        )
 
     def test_coordinator_merges_new_turns_after_background_compaction(self) -> None:
         with TemporaryDirectory() as directory:

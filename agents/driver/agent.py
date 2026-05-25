@@ -24,12 +24,12 @@ from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.trajectory.compactor import TrajectoryCompactor
 from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 from core.trajectory.policy import TrajectoryCompactionPolicy
-from core.utilities.defaults import get_default_model
+from core.utilities.defaults import get_default_driver_model
 
 @dataclass(frozen=True)
 class DriverAgentConfig:
     cwd: Path
-    model: BaseChatModel = field(default_factory=get_default_model)
+    model: BaseChatModel = field(default_factory=get_default_driver_model)
     session_id: str | None = None
     session_manager: SessionManager | None = None
     reasoning_eagerness: ReasoningEagerness = "low"
@@ -51,12 +51,13 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
 
     cwd = config.cwd.expanduser().resolve()
     manager = config.session_manager or SessionManager(session_id=config.session_id)
+    telemetry_store = TelemetryStore(telemetry_session_path(manager.session_id))
     backend = _local_shell_backend(LocalShellBackend, cwd)
     coordinator = config.compaction_coordinator or CompactionCoordinator(
         manager,
         Compactor(policy=CompactionPolicy()),
         on_compaction_event=config.on_compaction_event,
-        log_root=cwd / ".logs" / "compaction",
+        telemetry_store=telemetry_store,
     )
     trajectory_coordinator = config.trajectory_compaction_coordinator or TrajectoryCompactionCoordinator(
         manager,
@@ -70,7 +71,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         # snapshot. Trajectory compaction is placed closer to SessionLoad so its
         # after_agent hook runs before the broader compaction middleware.
         # Source: https://docs.langchain.com/oss/python/langchain/middleware/custom
-        TelemetryMiddleware(TelemetryStore(telemetry_session_path(manager.session_id))),
+        TelemetryMiddleware(telemetry_store),
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
         CompactionMiddleware(coordinator),
         TrajectoryCompactionMiddleware(trajectory_coordinator),

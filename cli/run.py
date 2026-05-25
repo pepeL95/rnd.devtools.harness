@@ -29,7 +29,8 @@ from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.session.events import EventType
 from core.session.manager import SessionManager
-from core.utilities.defaults import get_default_model, get_model_name
+from core.telemetry.store import TelemetryStore, telemetry_session_path
+from core.utilities.defaults import get_default_driver_model, get_model_name
 
 class AgentStream(Message):
     """Worker thread event for live tool/reason updates."""
@@ -88,7 +89,7 @@ class QuasipilotApp(App):
     def __init__(self) -> None:
         super().__init__()
         self._cwd = Path.cwd()
-        self._model = get_default_model()
+        self._model = get_default_driver_model()
         self.session_id: str | None = None
         self._manager: SessionManager | None = None
         self._agent = None
@@ -193,7 +194,7 @@ class QuasipilotApp(App):
             manager,
             Compactor(policy=CompactionPolicy()),
             on_compaction_event=self._post_compaction_event,
-            log_root=self._cwd / ".logs" / "compaction",
+            telemetry_store=TelemetryStore(telemetry_session_path(manager.session_id)),
         )
 
     def _set_busy(self, busy: bool) -> None:

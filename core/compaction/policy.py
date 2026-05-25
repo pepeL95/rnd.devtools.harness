@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from core.session.events import SessionEvent
-from core.utilities.defaults import get_default_compaction_model
+from core.utilities.defaults import get_default_model
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,7 @@ class CompactionPolicy:
     trigger_tokens: int = 50_000
     keep_last_turns: int = 5
     max_critic_loops: int = 2
-    model: BaseChatModel = field(default_factory=get_default_compaction_model)
+    model: BaseChatModel = field(default_factory=get_default_model)
     trigger_after: timedelta | None = None
     trigger_on_day_change: bool = False
 

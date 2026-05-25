@@ -13,6 +13,7 @@ from core.compaction.window import split_compaction_window
 from core.middleware.compaction import CompactionMiddleware
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager
+from core.telemetry.store import TelemetryStore
 
 
 COMPLETE_MEMORY_DOCUMENT = """## Episodic Memory
@@ -94,6 +95,9 @@ def dated_event(turn: int, when: datetime, content: str = "x") -> SessionEvent:
 
 
 class CompactionTests(TestCase):
+    def _compaction_telemetry_entries(self, path: Path) -> list[dict[str, object]]:
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
     def test_compaction_policy_triggers_on_age(self) -> None:
         policy = CompactionPolicy(trigger_tokens=1000, trigger_after=timedelta(hours=2))
         events = [dated_event(1, datetime(2026, 5, 23, 10, tzinfo=timezone.utc))]
@@ -251,12 +255,13 @@ class CompactionTests(TestCase):
                 ),
                 policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
             )
-            log_root = Path(directory) / ".logs" / "compaction"
+            telemetry_path = Path(directory) / "telemetry.jsonl"
             coordinator = CompactionCoordinator(
                 manager,
                 compactor,
                 token_counter=FixedTokenCounter(999),
-                log_root=log_root,
+                telemetry_store=TelemetryStore(telemetry_path),
+                repo_root=Path(directory),
             )
             middleware = CompactionMiddleware(coordinator)
 
@@ -266,16 +271,11 @@ class CompactionTests(TestCase):
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
             self.assertIn("[MEMORY RESTORE]", curated[0].payload["content"])
             self.assertEqual(curated[1].payload["content"], "new")
-            log_path = log_root / "s1.jsonl"
-            self.assertTrue(log_path.exists())
-            entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-            phases = [entry["phase"] for entry in entries]
-            self.assertEqual(phases[0], "start")
-            self.assertIn("curated_rewrite", phases)
-            self.assertEqual(phases[-1], "end")
-            end_entry = next(entry for entry in entries if entry["phase"] == "end")
-            self.assertEqual(end_entry["payload"]["compacted_event_count"], 1)
-            self.assertIn("compaction finished", end_entry["payload"]["content"])
+            self.assertTrue(telemetry_path.exists())
+            entries = self._compaction_telemetry_entries(telemetry_path)
+            self.assertEqual(entries[0]["name"], "compaction.start")
+            self.assertEqual(entries[-1]["name"], "compaction.end")
+            self.assertEqual(entries[-1]["payload"]["compacted_event_count"], 1)
 
     def test_compaction_coordinator_emits_lifecycle_events(self) -> None:
         with TemporaryDirectory() as directory:
@@ -297,13 +297,13 @@ class CompactionTests(TestCase):
                 ),
                 policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
             )
-            log_root = Path(directory) / ".logs" / "compaction"
+            telemetry_path = Path(directory) / "telemetry.jsonl"
             coordinator = CompactionCoordinator(
                 manager,
                 compactor,
                 token_counter=FixedTokenCounter(999),
                 on_compaction_event=lambda phase, payload: observed.append((phase, payload)),
-                log_root=log_root,
+                telemetry_store=TelemetryStore(telemetry_path),
             )
 
             status = coordinator.request_policy_compaction(runtime=None)
@@ -314,7 +314,10 @@ class CompactionTests(TestCase):
             self.assertEqual(observed[1][1]["compacted_event_count"], 1)
             self.assertEqual(manager.read_curated()[0].payload["kind"], "memory_restore")
             self.assertEqual(manager.read_curated()[1].payload["content"], "new")
-            self.assertTrue((log_root / "s1.jsonl").exists())
+            self.assertEqual(
+                [entry["name"] for entry in self._compaction_telemetry_entries(telemetry_path)],
+                ["compaction.start", "compaction.end"],
+            )
 
     def test_compaction_coordinator_ignores_ui_callback_errors_after_successful_rewrite(self) -> None:
         with TemporaryDirectory() as directory:
@@ -335,8 +338,7 @@ class CompactionTests(TestCase):
                 ),
                 policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
             )
-            log_root = Path(directory) / ".logs" / "compaction"
-
+            telemetry_path = Path(directory) / "telemetry.jsonl"
             def failing_callback(phase: str, payload: dict[str, object]) -> None:
                 if phase == "end":
                     raise RuntimeError("App is not running")
@@ -346,7 +348,8 @@ class CompactionTests(TestCase):
                 compactor,
                 token_counter=FixedTokenCounter(999),
                 on_compaction_event=failing_callback,
-                log_root=log_root,
+                telemetry_store=TelemetryStore(telemetry_path),
+                repo_root=Path(directory),
             )
 
             status = coordinator.request_manual_compaction()
@@ -356,13 +359,8 @@ class CompactionTests(TestCase):
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
             self.assertEqual(curated[1].payload["content"], "new")
 
-            log_path = log_root / "s1.jsonl"
-            entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-            phases = [entry["phase"] for entry in entries]
-            self.assertEqual(phases[0], "start")
-            self.assertIn("end", phases)
-            self.assertEqual(phases[-1], "ui_callback_error")
-            self.assertEqual(entries[-1]["payload"]["exception_type"], "RuntimeError")
+            entries = self._compaction_telemetry_entries(telemetry_path)
+            self.assertEqual([entry["name"] for entry in entries], ["compaction.start", "compaction.end"])
 
     def test_compaction_coordinator_reports_running_when_busy(self) -> None:
         with TemporaryDirectory() as directory:
@@ -410,12 +408,13 @@ class CompactionTests(TestCase):
                 ),
                 policy=CompactionPolicy(trigger_tokens=1000, keep_last_turns=1, trigger_on_day_change=True),
             )
-            log_root = Path(directory) / ".logs" / "compaction"
+            telemetry_path = Path(directory) / "telemetry.jsonl"
             coordinator = CompactionCoordinator(
                 manager,
                 compactor,
                 token_counter=FixedTokenCounter(1),
-                log_root=log_root,
+                telemetry_store=TelemetryStore(telemetry_path),
+                repo_root=Path(directory),
             )
 
             runtime = SimpleNamespace(context={"now": datetime(2026, 5, 23, 1, tzinfo=timezone.utc)})
@@ -423,7 +422,10 @@ class CompactionTests(TestCase):
             self.assertEqual(status, "completed")
 
             self.assertEqual(manager.read_curated()[0].payload["kind"], "memory_restore")
-            self.assertTrue((log_root / "s1.jsonl").exists())
+            self.assertEqual(
+                [entry["name"] for entry in self._compaction_telemetry_entries(telemetry_path)],
+                ["compaction.start", "compaction.end"],
+            )
 
     def test_memory_restore_message_matches_injection_contract(self) -> None:
         content = memory_restore_message("DOC")
