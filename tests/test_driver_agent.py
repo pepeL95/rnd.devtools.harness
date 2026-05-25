@@ -53,5 +53,5 @@ class DriverAgentTests(TestCase):
 
         self.assertEqual(model.model, "gemini-3.1-flash-lite")
         self.assertEqual(model.max_retries, 3)
-        self.assertIs(model.include_thoughts, True)
-        self.assertEqual(model.thinking_level, "low")
+        self.assertIs(model.include_thoughts, False)
+        self.assertEqual(model.thinking_level, "minimal")
