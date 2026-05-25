@@ -85,4 +85,4 @@ class SessionDumpMiddleware(AgentMiddleware):
 
 def _is_restored_memory_message(message: Any) -> bool:
     additional_kwargs = getattr(message, "additional_kwargs", None) or {}
-    return additional_kwargs.get("session_kind") == "memory_restore"
+    return additional_kwargs.get("session_kind") in {"memory_restore", "trajectory_memory"}

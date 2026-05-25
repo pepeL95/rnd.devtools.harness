@@ -4,6 +4,8 @@ from collections.abc import Iterable
 
 from core.session.events import EventType, SessionEvent
 
+HIDDEN_HISTORY_KINDS = {"memory_restore", "trajectory_memory"}
+
 
 def next_turn(events: Iterable[SessionEvent]) -> int:
     highest = max((event.turn for event in events), default=0)
@@ -22,5 +24,5 @@ def display_history_events(events: Iterable[SessionEvent]) -> list[SessionEvent]
         event
         for event in events
         if event.type in {EventType.USER, EventType.ASSISTANT}
-        and event.payload.get("kind") != "memory_restore"
+        and event.payload.get("kind") not in HIDDEN_HISTORY_KINDS
     ]

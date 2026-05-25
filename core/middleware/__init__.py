@@ -10,6 +10,7 @@ __all__ = [
     "SessionDumpMiddleware",
     "SessionLoadMiddleware",
     "SystemPromptMiddleware",
+    "TrajectoryCompactionMiddleware",
 ]
 
 _EXPORTS = {
@@ -19,6 +20,7 @@ _EXPORTS = {
     "SessionDumpMiddleware": "core.middleware.session_dump",
     "SessionLoadMiddleware": "core.middleware.session_load",
     "SystemPromptMiddleware": "core.middleware.system_prompt",
+    "TrajectoryCompactionMiddleware": "core.middleware.trajectory_compaction",
 }
 
 

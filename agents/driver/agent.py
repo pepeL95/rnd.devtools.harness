@@ -17,9 +17,13 @@ from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
 from core.middleware.system_prompt import SystemPromptMiddleware
+from core.middleware.trajectory_compaction import TrajectoryCompactionMiddleware
 from core.middleware.telemetry import TelemetryMiddleware
 from core.session.session_manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
+from core.trajectory_compaction.compactor import TrajectoryCompactor
+from core.trajectory_compaction.coordinator import TrajectoryCompactionCoordinator
+from core.trajectory_compaction.policy import TrajectoryCompactionPolicy
 from core.utilities.defaults import get_default_model
 
 @dataclass(frozen=True)
@@ -31,6 +35,7 @@ class DriverAgentConfig:
     reasoning_eagerness: ReasoningEagerness = "low"
     on_compaction_event: Callable[[str, dict[str, Any]], None] | None = None
     compaction_coordinator: CompactionCoordinator | None = None
+    trajectory_compaction_coordinator: TrajectoryCompactionCoordinator | None = None
 
 
 def create_driver_agent(config: DriverAgentConfig) -> Any:
@@ -52,16 +57,22 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         Compactor(policy=CompactionPolicy()),
         on_compaction_event=config.on_compaction_event,
     )
+    trajectory_coordinator = config.trajectory_compaction_coordinator or TrajectoryCompactionCoordinator(
+        manager,
+        TrajectoryCompactor(policy=TrajectoryCompactionPolicy()),
+    )
     middleware = [
         # Middleware order is load-bearing. LangChain runs before_* hooks
         # first-to-last, after_* hooks last-to-first, and wrap hooks as nested
-        # wrappers. Telemetry is outermost; compaction runs before history load
-        # to prevent oversized restored context, and after SessionDump writes
-        # the completed turn so curated history can be compacted immediately.
+        # wrappers. Telemetry is outermost; the curated-session rewrite middlewares
+        # run after SessionDump so they compact a completed turn from a stable
+        # snapshot. Trajectory compaction is placed closer to SessionLoad so its
+        # after_agent hook runs before the broader compaction middleware.
         # Source: https://docs.langchain.com/oss/python/langchain/middleware/custom
         TelemetryMiddleware(TelemetryStore(telemetry_session_path(manager.session_id))),
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
         CompactionMiddleware(coordinator),
+        TrajectoryCompactionMiddleware(trajectory_coordinator),
         SessionLoadMiddleware(manager),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
         RuntimeContextMiddleware(cwd=cwd),

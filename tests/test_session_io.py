@@ -91,6 +91,26 @@ class SessionIOTests(TestCase):
 
             self.assertEqual([event.payload["content"] for event in history], ["real user", "real assistant"])
 
+    def test_read_display_history_hides_trajectory_memory(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "[TRAJECTORY MEMORY]\n...", "kind": "trajectory_memory"},
+                    ),
+                    SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "real user"}),
+                    SessionEvent(type=EventType.ASSISTANT, turn=2, payload={"role": "assistant", "content": "real assistant"}),
+                ],
+                curated=False,
+            )
+
+            history = manager.read_display_history()
+
+            self.assertEqual([event.payload["content"] for event in history], ["real user", "real assistant"])
+
     def test_events_from_messages_emits_reasoning_events_for_assistant_messages(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

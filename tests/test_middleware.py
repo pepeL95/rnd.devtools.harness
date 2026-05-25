@@ -190,3 +190,26 @@ class MiddlewareTests(TestCase):
                 if event.payload.get("kind") == "memory_restore"
             ]
             self.assertEqual(len(memory_restore_events), 1)
+
+    def test_session_dump_skips_restored_trajectory_memory_messages(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "[TRAJECTORY MEMORY]\n...", "kind": "trajectory_memory"},
+                    )
+                ]
+            )
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": manager.load_curated_messages()}, runtime=None)
+
+            trajectory_memory_events = [
+                event
+                for event in manager.read_dump()
+                if event.payload.get("kind") == "trajectory_memory"
+            ]
+            self.assertEqual(len(trajectory_memory_events), 1)
