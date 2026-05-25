@@ -25,7 +25,7 @@ class ReasonStream(Static):
     DEFAULT_CSS = """
     ReasonStream {
         width: 100%;
-        padding: 1;
+        padding: 1 2;
         color: $text-muted;
         text-style: italic;
     }
