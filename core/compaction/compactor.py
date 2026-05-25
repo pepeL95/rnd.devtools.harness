@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from time import perf_counter
+
 from core.compaction.llm import LangChainTextGenerator, TextGenerator
 from core.compaction.models import CompactionResult, Critique
 from core.compaction.policy import CompactionPolicy
@@ -19,11 +22,13 @@ class Compactor:
         generator: TextGenerator | None = None,
         policy: CompactionPolicy | None = None,
         token_counter: TokenCounter | None = None,
+        on_stage: Callable[[str, dict[str, int | str]], None] | None = None,
     ) -> None:
         self.policy = policy or CompactionPolicy()
         self.policy.validate()
         self.generator = generator or LangChainTextGenerator.from_chat_model(self.policy.model)
         self.token_counter = token_counter or TokenCounter()
+        self.on_stage = on_stage
 
     def compact(
         self,
@@ -42,8 +47,20 @@ class Compactor:
             )
 
         trajectory = events_to_trajectory(window.compacted)
-        segmentation = self._segment(trajectory)
-        memory_document = sanitize_memory_document(self._synthesize(trajectory, segmentation))
+        segmentation = self._run_stage(
+            "segment",
+            lambda: self._segment(trajectory),
+            trajectory_chars=len(trajectory),
+            compacted_event_count=len(window.compacted),
+        )
+        memory_document = sanitize_memory_document(
+            self._run_stage(
+                "synthesize",
+                lambda: self._synthesize(trajectory, segmentation),
+                trajectory_chars=len(trajectory),
+                segmentation_chars=len(segmentation),
+            )
+        )
 
         critiques: list[Critique] = []
         revisions = 0
@@ -51,14 +68,47 @@ class Compactor:
         if local_report is not None:
             critique = Critique(local_report)
             critiques.append(critique)
-            memory_document = sanitize_memory_document(self._revise(trajectory, memory_document, critique.text))
+            self._emit_stage(
+                "local_quality_violation",
+                memory_chars=len(memory_document),
+                critique_chars=len(critique.text),
+            )
+            memory_document = sanitize_memory_document(
+                self._run_stage(
+                    "revise",
+                    lambda: self._revise(trajectory, memory_document, critique.text),
+                    memory_chars=len(memory_document),
+                    critique_chars=len(critique.text),
+                    revision_index=revisions + 1,
+                )
+            )
             revisions += 1
-        for _ in range(self.policy.max_critic_loops):
-            critique = Critique(self._critique(trajectory, memory_document))
+        for loop_index in range(self.policy.max_critic_loops):
+            critique = Critique(
+                self._run_stage(
+                    "critique",
+                    lambda: self._critique(trajectory, memory_document),
+                    memory_chars=len(memory_document),
+                    critique_index=loop_index + 1,
+                )
+            )
             critiques.append(critique)
             if critique.approved:
+                self._emit_stage(
+                    "critique_approved",
+                    critique_index=loop_index + 1,
+                    critique_chars=len(critique.text),
+                )
                 break
-            memory_document = sanitize_memory_document(self._revise(trajectory, memory_document, critique.text))
+            memory_document = sanitize_memory_document(
+                self._run_stage(
+                    "revise",
+                    lambda: self._revise(trajectory, memory_document, critique.text),
+                    memory_chars=len(memory_document),
+                    critique_chars=len(critique.text),
+                    revision_index=revisions + 1,
+                )
+            )
             revisions += 1
 
         memory_event = SessionEvent(
@@ -126,3 +176,26 @@ class Compactor:
                 ]
             ),
         )
+
+    def _run_stage(
+        self,
+        name: str,
+        fn: Callable[[], str],
+        **payload: int | str,
+    ) -> str:
+        started = perf_counter()
+        self._emit_stage(f"{name}_start", **payload)
+        value = fn()
+        elapsed_ms = int((perf_counter() - started) * 1000)
+        self._emit_stage(
+            f"{name}_end",
+            elapsed_ms=elapsed_ms,
+            output_chars=len(value),
+            **payload,
+        )
+        return value
+
+    def _emit_stage(self, name: str, **payload: int | str) -> None:
+        if self.on_stage is None:
+            return
+        self.on_stage(name, payload)

@@ -56,6 +56,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         manager,
         Compactor(policy=CompactionPolicy()),
         on_compaction_event=config.on_compaction_event,
+        log_root=cwd / ".logs" / "compaction",
     )
     trajectory_coordinator = config.trajectory_compaction_coordinator or TrajectoryCompactionCoordinator(
         manager,

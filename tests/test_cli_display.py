@@ -1,5 +1,7 @@
 from unittest import TestCase
 
+from cli.components import StatusBubble
+from cli.run import QuasipilotApp
 from cli.utilities.display import content_to_plaintext
 
 
@@ -30,3 +32,27 @@ class SessionPickerMarkupTests(TestCase):
                 return
 
         asyncio.run(run())
+
+
+class CompactionUiTests(TestCase):
+    def test_handle_compaction_event_mounts_status_bubble(self) -> None:
+        app = QuasipilotApp()
+        mounted: list[object] = []
+        notifications: list[str] = []
+        app._mount_chat = mounted.append  # type: ignore[method-assign]
+        app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+        app.notify = lambda message, **_: notifications.append(message)  # type: ignore[method-assign]
+        app.notify_warning = lambda message: notifications.append(message)  # type: ignore[method-assign]
+
+        app._handle_compaction_event(
+            "end",
+            {
+                "kind": "compaction_event",
+                "phase": "end",
+                "content": "manual session compaction finished (4 events compacted, 2 events retained)",
+            },
+        )
+
+        self.assertEqual(len(mounted), 1)
+        self.assertIsInstance(mounted[0], StatusBubble)
+        self.assertEqual(notifications, ["session compaction finished"])

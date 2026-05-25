@@ -37,3 +37,21 @@ class AIBubble(Static):
     def __init__(self, text: str) -> None:
         super().__init__(text, markup=False)
         self.add_class("ai-bubble")
+
+
+class StatusBubble(Static):
+    """System status bubble for transient runtime events."""
+
+    DEFAULT_CSS = """
+    StatusBubble {
+        width: 100%;
+        margin: 0 1 1 1;
+        padding: 0 1;
+        color: $text-muted;
+        text-style: italic;
+    }
+    """
+
+    def __init__(self, text: str) -> None:
+        super().__init__(text, markup=False)
+        self.add_class("status-bubble")

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -250,16 +251,31 @@ class CompactionTests(TestCase):
                 ),
                 policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
             )
-            coordinator = CompactionCoordinator(manager, compactor, token_counter=FixedTokenCounter(999))
+            log_root = Path(directory) / ".logs" / "compaction"
+            coordinator = CompactionCoordinator(
+                manager,
+                compactor,
+                token_counter=FixedTokenCounter(999),
+                log_root=log_root,
+            )
             middleware = CompactionMiddleware(coordinator)
 
             middleware.after_agent({"messages": []}, runtime=None)
 
-            self.assertFalse(manager.is_curated_locked())
             curated = manager.read_curated()
-            self.assertEqual(len(curated), 2)
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
+            self.assertIn("[MEMORY RESTORE]", curated[0].payload["content"])
             self.assertEqual(curated[1].payload["content"], "new")
+            log_path = log_root / "s1.jsonl"
+            self.assertTrue(log_path.exists())
+            entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            phases = [entry["phase"] for entry in entries]
+            self.assertEqual(phases[0], "start")
+            self.assertIn("curated_rewrite", phases)
+            self.assertEqual(phases[-1], "end")
+            end_entry = next(entry for entry in entries if entry["phase"] == "end")
+            self.assertEqual(end_entry["payload"]["compacted_event_count"], 1)
+            self.assertIn("compaction finished", end_entry["payload"]["content"])
 
     def test_compaction_coordinator_emits_lifecycle_events(self) -> None:
         with TemporaryDirectory() as directory:
@@ -281,11 +297,13 @@ class CompactionTests(TestCase):
                 ),
                 policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
             )
+            log_root = Path(directory) / ".logs" / "compaction"
             coordinator = CompactionCoordinator(
                 manager,
                 compactor,
                 token_counter=FixedTokenCounter(999),
                 on_compaction_event=lambda phase, payload: observed.append((phase, payload)),
+                log_root=log_root,
             )
 
             status = coordinator.request_policy_compaction(runtime=None)
@@ -294,8 +312,59 @@ class CompactionTests(TestCase):
             self.assertEqual([phase for phase, _ in observed], ["start", "end"])
             self.assertEqual(observed[0][1]["estimated_tokens"], 999)
             self.assertEqual(observed[1][1]["compacted_event_count"], 1)
+            self.assertEqual(manager.read_curated()[0].payload["kind"], "memory_restore")
+            self.assertEqual(manager.read_curated()[1].payload["content"], "new")
+            self.assertTrue((log_root / "s1.jsonl").exists())
 
-    def test_compaction_coordinator_reports_running_when_lock_is_held(self) -> None:
+    def test_compaction_coordinator_ignores_ui_callback_errors_after_successful_rewrite(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    event(1, EventType.USER, "old"),
+                    event(2, EventType.USER, "new"),
+                ]
+            )
+            compactor = Compactor(
+                generator=ScriptedGenerator(
+                    [
+                        "EPISODE 1: old\nTURNS: 1 to 1",
+                        COMPLETE_MEMORY_DOCUMENT,
+                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                    ]
+                ),
+                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+            )
+            log_root = Path(directory) / ".logs" / "compaction"
+
+            def failing_callback(phase: str, payload: dict[str, object]) -> None:
+                if phase == "end":
+                    raise RuntimeError("App is not running")
+
+            coordinator = CompactionCoordinator(
+                manager,
+                compactor,
+                token_counter=FixedTokenCounter(999),
+                on_compaction_event=failing_callback,
+                log_root=log_root,
+            )
+
+            status = coordinator.request_manual_compaction()
+
+            self.assertEqual(status, "completed")
+            curated = manager.read_curated()
+            self.assertEqual(curated[0].payload["kind"], "memory_restore")
+            self.assertEqual(curated[1].payload["content"], "new")
+
+            log_path = log_root / "s1.jsonl"
+            entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            phases = [entry["phase"] for entry in entries]
+            self.assertEqual(phases[0], "start")
+            self.assertIn("end", phases)
+            self.assertEqual(phases[-1], "ui_callback_error")
+            self.assertEqual(entries[-1]["payload"]["exception_type"], "RuntimeError")
+
+    def test_compaction_coordinator_reports_running_when_busy(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append(
@@ -315,13 +384,12 @@ class CompactionTests(TestCase):
                 policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
             )
             coordinator = CompactionCoordinator(manager, compactor, token_counter=FixedTokenCounter(999))
-            lease = manager.begin_curated_compaction(trigger="trajectory")
-            assert lease is not None
+            assert coordinator._run_lock.acquire(blocking=False)
 
             status = coordinator.request_manual_compaction()
 
             self.assertEqual(status, "running")
-            manager.abort_curated_compaction(lease)
+            coordinator._run_lock.release()
 
     def test_compaction_coordinator_uses_date_policy(self) -> None:
         with TemporaryDirectory() as directory:
@@ -342,13 +410,20 @@ class CompactionTests(TestCase):
                 ),
                 policy=CompactionPolicy(trigger_tokens=1000, keep_last_turns=1, trigger_on_day_change=True),
             )
-            coordinator = CompactionCoordinator(manager, compactor, token_counter=FixedTokenCounter(1))
+            log_root = Path(directory) / ".logs" / "compaction"
+            coordinator = CompactionCoordinator(
+                manager,
+                compactor,
+                token_counter=FixedTokenCounter(1),
+                log_root=log_root,
+            )
 
             runtime = SimpleNamespace(context={"now": datetime(2026, 5, 23, 1, tzinfo=timezone.utc)})
             status = coordinator.request_policy_compaction(runtime=runtime)
             self.assertEqual(status, "completed")
 
             self.assertEqual(manager.read_curated()[0].payload["kind"], "memory_restore")
+            self.assertTrue((log_root / "s1.jsonl").exists())
 
     def test_memory_restore_message_matches_injection_contract(self) -> None:
         content = memory_restore_message("DOC")

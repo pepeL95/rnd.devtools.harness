@@ -1,4 +1,4 @@
-from cli.components.bubbles import AIBubble, UserBubble
+from cli.components.bubbles import AIBubble, StatusBubble, UserBubble
 from cli.components.divider import Divider
 from cli.components.input import ChatInput
 from cli.components.runtime_bar import RuntimeBar
@@ -13,6 +13,7 @@ __all__ = [
     "ReasonStream",
     "RuntimeBar",
     "SessionPickerScreen",
+    "StatusBubble",
     "ToolStream",
     "UserBubble",
     "WorkingSpinner",

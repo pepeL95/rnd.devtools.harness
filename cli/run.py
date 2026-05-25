@@ -13,6 +13,7 @@ from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from cli.components import (
     AIBubble,
     ChatInput,
+    StatusBubble,
     ReasonStream,
     RuntimeBar,
     ToolStream,
@@ -192,6 +193,7 @@ class QuasipilotApp(App):
             manager,
             Compactor(policy=CompactionPolicy()),
             on_compaction_event=self._post_compaction_event,
+            log_root=self._cwd / ".logs" / "compaction",
         )
 
     def _set_busy(self, busy: bool) -> None:
@@ -224,6 +226,7 @@ class QuasipilotApp(App):
         self.call_from_thread(self._handle_compaction_event, phase, payload)
 
     def _handle_compaction_event(self, phase: str, payload: dict) -> None:
+        content = content_to_plaintext(payload.get("content", ""))
         if phase == "start":
             self._compaction_active = True
             tokens = payload.get("estimated_tokens")
@@ -231,16 +234,22 @@ class QuasipilotApp(App):
             self._sync_compaction_ui()
             if self._spinner is not None:
                 self._set_spinner_status(f"compacting session{suffix}")
+            if content:
+                self._mount_chat(StatusBubble(content))
             self.notify("session compaction started", timeout=2, markup=False)
         elif phase == "end":
             self._compaction_active = False
             self._sync_compaction_ui()
             if self._spinner is not None:
                 self._set_spinner_status("working")
+            if content:
+                self._mount_chat(StatusBubble(content))
             self.notify("session compaction finished", timeout=2, markup=False)
         elif phase == "error":
             self._compaction_active = False
             self._sync_compaction_ui()
+            if content:
+                self._mount_chat(StatusBubble(content))
             self.notify_warning(f"session compaction failed: {payload.get('error', 'unknown error')}")
 
     def trigger_manual_compaction(self) -> None:
@@ -249,9 +258,6 @@ class QuasipilotApp(App):
             return
         if self._busy:
             self.notify_warning("wait for the active operation to finish")
-            return
-        if self._manager.is_curated_locked():
-            self.notify_warning("session compaction already running")
             return
         self._set_busy(True)
         self._show_spinner()
@@ -275,11 +281,7 @@ class QuasipilotApp(App):
             self.notify_warning("session compaction was not needed")
 
     def _sync_compaction_ui(self) -> None:
-        if self._manager is None:
-            active = False
-        else:
-            active = self._compaction_active or self._manager.is_curated_locked()
-        status = "compacting session" if active else None
+        status = "compacting session" if self._compaction_active else None
         self.query_one(RuntimeBar).update_runtime(status=status)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
