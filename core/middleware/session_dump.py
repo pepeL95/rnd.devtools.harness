@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
-
+from core.utilities.git import git_branch, git_dirty
 
 class SessionDumpMiddleware(AgentMiddleware):
     """Append full-fidelity agent state to dump and curated session streams."""
@@ -69,9 +70,8 @@ class SessionDumpMiddleware(AgentMiddleware):
             self._seen_event_keys.add(self._event_key(event))
 
     def _runtime_event(self, runtime: Any) -> SessionEvent:
-        context = getattr(runtime, "context", None)
-        cwd = getattr(context, "cwd", None) or (context.get("cwd") if isinstance(context, dict) else None)
-        snapshot = RuntimeSnapshot(cwd=str(cwd or "unknown"))
+        cwd = self._resolve_cwd(runtime)
+        snapshot = RuntimeSnapshot(cwd=str(cwd or "unknown"), git_branch=git_branch(cwd), git_dirty=git_dirty(cwd))
         return SessionEvent(
             type=EventType.RUNTIME,
             turn=self._active_turn or self.manager.next_turn(),
@@ -82,6 +82,10 @@ class SessionDumpMiddleware(AgentMiddleware):
             },
         )
 
+    def _resolve_cwd(self, runtime: Any) -> str:
+        context = getattr(runtime, "context", {})
+        cwd_str = context.get("cwd") if isinstance(context, dict) else getattr(context, "cwd", None)
+        return Path(cwd_str).expanduser().resolve() if cwd_str else str(Path.cwd().expanduser().resolve())
 
 def _is_restored_memory_message(message: Any) -> bool:
     additional_kwargs = getattr(message, "additional_kwargs", None) or {}
