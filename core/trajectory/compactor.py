@@ -59,10 +59,10 @@ class TrajectoryCompactor:
         for turn in compacted_turns:
             turn_synthesis = synthesis_by_turn[turn]
             turn_memory_events[turn] = SessionEvent(
-                type=EventType.USER,
+                type=EventType.REASONING,
                 turn=turn,
                 payload={
-                    "role": "user",
+                    "role": "assistant",
                     "content": trajectory_memory_message(turn_synthesis),
                     "kind": "trajectory_memory",
                     "turns": [turn],
