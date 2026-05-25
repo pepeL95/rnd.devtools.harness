@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 from pathlib import Path
 
@@ -71,15 +72,15 @@ class SessionDumpMiddleware(AgentMiddleware):
 
     def _runtime_event(self, runtime: Any) -> SessionEvent:
         cwd = self._resolve_cwd(runtime)
-        snapshot = RuntimeSnapshot(cwd=str(cwd or "unknown"), git_branch=git_branch(cwd), git_dirty=git_dirty(cwd))
+        snapshot = RuntimeSnapshot(
+            cwd=str(cwd or "unknown"),
+            git_branch=git_branch(cwd),
+            git_dirty=git_dirty(cwd)
+        )
         return SessionEvent(
             type=EventType.RUNTIME,
             turn=self._active_turn or self.manager.next_turn(),
-            payload={
-                "cwd": snapshot.cwd,
-                "git_branch": snapshot.git_branch,
-                "git_dirty": snapshot.git_dirty,
-            },
+            payload=asdict(snapshot),
         )
 
     def _resolve_cwd(self, runtime: Any) -> str:
