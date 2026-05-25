@@ -66,7 +66,6 @@ class QuasipilotApp(App):
 
     #chat-scroll {
         height: 1fr;
-        
     }
 
     #bottom-bar {
