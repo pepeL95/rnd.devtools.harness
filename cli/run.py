@@ -58,7 +58,7 @@ class ManualCompactionFinished(Message):
         super().__init__()
 
 
-class QuasipilotApp(App):
+class QuasipilotApp(App[None]):
     """Textual chat shell for the driver agent."""
 
     CSS = """
@@ -68,6 +68,9 @@ class QuasipilotApp(App):
 
     #chat-scroll {
         height: 1fr;
+        scrollbar-background: transparent;
+        scrollbar-color: $text-muted;
+        scrollbar-size: 0 1;
     }
 
     #bottom-bar {
@@ -81,13 +84,14 @@ class QuasipilotApp(App):
 
     ChatInput:disabled {
         opacity: 0.65;
+        background: #272c34;
     }
     """
 
     BINDINGS = [("ctrl+c", "quit", "Quit")]
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(ansi_color=True)
         self._cwd = Path.cwd()
         self._model = get_default_driver_model()
         self.session_id: str | None = None
@@ -111,6 +115,7 @@ class QuasipilotApp(App):
             yield RuntimeBar(get_model_name(self._model), str(self._cwd))
 
     def on_mount(self) -> None:
+        self.screen.styles.background = "transparent"
         self.query_one(ChatInput).focus()
         self._sync_compaction_ui()
 

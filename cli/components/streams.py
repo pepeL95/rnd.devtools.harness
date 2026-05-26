@@ -10,7 +10,7 @@ class ToolStream(Static):
     ToolStream {
         width: 100%;
         margin: 0 0 0 2;
-        color: $warning;
+        color: #C3E7CA;
     }
     """
 

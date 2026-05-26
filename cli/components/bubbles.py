@@ -11,7 +11,7 @@ class UserBubble(Static):
         width: 100%;
         margin: 1;
         padding: 0 1;
-        background: $surface;
+        background: #272c34;
         color: $text;
         padding: 1;
     }
