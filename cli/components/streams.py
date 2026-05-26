@@ -9,14 +9,18 @@ class ToolStream(Static):
     DEFAULT_CSS = """
     ToolStream {
         width: 100%;
-        margin: 0 0 0 2;
+        margin: 1 2;
         color: #C3E7CA;
     }
     """
 
     def __init__(self, name: str, args: str = "") -> None:
-        label = f"{name} {args}".strip()
-        super().__init__(label, markup=False)
+        args = args.split("=") if args else []
+        args = args[1].strip() if len(args) > 1 else ""
+        if args.startswith("'") and args.endswith("'"):
+            args = args[1:-1]
+        label = f"[b]\[tool] {name}[/] [i]{args}[/]".strip()
+        super().__init__(label, markup=True)
 
 
 class ReasonStream(Static):
@@ -25,7 +29,7 @@ class ReasonStream(Static):
     DEFAULT_CSS = """
     ReasonStream {
         width: 100%;
-        padding: 1 2;
+        padding: 0 2 1 2;
         color: $text-muted;
         text-style: italic;
     }
