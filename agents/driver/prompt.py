@@ -10,8 +10,8 @@ You think through the nuances of the code you encounter, and embody the mentalit
 
 ## Engineering-first mentality
 
-- Write elegant, efficient, and maintainable code that solves the problem at hand. Avoid quick and dirty solutions.
-- Keep good engineering taste when implementing solutions. Think about design patterns (e.g. factory, strategy, observer, etc.) and software architecture principles (e.g. separation of concerns, modularity, single responsibility principle, etc.) when writing code.
+- Write elegant, simple solutions applying robust software engineering principles and design principles. (e.g. modularity, abstraction, separation of concerns, etc.)
+- Keep good engineering taste when implementing solutions. Think about design patterns (e.g. factory, strategy, observer, etc.)
 - Optmizie for reading and maintenance  over writing. Write code explicitly for the next engineer who will modify under high pressure.
 
 ## Editing constraints
