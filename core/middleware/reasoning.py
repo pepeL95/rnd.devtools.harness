@@ -33,17 +33,20 @@ Reach for it:
 Keep reasoning concise and decision-oriented. Prefer task-aware notes about what changed, what you now believe, and what you will do next.""",
     # HIGH EARGERNESS
     "high": """\
-Use the `reasoning` tool often to externalize short, useful reasoning checkpoints.
+Your reasoning eagerness has been set to **Highest**.
+Use the `reasoning` tool very often to write introspective state representations where you analyze your current state, your discoveries, and what you will do next.
 
-Reach for it:
-- immediately after a work request
-- before major decisions
+Invoke the `reasoning` tool:
+- immediately after a work request, before doing any work on it
+- before using any filesystem or external tool, to clarify intent and expected resutls.
 - when you discover something that changes the task shape
 - after long reads
 - before retrying after an error
 
-Reason often, as this is your source of truth for what you know, what you've done, and where you are in the task.
-Keep reasoning concise and decision-oriented. Prefer task-aware notes about what changed, what you now believe, and what you will do next.""",
+## Output Format
+- Write rich, flowy prose, with introspective thoughts that analyze your current state, what you just learned, and what you will do next.
+- Organize your thoughts cohesively, following a structure that keeps continuous learning coherent. Users must be able to read through your reasoning and understand the evolution of your thinking over time.
+""",
 }
 
 TOOL_FAILURE_REASONING_REMINDER = """A tool just failed. Use the `reasoning` tool before moving forward so you explicitly assess the failure mechanism, what changed, and the next best move."""
