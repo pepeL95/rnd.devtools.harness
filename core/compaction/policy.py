@@ -21,9 +21,9 @@ class CompactionDecision:
 
 @dataclass(frozen=True)
 class CompactionPolicy:
-    trigger_tokens: int = 50_000
-    keep_last_turns: int = 5
-    max_critic_loops: int = 2
+    trigger_tokens: int = 80_000
+    keep_last_turns: int = 2
+    max_critic_loops: int = 1
     task_extractor_model: BaseChatModel = field(default_factory=get_default_task_extractor_model)
     compactor_model: BaseChatModel = field(default_factory=get_default_compactor_model)
     critic_model: BaseChatModel = field(default_factory=get_default_critic_model)

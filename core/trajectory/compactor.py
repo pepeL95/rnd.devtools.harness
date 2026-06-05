@@ -51,7 +51,7 @@ class TrajectoryCompactor:
         compacted_event_count = 0
         for turn in compacted_turns:
             turn_events = [event for event in events if event.turn == turn]
-            source_events = [event for event in turn_events if event.type in INTERNAL_EVENT_TYPES]
+            source_events = _compacted_source_events(turn_events)
             compacted_event_count += len(source_events)
             turn_payloads.append(
                 {
@@ -82,13 +82,7 @@ class TrajectoryCompactor:
                     "content": trajectory_memory_message(turn_synthesis),
                     "kind": "trajectory_memory",
                     "turns": [turn],
-                    "compacted_event_count": len(
-                        [
-                            event
-                            for event in events
-                            if event.turn == turn and event.type in INTERNAL_EVENT_TYPES
-                        ]
-                    ),
+                    "compacted_event_count": len(_compacted_source_events([event for event in events if event.turn == turn])),
                 },
             )
         rewritten = _rewrite_events(events, compacted_turns, turn_memory_events)
@@ -119,7 +113,7 @@ class TrajectoryCompactor:
             turn_events = [event for event in events if event.turn == turn]
             if any(event.payload.get("kind") in SYNTHETIC_KINDS for event in turn_events):
                 continue
-            if any(event.type in INTERNAL_EVENT_TYPES for event in turn_events):
+            if _compacted_source_events(turn_events):
                 turns_with_internal_events.append(turn)
         return turns_with_internal_events
 
@@ -176,7 +170,7 @@ def _rewrite_events(
         for turn in compacted_turns
     }
     for index, event in enumerate(events):
-        if event.turn in compacted_turn_set and event.type in INTERNAL_EVENT_TYPES:
+        if event.turn in compacted_turn_set and _is_compacted_turn_event(event, events):
             pass
         else:
             if (
@@ -205,6 +199,29 @@ def _turn_assistant_message(events: list[SessionEvent]) -> str:
         if event.type == EventType.ASSISTANT:
             return str(event.payload.get("content", "")).strip()
     return ""
+
+
+def _compacted_source_events(events: list[SessionEvent]) -> list[SessionEvent]:
+    final_assistant_id = _final_assistant_event_id(events)
+    return [
+        event
+        for event in events
+        if event.type in INTERNAL_EVENT_TYPES
+        or (event.type == EventType.ASSISTANT and event.id != final_assistant_id)
+    ]
+
+
+def _final_assistant_event_id(events: list[SessionEvent]) -> str | None:
+    for event in reversed(events):
+        if event.type == EventType.ASSISTANT:
+            return event.id
+    return None
+
+
+def _is_compacted_turn_event(event: SessionEvent, all_events: list[SessionEvent]) -> bool:
+    turn_events = [item for item in all_events if item.turn == event.turn]
+    compacted_ids = {item.id for item in _compacted_source_events(turn_events)}
+    return event.id in compacted_ids
 
 
 def _invoke_text(

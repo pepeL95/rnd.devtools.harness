@@ -137,6 +137,40 @@ class TrajectoryCompactionTests(TestCase):
         self.assertIn('"user_message": "user 1"', model.calls[0][1])
         self.assertIn('"assistant_message": "assistant 1"', model.calls[0][1])
 
+    def test_compactor_compacts_intermediate_assistant_events_but_keeps_final_assistant(self) -> None:
+        policy, _ = scripted_trajectory_policy(
+            '{"turns":[{"turn":1,"synthesis":"High-signal summary for turn 1.","live_edge":"Next edge 1."},{"turn":2,"synthesis":"High-signal summary for turn 2.","live_edge":"Next edge 2."}]}'
+        )
+        compactor = TrajectoryCompactor(policy=policy)
+        events = [
+            event(1, EventType.USER, "user 1", role="user"),
+            event(1, EventType.ASSISTANT, "internal draft", role="assistant"),
+            event(1, EventType.ASSISTANT, "assistant 1", role="assistant"),
+            event(2, EventType.USER, "user 2", role="user"),
+            event(2, EventType.REASONING, "reasoning 2"),
+            event(2, EventType.ASSISTANT, "assistant 2", role="assistant"),
+            event(3, EventType.USER, "user 3", role="user"),
+            event(3, EventType.REASONING, "reasoning 3"),
+            event(3, EventType.ASSISTANT, "assistant 3", role="assistant"),
+            event(4, EventType.USER, "user 4", role="user"),
+            event(4, EventType.REASONING, "reasoning 4"),
+            event(4, EventType.ASSISTANT, "assistant 4", role="assistant"),
+        ]
+
+        result = compactor.compact(events)
+
+        turn_one_contents = [item.payload["content"] for item in result.events if item.turn == 1]
+        self.assertEqual(
+            turn_one_contents,
+            [
+                "user 1",
+                trajectory_memory_message(result.turn_syntheses[0]),
+                "assistant 1",
+            ],
+        )
+        self.assertNotIn("internal draft", turn_one_contents)
+        self.assertEqual(result.compacted_event_count, 2)
+
     def test_compactor_waits_until_two_batches_exist(self) -> None:
         policy, _ = scripted_trajectory_policy('{"turns":[]}')
         compactor = TrajectoryCompactor(policy=policy)
