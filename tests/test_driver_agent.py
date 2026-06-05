@@ -4,13 +4,15 @@ from unittest import TestCase
 
 from agents.driver.agent import _local_shell_backend
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
-from core.utilities.defaults import (
+from core.compaction.llms import (
     get_default_compactor_model,
     get_default_critic_model,
-    get_default_model,
     get_default_task_extractor_model,
+)
+from core.trajectory.llms import (
     get_default_trajectory_compactor_model,
 )
+from core.utilities.defaults import get_default_driver_model
 
 
 class BackendWithVirtualEnv:
@@ -52,13 +54,13 @@ class DriverAgentTests(TestCase):
 
             self.assertEqual(type(agent).__name__, "CompiledStateGraph")
 
-    def test_default_model_disables_retries_by_default(self) -> None:
-        model = get_default_model()
+    def test_default_driver_model_uses_reasoning_profile(self) -> None:
+        model = get_default_driver_model()
 
         self.assertEqual(model.model, "gemini-3.1-flash-lite")
         self.assertEqual(model.max_retries, 3)
-        self.assertIs(model.include_thoughts, False)
-        self.assertEqual(model.thinking_level, "minimal")
+        self.assertIs(model.include_thoughts, True)
+        self.assertEqual(model.thinking_level, "low")
 
     def test_compaction_component_defaults_share_non_reasoning_profile(self) -> None:
         for factory in (

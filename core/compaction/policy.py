@@ -5,12 +5,12 @@ from datetime import datetime, timedelta, timezone
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from core.session.events import SessionEvent
-from core.utilities.defaults import (
+from core.compaction.llms import (
     get_default_compactor_model,
     get_default_critic_model,
     get_default_task_extractor_model,
 )
+from core.session.events import SessionEvent
 
 
 @dataclass(frozen=True)

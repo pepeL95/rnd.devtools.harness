@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from core.utilities.defaults import get_default_trajectory_compactor_model
+from core.trajectory.llms import get_default_trajectory_compactor_model
 
 
 @dataclass(frozen=True)
