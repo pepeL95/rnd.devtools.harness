@@ -1,5 +1,6 @@
 from unittest import TestCase
 
+from cli.components import ChatInput
 from cli.components import StatusBubble
 from cli.run import QuasipilotApp
 from cli.utilities.display import content_to_plaintext
@@ -56,3 +57,48 @@ class CompactionUiTests(TestCase):
         self.assertEqual(len(mounted), 1)
         self.assertIsInstance(mounted[0], StatusBubble)
         self.assertEqual(notifications, ["session compaction finished"])
+
+
+class ChatInputTests(TestCase):
+    def test_enter_submits_message(self) -> None:
+        import asyncio
+
+        submitted: list[str] = []
+
+        async def run() -> None:
+            app = QuasipilotApp()
+            app._mount_chat = lambda widget: None  # type: ignore[method-assign]
+            app._set_busy = lambda busy: None  # type: ignore[method-assign]
+            app._show_spinner = lambda: None  # type: ignore[method-assign]
+            app.run_turn = submitted.append  # type: ignore[method-assign]
+
+            async with app.run_test() as pilot:
+                await pilot.click("#chat-input")
+                await pilot.press("h", "i", "enter")
+
+        asyncio.run(run())
+
+        self.assertEqual(submitted, ["hi"])
+
+    def test_ctrl_j_inserts_newline_without_submitting(self) -> None:
+        import asyncio
+
+        snapshots: list[str] = []
+        submitted: list[str] = []
+
+        async def run() -> None:
+            app = QuasipilotApp()
+            app._mount_chat = lambda widget: None  # type: ignore[method-assign]
+            app._set_busy = lambda busy: None  # type: ignore[method-assign]
+            app._show_spinner = lambda: None  # type: ignore[method-assign]
+            app.run_turn = submitted.append  # type: ignore[method-assign]
+
+            async with app.run_test() as pilot:
+                await pilot.click("#chat-input")
+                await pilot.press("h", "i", "ctrl+j", "t", "h", "e", "r", "e")
+                snapshots.append(app.query_one(ChatInput).text)
+
+        asyncio.run(run())
+
+        self.assertEqual(submitted, [])
+        self.assertEqual(snapshots, ["hi\nthere"])

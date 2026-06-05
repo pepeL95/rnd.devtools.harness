@@ -7,7 +7,6 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Input
 
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from cli.components import (
@@ -291,11 +290,9 @@ class QuasipilotApp(App[None]):
         status = "compacting session" if self._compaction_active else None
         self.query_one(RuntimeBar).update_runtime(status=status)
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if not isinstance(event.input, ChatInput):
-            return
+    def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()
-        event.input.value = ""
+        event.input.load_text("")
         if not text or self._busy:
             return
 
