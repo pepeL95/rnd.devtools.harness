@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from core.utilities.defaults import get_default_model
+from core.utilities.defaults import get_default_trajectory_compactor_model
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class TrajectoryCompactionDecision:
 @dataclass(frozen=True)
 class TrajectoryCompactionPolicy:
     trigger_every_turns: int = 2
-    model: BaseChatModel = field(default_factory=get_default_model)
+    compactor_model: BaseChatModel = field(default_factory=get_default_trajectory_compactor_model)
 
     def compaction_decision(self, turn_count: int, latest_turn: int) -> TrajectoryCompactionDecision:
         if latest_turn <= 0 or turn_count <= 0:

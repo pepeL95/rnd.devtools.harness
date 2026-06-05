@@ -190,7 +190,7 @@ class QuasipilotApp(App[None]):
                 session_id=session_id,
                 session_manager=self._manager,
                 on_compaction_event=self._post_compaction_event,
-                compaction_coordinator=self._compaction_coordinator,
+                session_compaction_coordinator=self._compaction_coordinator,
             )
         )
 
@@ -235,7 +235,8 @@ class QuasipilotApp(App[None]):
         content = content_to_plaintext(payload.get("content", ""))
         if phase == "start":
             self._compaction_active = True
-            tokens = payload.get("estimated_tokens")
+            token_usage = payload.get("token_usage", {})
+            tokens = token_usage.get("source_tokens") if isinstance(token_usage, dict) else None
             suffix = f" · {tokens} tokens" if isinstance(tokens, int) else ""
             self._sync_compaction_ui()
             if self._spinner is not None:

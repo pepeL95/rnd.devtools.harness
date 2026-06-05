@@ -18,4 +18,6 @@ class TrajectoryCompactionResult:
     compacted_turns: list[int]
     compacted_event_count: int
     memory_document: str
+    model_names: dict[str, str] = field(default_factory=dict)
+    token_usage: dict[str, int] = field(default_factory=dict)
     turn_syntheses: list[TurnTrajectorySynthesis] = field(default_factory=list)

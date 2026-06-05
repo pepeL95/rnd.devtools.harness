@@ -34,7 +34,7 @@ class DriverAgentConfig:
     session_manager: SessionManager | None = None
     reasoning_eagerness: ReasoningEagerness = "low"
     on_compaction_event: Callable[[str, dict[str, Any]], None] | None = None
-    compaction_coordinator: CompactionCoordinator | None = None
+    session_compaction_coordinator: CompactionCoordinator | None = None
     trajectory_compaction_coordinator: TrajectoryCompactionCoordinator | None = None
 
 
@@ -53,15 +53,16 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     manager = config.session_manager or SessionManager(session_id=config.session_id)
     telemetry_store = TelemetryStore(telemetry_session_path(manager.session_id))
     backend = _local_shell_backend(LocalShellBackend, cwd)
-    coordinator = config.compaction_coordinator or CompactionCoordinator(
+    session_compaction_coordinator = config.session_compaction_coordinator or CompactionCoordinator(
         manager,
         Compactor(policy=CompactionPolicy()),
         on_compaction_event=config.on_compaction_event,
         telemetry_store=telemetry_store,
     )
-    trajectory_coordinator = config.trajectory_compaction_coordinator or TrajectoryCompactionCoordinator(
+    trajectory_compaction_coordinator = config.trajectory_compaction_coordinator or TrajectoryCompactionCoordinator(
         manager,
         TrajectoryCompactor(policy=TrajectoryCompactionPolicy()),
+        telemetry_store=telemetry_store,
     )
     middleware = [
         # Middleware order is load-bearing. LangChain runs before_* hooks
@@ -73,13 +74,13 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         # Source: https://docs.langchain.com/oss/python/langchain/middleware/custom
         TelemetryMiddleware(telemetry_store),
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
-        CompactionMiddleware(coordinator),
+        CompactionMiddleware(session_compaction_coordinator),
         SessionLoadMiddleware(manager),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
         RuntimeContextMiddleware(cwd=cwd),
         FilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager),
-        TrajectoryCompactionMiddleware(trajectory_coordinator),
+        TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
     ]
     return create_agent(model=config.model, tools=[reasoning_tool], middleware=middleware)
 

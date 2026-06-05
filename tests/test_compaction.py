@@ -60,16 +60,40 @@ The next agent should be able to continue without rereading the raw trajectory b
 """
 
 
-class ScriptedGenerator:
+class FakeResponse:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class ScriptedModel:
     def __init__(self, responses: list[str]) -> None:
         self.responses = responses
         self.calls: list[tuple[str, str]] = []
 
-    def generate(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
+    def invoke(self, messages: list[object]) -> FakeResponse:
+        self.calls.append((str(messages[0].content), str(messages[1].content)))
         if not self.responses:
             raise AssertionError("No scripted response left.")
-        return self.responses.pop(0)
+        return FakeResponse(self.responses.pop(0))
+
+
+def scripted_session_policy(*, trigger_tokens: int = 1, keep_last_turns: int = 1, max_critic_loops: int = 2, trigger_on_day_change: bool = False) -> CompactionPolicy:
+    model = ScriptedModel(
+        [
+            "EPISODE 1: old\nTURNS: 1 to 1",
+            COMPLETE_MEMORY_DOCUMENT,
+            "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+        ]
+    )
+    return CompactionPolicy(
+        trigger_tokens=trigger_tokens,
+        keep_last_turns=keep_last_turns,
+        max_critic_loops=max_critic_loops,
+        trigger_on_day_change=trigger_on_day_change,
+        task_extractor_model=model,
+        compactor_model=model,
+        critic_model=model,
+    )
 
 
 class FixedTokenCounter:
@@ -138,7 +162,7 @@ class CompactionTests(TestCase):
         self.assertEqual([item.turn for item in window.retained], [2, 3])
 
     def test_compactor_replaces_old_events_with_memory_restore(self) -> None:
-        generator = ScriptedGenerator(
+        model = ScriptedModel(
             [
                 "EPISODE 1: setup\nTURNS: 1 to 1",
                 COMPLETE_MEMORY_DOCUMENT,
@@ -146,8 +170,7 @@ class CompactionTests(TestCase):
             ]
         )
         compactor = Compactor(
-            generator=generator,
-            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, task_extractor_model=model, compactor_model=model, critic_model=model),
         )
         events = [
             event(1, EventType.USER, "original task"),
@@ -166,7 +189,7 @@ class CompactionTests(TestCase):
         self.assertEqual(result.events[1].payload["content"], "continue")
 
     def test_compactor_runs_revision_loop_until_approved(self) -> None:
-        generator = ScriptedGenerator(
+        model = ScriptedModel(
             [
                 "EPISODE 1: setup\nTURNS: 1 to 1",
                 COMPLETE_MEMORY_DOCUMENT,
@@ -179,8 +202,14 @@ class CompactionTests(TestCase):
             ]
         )
         compactor = Compactor(
-            generator=generator,
-            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, max_critic_loops=2),
+            policy=CompactionPolicy(
+                trigger_tokens=1,
+                keep_last_turns=1,
+                max_critic_loops=2,
+                task_extractor_model=model,
+                compactor_model=model,
+                critic_model=model,
+            ),
         )
 
         result = compactor.compact(
@@ -195,7 +224,7 @@ class CompactionTests(TestCase):
         self.assertEqual(len(result.critiques), 2)
 
     def test_compactor_revises_legacy_quote_heavy_draft_before_model_critic(self) -> None:
-        generator = ScriptedGenerator(
+        model = ScriptedModel(
             [
                 "EPISODE 1: setup\nTURNS: 1 to 1",
                 'ORIGINAL TASK\n"repeat the whole prompt verbatim because that feels safe"\nUSER DIRECTIVES\n"quote everything back"',
@@ -204,8 +233,7 @@ class CompactionTests(TestCase):
             ]
         )
         compactor = Compactor(
-            generator=generator,
-            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, task_extractor_model=model, compactor_model=model, critic_model=model),
         )
 
         result = compactor.compact(
@@ -221,20 +249,43 @@ class CompactionTests(TestCase):
         self.assertIn("### Task History", result.memory_document)
 
     def test_compactor_strips_revision_artifacts_from_final_memory(self) -> None:
-        generator = ScriptedGenerator(
+        model = ScriptedModel(
             [
                 "EPISODE 1: setup\nTURNS: 1 to 1",
                 "junk before heading\n\n## Episodic Memory\n\n### Task History\n#### T\n- FULL-FIDELITY REF: turns [1]\n- TASK TIMESTAMPS: 2026-05-23T10:00:00+00:00 -> 2026-05-23T10:01:00+00:00\n- TASK DESCRIPTION SYNTHESIS: summarize the requested task with enough concrete detail for resumption and keep the real user intent visible in a task-aware way\n- EXECUTION MEMORY: this task changed the approach and captured the important session semantics in prose, preserving the meaningful findings and results without replaying low-signal operational trivia or critic-side bookkeeping that would pollute the final memory surface\n\n### Failed Approaches\n- none\n\n### Open Problems\n- none\n\n### Implicit Tasks Discovered\n- none\n\n### Next Steps\n- continue\n\n## Semantic Memory\n\n### Task-Approach Pairs\n- TASK CLASS: compact session memory\n- EFFECTIVE APPROACH: preserve signal\n- PITFALLS: replaying noise\n- CONFIDENCE: medium\n\n### Generalizable Insights\n- High-signal memory is more useful than transcript replay when the next agent must resume quickly.\n\n## Handoff\n\n### Session Narrative\nhandoff\n\nREVISION LOG\n[VIOLATION 1] -> removed noise",
                 "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
             ]
         )
-        compactor = Compactor(generator=generator, policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1))
+        compactor = Compactor(
+            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, task_extractor_model=model, compactor_model=model, critic_model=model)
+        )
 
         result = compactor.compact([event(1, EventType.USER, "original task"), event(2, EventType.USER, "latest")])
 
         self.assertNotIn("REVISION LOG", result.memory_document)
         self.assertNotIn("junk before heading", result.memory_document)
         self.assertTrue(result.memory_document.startswith("## Episodic Memory"))
+
+    def test_compactor_can_distribute_stage_models(self) -> None:
+        task_extractor = ScriptedModel(["EPISODE 1: setup\nTURNS: 1 to 1"])
+        compactor_model = ScriptedModel([COMPLETE_MEMORY_DOCUMENT])
+        critic_model = ScriptedModel(["CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is"])
+        compactor = Compactor(
+            policy=CompactionPolicy(
+                trigger_tokens=1,
+                keep_last_turns=1,
+                task_extractor_model=task_extractor,
+                compactor_model=compactor_model,
+                critic_model=critic_model,
+            ),
+        )
+
+        result = compactor.compact([event(1, EventType.USER, "original task"), event(2, EventType.USER, "latest")])
+
+        self.assertEqual(result.revisions, 0)
+        self.assertEqual(len(task_extractor.calls), 1)
+        self.assertEqual(len(compactor_model.calls), 1)
+        self.assertEqual(len(critic_model.calls), 1)
 
     def test_compaction_middleware_runs_compaction_synchronously(self) -> None:
         with TemporaryDirectory() as directory:
@@ -246,14 +297,7 @@ class CompactionTests(TestCase):
                 ]
             )
             compactor = Compactor(
-                generator=ScriptedGenerator(
-                    [
-                        "EPISODE 1: old\nTURNS: 1 to 1",
-                        COMPLETE_MEMORY_DOCUMENT,
-                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
-                    ]
-                ),
-                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+                policy=scripted_session_policy(),
             )
             telemetry_path = Path(directory) / "telemetry.jsonl"
             coordinator = CompactionCoordinator(
@@ -275,7 +319,9 @@ class CompactionTests(TestCase):
             entries = self._compaction_telemetry_entries(telemetry_path)
             self.assertEqual(entries[0]["name"], "compaction.start")
             self.assertEqual(entries[-1]["name"], "compaction.end")
-            self.assertEqual(entries[-1]["payload"]["compacted_event_count"], 1)
+            self.assertEqual(entries[-1]["payload"]["counts"]["compacted_event_count"], 1)
+            self.assertEqual(entries[-1]["payload"]["kind"], "session")
+            self.assertEqual(entries[-1]["payload"]["token_usage"]["source_tokens"], 999)
 
     def test_compaction_coordinator_emits_lifecycle_events(self) -> None:
         with TemporaryDirectory() as directory:
@@ -287,15 +333,15 @@ class CompactionTests(TestCase):
                 ]
             )
             observed: list[tuple[str, dict[str, object]]] = []
+            model = ScriptedModel(
+                [
+                    "EPISODE 1: old\nTURNS: 1 to 1",
+                    COMPLETE_MEMORY_DOCUMENT,
+                    "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                ]
+            )
             compactor = Compactor(
-                generator=ScriptedGenerator(
-                    [
-                        "EPISODE 1: old\nTURNS: 1 to 1",
-                        COMPLETE_MEMORY_DOCUMENT,
-                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
-                    ]
-                ),
-                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, task_extractor_model=model, compactor_model=model, critic_model=model),
             )
             telemetry_path = Path(directory) / "telemetry.jsonl"
             coordinator = CompactionCoordinator(
@@ -310,8 +356,9 @@ class CompactionTests(TestCase):
             self.assertEqual(status, "completed")
 
             self.assertEqual([phase for phase, _ in observed], ["start", "end"])
-            self.assertEqual(observed[0][1]["estimated_tokens"], 999)
-            self.assertEqual(observed[1][1]["compacted_event_count"], 1)
+            self.assertEqual(observed[0][1]["token_usage"]["source_tokens"], 999)
+            self.assertEqual(observed[1][1]["counts"]["compacted_event_count"], 1)
+            self.assertEqual(observed[1][1]["model_names"]["compactor"], "ScriptedModel")
             self.assertEqual(manager.read_curated()[0].payload["kind"], "memory_restore")
             self.assertEqual(manager.read_curated()[1].payload["content"], "new")
             self.assertEqual(
@@ -329,14 +376,7 @@ class CompactionTests(TestCase):
                 ]
             )
             compactor = Compactor(
-                generator=ScriptedGenerator(
-                    [
-                        "EPISODE 1: old\nTURNS: 1 to 1",
-                        COMPLETE_MEMORY_DOCUMENT,
-                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
-                    ]
-                ),
-                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+                policy=scripted_session_policy(),
             )
             telemetry_path = Path(directory) / "telemetry.jsonl"
             def failing_callback(phase: str, payload: dict[str, object]) -> None:
@@ -372,14 +412,7 @@ class CompactionTests(TestCase):
                 ]
             )
             compactor = Compactor(
-                generator=ScriptedGenerator(
-                    [
-                        "EPISODE 1: old\nTURNS: 1 to 1",
-                        COMPLETE_MEMORY_DOCUMENT,
-                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
-                    ]
-                ),
-                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1),
+                policy=scripted_session_policy(),
             )
             coordinator = CompactionCoordinator(manager, compactor, token_counter=FixedTokenCounter(999))
             assert coordinator._run_lock.acquire(blocking=False)
@@ -399,14 +432,7 @@ class CompactionTests(TestCase):
                 ]
             )
             compactor = Compactor(
-                generator=ScriptedGenerator(
-                    [
-                        "EPISODE 1: old\nTURNS: 1 to 1",
-                        COMPLETE_MEMORY_DOCUMENT,
-                        "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
-                    ]
-                ),
-                policy=CompactionPolicy(trigger_tokens=1000, keep_last_turns=1, trigger_on_day_change=True),
+                policy=scripted_session_policy(trigger_tokens=1000, trigger_on_day_change=True),
             )
             telemetry_path = Path(directory) / "telemetry.jsonl"
             coordinator = CompactionCoordinator(

@@ -9,32 +9,44 @@ from unittest import TestCase
 
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager
+from core.telemetry.store import TelemetryStore
 from core.trajectory.compactor import TrajectoryCompactor
 from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 from core.trajectory.policy import TrajectoryCompactionPolicy
 from core.trajectory.serialization import format_turn_interval, trajectory_memory_message
+from core.utilities.defaults import get_model_name
 
 
-class ScriptedGenerator:
+class FakeResponse:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class ScriptedModel:
     def __init__(self, response: str) -> None:
         self.response = response
         self.calls: list[tuple[str, str]] = []
 
-    def generate(self, system_prompt: str, user_prompt: str) -> str:
-        self.calls.append((system_prompt, user_prompt))
-        return self.response
+    def invoke(self, messages: list[object]) -> FakeResponse:
+        self.calls.append((str(messages[0].content), str(messages[1].content)))
+        return FakeResponse(self.response)
 
 
-class BlockingGenerator(ScriptedGenerator):
+class BlockingModel(ScriptedModel):
     def __init__(self, response: str, started: Event, release: Event) -> None:
         super().__init__(response)
         self.started = started
         self.release = release
 
-    def generate(self, system_prompt: str, user_prompt: str) -> str:
+    def invoke(self, messages: list[object]) -> FakeResponse:
         self.started.set()
         self.release.wait(timeout=2)
-        return super().generate(system_prompt, user_prompt)
+        return super().invoke(messages)
+
+
+def scripted_trajectory_policy(response: str, *, trigger_every_turns: int = 2) -> tuple[TrajectoryCompactionPolicy, ScriptedModel]:
+    model = ScriptedModel(response)
+    return TrajectoryCompactionPolicy(trigger_every_turns=trigger_every_turns, compactor_model=model), model
 
 
 def event(turn: int, event_type: EventType, content: str, **payload: object) -> SessionEvent:
@@ -51,13 +63,16 @@ class TrajectoryCompactionTests(TestCase):
         self.assertFalse(policy.compaction_decision(turn_count=3, latest_turn=3).should_compact)
         self.assertTrue(policy.compaction_decision(turn_count=4, latest_turn=4).should_compact)
 
+    def test_policy_exposes_dedicated_compactor_model_slot(self) -> None:
+        policy = TrajectoryCompactionPolicy()
+
+        self.assertEqual(get_model_name(policy.compactor_model), "gemini-3.1-flash-lite")
+
     def test_compactor_preserves_user_assistant_and_replaces_internal_events(self) -> None:
-        compactor = TrajectoryCompactor(
-            generator=ScriptedGenerator(
-                '{"turns":[{"turn":1,"synthesis":"High-signal summary for turn 1.","live_edge":"Next edge 1."},{"turn":2,"synthesis":"High-signal summary for turn 2.","live_edge":"Next edge 2."}]}'
-            ),
-            policy=TrajectoryCompactionPolicy(trigger_every_turns=2),
+        policy, model = scripted_trajectory_policy(
+            '{"turns":[{"turn":1,"synthesis":"High-signal summary for turn 1.","live_edge":"Next edge 1."},{"turn":2,"synthesis":"High-signal summary for turn 2.","live_edge":"Next edge 2."}]}'
         )
+        compactor = TrajectoryCompactor(policy=policy)
         events = [
             event(1, EventType.USER, "user 1", role="user"),
             event(1, EventType.TOOL, "tool args", name="pytest"),
@@ -118,15 +133,13 @@ class TrajectoryCompactionTests(TestCase):
         )
         self.assertTrue(any(item.type == EventType.REASONING and item.turn == 3 for item in result.events))
         self.assertTrue(any(item.type == EventType.REASONING and item.turn == 4 for item in result.events))
-        self.assertIn('"turn": 1', compactor.generator.calls[0][1])
-        self.assertIn('"user_message": "user 1"', compactor.generator.calls[0][1])
-        self.assertIn('"assistant_message": "assistant 1"', compactor.generator.calls[0][1])
+        self.assertIn('"turn": 1', model.calls[0][1])
+        self.assertIn('"user_message": "user 1"', model.calls[0][1])
+        self.assertIn('"assistant_message": "assistant 1"', model.calls[0][1])
 
     def test_compactor_waits_until_two_batches_exist(self) -> None:
-        compactor = TrajectoryCompactor(
-            generator=ScriptedGenerator('{"turns":[]}'),
-            policy=TrajectoryCompactionPolicy(trigger_every_turns=2),
-        )
+        policy, _ = scripted_trajectory_policy('{"turns":[]}')
+        compactor = TrajectoryCompactor(policy=policy)
         events = [
             event(1, EventType.USER, "user 1", role="user"),
             event(1, EventType.TOOL, "tool args", name="pytest"),
@@ -142,12 +155,10 @@ class TrajectoryCompactionTests(TestCase):
         self.assertEqual(len(result.events), len(events))
 
     def test_compactor_uses_previous_batch_not_latest_turns(self) -> None:
-        compactor = TrajectoryCompactor(
-            generator=ScriptedGenerator(
-                '{"turns":[{"turn":7,"synthesis":"High-signal summary for turn 7.","live_edge":"Next edge 7."},{"turn":8,"synthesis":"High-signal summary for turn 8.","live_edge":"Next edge 8."}]}'
-            ),
-            policy=TrajectoryCompactionPolicy(trigger_every_turns=2),
+        policy, _ = scripted_trajectory_policy(
+            '{"turns":[{"turn":7,"synthesis":"High-signal summary for turn 7.","live_edge":"Next edge 7."},{"turn":8,"synthesis":"High-signal summary for turn 8.","live_edge":"Next edge 8."}]}'
         )
+        compactor = TrajectoryCompactor(policy=policy)
         events: list[SessionEvent] = []
         for turn in range(1, 11):
             events.extend(
@@ -194,16 +205,18 @@ class TrajectoryCompactionTests(TestCase):
             )
             started = Event()
             release = Event()
+            blocking_model = BlockingModel(
+                '{"turns":[{"turn":1,"synthesis":"Summary 1.","live_edge":"Edge 1."},{"turn":2,"synthesis":"Summary 2.","live_edge":"Edge 2."}]}',
+                started=started,
+                release=release,
+            )
             coordinator = TrajectoryCompactionCoordinator(
                 manager,
                 TrajectoryCompactor(
-                    generator=BlockingGenerator(
-                        '{"turns":[{"turn":1,"synthesis":"Summary 1.","live_edge":"Edge 1."},{"turn":2,"synthesis":"Summary 2.","live_edge":"Edge 2."}]}',
-                        started=started,
-                        release=release,
-                    ),
-                    policy=TrajectoryCompactionPolicy(trigger_every_turns=2),
+                    policy=TrajectoryCompactionPolicy(trigger_every_turns=2, compactor_model=blocking_model),
                 ),
+                telemetry_store=TelemetryStore(Path(directory) / "telemetry.jsonl"),
+                repo_root=Path(directory),
             )
 
             status = coordinator.request_compaction()
@@ -235,10 +248,8 @@ class TrajectoryCompactionTests(TestCase):
         self.assertEqual(format_turn_interval([1, 2, 3, 5, 7, 8]), "[1-3, 5, 7-8]")
 
     def test_compactor_rejects_missing_batch_turns(self) -> None:
-        compactor = TrajectoryCompactor(
-            generator=ScriptedGenerator('{"turns":[{"turn":1,"synthesis":"Only one.","live_edge":"Edge."}]}'),
-            policy=TrajectoryCompactionPolicy(trigger_every_turns=2),
-        )
+        policy, _ = scripted_trajectory_policy('{"turns":[{"turn":1,"synthesis":"Only one.","live_edge":"Edge."}]}')
+        compactor = TrajectoryCompactor(policy=policy)
         events = [
             event(1, EventType.USER, "user 1", role="user"),
             event(1, EventType.TOOL, "tool args", name="pytest"),

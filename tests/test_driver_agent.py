@@ -5,7 +5,11 @@ from unittest import TestCase
 from agents.driver.agent import _local_shell_backend
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from core.utilities.defaults import (
+    get_default_compactor_model,
+    get_default_critic_model,
     get_default_model,
+    get_default_task_extractor_model,
+    get_default_trajectory_compactor_model,
 )
 
 
@@ -55,3 +59,16 @@ class DriverAgentTests(TestCase):
         self.assertEqual(model.max_retries, 3)
         self.assertIs(model.include_thoughts, False)
         self.assertEqual(model.thinking_level, "minimal")
+
+    def test_compaction_component_defaults_share_non_reasoning_profile(self) -> None:
+        for factory in (
+            get_default_task_extractor_model,
+            get_default_compactor_model,
+            get_default_critic_model,
+            get_default_trajectory_compactor_model,
+        ):
+            model = factory()
+            self.assertEqual(model.model, "gemini-3.1-flash-lite")
+            self.assertEqual(model.max_retries, 3)
+            self.assertIs(model.include_thoughts, False)
+            self.assertEqual(model.thinking_level, "minimal")

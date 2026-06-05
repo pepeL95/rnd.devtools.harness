@@ -35,8 +35,9 @@ class CompactionResult:
     memory_document: str
     segmentation: str
     critiques: list[Critique] = field(default_factory=list)
+    model_names: dict[str, str] = field(default_factory=dict)
+    token_usage: dict[str, int] = field(default_factory=dict)
     revisions: int = 0
     token_estimate_before: int = 0
     compacted_event_count: int = 0
     retained_event_count: int = 0
-
