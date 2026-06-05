@@ -15,7 +15,7 @@ class TrajectoryCompactionDecision:
 
 @dataclass(frozen=True)
 class TrajectoryCompactionPolicy:
-    trigger_every_turns: int = 2
+    trigger_every_turns: int = 1
     compactor_model: BaseChatModel = field(default_factory=get_default_trajectory_compactor_model)
 
     def compaction_decision(self, turn_count: int, latest_turn: int) -> TrajectoryCompactionDecision:
