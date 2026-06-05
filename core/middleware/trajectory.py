@@ -14,8 +14,8 @@ class TrajectoryCompactionMiddleware(AgentMiddleware):
         self.coordinator = coordinator
 
     def before_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
+        self.coordinator.request_compaction()
         return None
 
     def after_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
-        self.coordinator.request_compaction()
         return None

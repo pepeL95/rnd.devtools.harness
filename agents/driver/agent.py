@@ -74,12 +74,12 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         TelemetryMiddleware(telemetry_store),
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
         CompactionMiddleware(coordinator),
-        TrajectoryCompactionMiddleware(trajectory_coordinator),
         SessionLoadMiddleware(manager),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
         RuntimeContextMiddleware(cwd=cwd),
         FilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager),
+        TrajectoryCompactionMiddleware(trajectory_coordinator),
     ]
     return create_agent(model=config.model, tools=[reasoning_tool], middleware=middleware)
 
