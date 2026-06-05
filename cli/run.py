@@ -288,7 +288,8 @@ class QuasipilotApp(App[None]):
 
     def _sync_compaction_ui(self) -> None:
         status = "compacting session" if self._compaction_active else None
-        self.query_one(RuntimeBar).update_runtime(status=status)
+        curated_path = str(self._manager.curated_path) if self._manager is not None else None
+        self.query_one(RuntimeBar).update_runtime(curated_path=curated_path, status=status)
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()

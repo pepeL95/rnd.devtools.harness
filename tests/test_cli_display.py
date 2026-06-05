@@ -1,6 +1,7 @@
 from unittest import TestCase
 
 from cli.components import ChatInput
+from cli.components import RuntimeBar
 from cli.components import StatusBubble
 from cli.run import QuasipilotApp
 from cli.utilities.display import content_to_plaintext
@@ -102,3 +103,22 @@ class ChatInputTests(TestCase):
 
         self.assertEqual(submitted, [])
         self.assertEqual(snapshots, ["hi\nthere"])
+
+
+class RuntimeBarTests(TestCase):
+    def test_update_runtime_renders_curated_path_when_session_active(self) -> None:
+        import asyncio
+
+        async def run() -> None:
+            app = QuasipilotApp()
+            async with app.run_test():
+                bar = app.query_one(RuntimeBar)
+                bar.update_runtime(curated_path="/tmp/sessions/curated/abc.jsonl")
+                rendered = bar.render()
+                self.assertEqual(
+                    str(rendered),
+                    "gemini-3.1-flash-lite  ·  /Users/pepelopez/Documents/Programming/rnd.devtools.harness  ·  /tmp/sessions/curated/abc.jsonl",
+                )
+                self.assertTrue(all(not span.style or "link " not in str(span.style) for span in rendered.spans))
+
+        asyncio.run(run())
