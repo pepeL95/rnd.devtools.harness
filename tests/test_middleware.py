@@ -6,7 +6,9 @@ from unittest import TestCase
 
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
+from langchain.agents.middleware import ModelResponse
 from core.middleware.reasoning import ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
@@ -294,3 +296,64 @@ class MiddlewareTests(TestCase):
                 if event.payload.get("kind") == "trajectory_memory"
             ]
             self.assertEqual(len(trajectory_memory_events), 1)
+
+    def test_session_dump_persists_model_response_before_turn_end(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+            middleware.wrap_model_call(
+                FakeModelRequest(system_message=None, messages=[]),  # type: ignore[arg-type]
+                lambda _: ModelResponse(result=[AIMessage(content="partial answer")]),
+            )
+
+            assistant_events = [event for event in manager.read_dump() if event.type == EventType.ASSISTANT]
+            turn_end_events = [event for event in manager.read_dump() if event.type == EventType.TURN_END]
+            self.assertEqual([event.payload["content"] for event in assistant_events], ["partial answer"])
+            self.assertEqual(turn_end_events, [])
+
+    def test_session_dump_persists_tool_output_before_turn_end(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+            middleware.wrap_tool_call(
+                type("Req", (), {"tool_call": {"name": "read_file", "id": "call-1"}})(),
+                lambda _: ToolMessage(content="tool output", tool_call_id="call-1"),
+            )
+
+            tool_output_events = [event for event in manager.read_dump() if event.type == EventType.TOOL_OUTPUT]
+            turn_end_events = [event for event in manager.read_dump() if event.type == EventType.TURN_END]
+            self.assertEqual([event.payload["content"] for event in tool_output_events], ["tool output"])
+            self.assertEqual(turn_end_events, [])
+
+    def test_session_dump_records_failure_and_closes_turn_on_tool_error(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+            middleware.wrap_model_call(
+                FakeModelRequest(system_message=None, messages=[]),  # type: ignore[arg-type]
+                lambda _: ModelResponse(
+                    result=[
+                        AIMessage(
+                            content=[{"type": "text", "text": "reading now"}],
+                            tool_calls=[{"name": "read_file", "args": {"file_path": "/tmp/x"}, "id": "call-1"}],
+                        )
+                    ]
+                ),
+            )
+
+            with self.assertRaises(RuntimeError):
+                middleware.wrap_tool_call(
+                    type("Req", (), {"tool_call": {"name": "read_file", "id": "call-1"}})(),
+                    lambda _: (_ for _ in ()).throw(RuntimeError("tool failed")),
+                )
+
+            dump = manager.read_dump()
+            self.assertTrue(any(event.type == EventType.TOOL and event.payload["name"] == "read_file" for event in dump))
+            self.assertTrue(any(event.type == EventType.META and event.payload.get("kind") == "tool_error" for event in dump))
+            self.assertTrue(any(event.type == EventType.TURN_END and event.payload.get("status") == "error" for event in dump))

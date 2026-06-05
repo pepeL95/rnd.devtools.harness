@@ -5,6 +5,8 @@ from typing import Any
 from pathlib import Path
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
+from langchain.agents.middleware import ModelRequest, ModelResponse
+from langgraph.types import Command
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
 from core.utilities.git import git_branch, git_dirty
@@ -32,14 +34,44 @@ class SessionDumpMiddleware(AgentMiddleware):
     def after_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
         turn = self._active_turn or self.manager.next_turn()
         self._dump_new_messages(state)
-        self.manager.append([SessionEvent(type=EventType.TURN_END, turn=turn, payload={})])
+        self._end_turn(turn)
         self._active_turn = None
         return None
 
+    def wrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse:
+        try:
+            response = handler(request)
+        except Exception as exc:
+            self._record_failure("model_error", {"error_type": exc.__class__.__name__, "error": str(exc)})
+            raise
+        self._append_messages(getattr(response, "result", []) or [])
+        return response
+
+    def wrap_tool_call(self, request: Any, handler: Any) -> Any:
+        try:
+            result = handler(request)
+        except Exception as exc:
+            tool_call = getattr(request, "tool_call", None) or {}
+            self._record_failure(
+                "tool_error",
+                {
+                    "error_type": exc.__class__.__name__,
+                    "error": str(exc),
+                    "tool_name": tool_call.get("name"),
+                    "tool_call_id": tool_call.get("id"),
+                },
+            )
+            raise
+        self._append_messages(_tool_result_messages(result))
+        return result
+
     def _dump_new_messages(self, state: AgentState) -> None:
+        self._append_messages(state.get("messages", []))
+
+    def _append_messages(self, messages: Any) -> None:
         turn = self._active_turn or self.manager.next_turn()
         unseen_events: list[SessionEvent] = []
-        for message in state.get("messages", []):
+        for message in messages or []:
             if _is_restored_memory_message(message):
                 continue
             for event in self.manager.events_from_messages([message], turn=turn):
@@ -70,6 +102,21 @@ class SessionDumpMiddleware(AgentMiddleware):
                 continue
             self._seen_event_keys.add(self._event_key(event))
 
+    def _record_failure(self, kind: str, payload: dict[str, Any]) -> None:
+        turn = self._active_turn
+        if turn is None:
+            return
+        self.manager.append(
+            [
+                SessionEvent(type=EventType.META, turn=turn, payload={"kind": kind, **payload}),
+                SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "error"}),
+            ]
+        )
+        self._active_turn = None
+
+    def _end_turn(self, turn: int) -> None:
+        self.manager.append([SessionEvent(type=EventType.TURN_END, turn=turn, payload={})])
+
     def _runtime_event(self, runtime: Any) -> SessionEvent:
         cwd = self._resolve_cwd(runtime)
         snapshot = RuntimeSnapshot(
@@ -91,3 +138,20 @@ class SessionDumpMiddleware(AgentMiddleware):
 def _is_restored_memory_message(message: Any) -> bool:
     additional_kwargs = getattr(message, "additional_kwargs", None) or {}
     return additional_kwargs.get("session_kind") in {"memory_restore", "trajectory_memory"}
+
+
+def _tool_result_messages(result: Any) -> list[Any]:
+    if result is None:
+        return []
+    if _is_message_like(result):
+        return [result]
+    if isinstance(result, Command):
+        update = getattr(result, "update", None) or {}
+        messages = update.get("messages", [])
+        if isinstance(messages, list):
+            return [message for message in messages if _is_message_like(message)]
+    return []
+
+
+def _is_message_like(value: Any) -> bool:
+    return hasattr(value, "content") or hasattr(value, "tool_call_id")
