@@ -16,6 +16,7 @@ from core.middleware.reasoning import ReasoningEagerness, ReasoningMiddleware, r
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
+from core.middleware.skills import SkillsMiddleware, create_read_skill_tool
 from core.middleware.system_prompt import SystemPromptMiddleware
 from core.middleware.trajectory import TrajectoryCompactionMiddleware
 from core.middleware.telemetry import TelemetryMiddleware
@@ -77,12 +78,17 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         CompactionMiddleware(session_compaction_coordinator),
         SessionLoadMiddleware(manager),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
+        SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd),
         FilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager),
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
     ]
-    return create_agent(model=config.model, tools=[reasoning_tool], middleware=middleware)
+    return create_agent(
+        model=config.model,
+        tools=[reasoning_tool, create_read_skill_tool(cwd=cwd)],
+        middleware=middleware,
+    )
 
 
 def _local_shell_backend(backend_cls: type[Any], cwd: Path) -> Any:

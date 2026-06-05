@@ -32,7 +32,7 @@ class TrajectoryCompactionCoordinator:
         self.telemetry = CompactionTelemetry(
             kind="trajectory",
             store=telemetry_store or TelemetryStore(telemetry_session_path(manager.session_id)),
-            logger=compaction_logger(resolved_root),
+            logger=compaction_logger(resolved_root, name="quasipilot.trajectory", log_dir="trajectory"),
         )
         self._mutex = Lock()
         self._worker: Thread | None = None

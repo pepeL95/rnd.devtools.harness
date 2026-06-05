@@ -9,6 +9,7 @@ __all__ = [
     "RuntimeContextMiddleware",
     "SessionDumpMiddleware",
     "SessionLoadMiddleware",
+    "SkillsMiddleware",
     "SystemPromptMiddleware",
     "TrajectoryCompactionMiddleware",
 ]
@@ -19,6 +20,7 @@ _EXPORTS = {
     "RuntimeContextMiddleware": "core.middleware.runtime",
     "SessionDumpMiddleware": "core.middleware.session_dump",
     "SessionLoadMiddleware": "core.middleware.session_load",
+    "SkillsMiddleware": "core.middleware.skills",
     "SystemPromptMiddleware": "core.middleware.system_prompt",
     "TrajectoryCompactionMiddleware": "core.middleware.trajectory",
 }

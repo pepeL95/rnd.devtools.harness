@@ -37,7 +37,7 @@ class CompactionCoordinator:
         self.telemetry = CompactionTelemetry(
             kind="session",
             store=telemetry_store or TelemetryStore(telemetry_session_path(manager.session_id)),
-            logger=compaction_logger(resolved_root),
+            logger=compaction_logger(resolved_root, name="quasipilot.compaction", log_dir="compaction"),
         )
         self._run_lock = Lock()
 

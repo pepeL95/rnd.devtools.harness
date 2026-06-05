@@ -11,6 +11,7 @@ from core.middleware.reasoning import ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
+from core.middleware.skills import SkillsMiddleware, create_read_skill_tool, discover_skills
 from core.middleware.system_prompt import SystemPromptMiddleware
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager
@@ -20,6 +21,7 @@ from core.session.manager import SessionManager
 class FakeModelRequest:
     system_message: SystemMessage | None
     messages: list[Any]
+    state: dict[str, Any] | None = None
     runtime: Any = None
 
     def override(self, **changes: Any) -> "FakeModelRequest":
@@ -42,8 +44,8 @@ class MiddlewareTests(TestCase):
 
         response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
 
-        self.assertIn("Use the `reasoning` tool often", str(response.content))
-        self.assertIn("Reason often", str(response.content))
+        self.assertIn("Use the `reasoning` tool very often", str(response.content))
+        self.assertIn("Your reasoning eagerness has been set to **Highest**", str(response.content))
 
     def test_reasoning_middleware_rejects_invalid_eagerness(self) -> None:
         with self.assertRaises(ValueError):
@@ -137,6 +139,85 @@ class MiddlewareTests(TestCase):
             response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
 
             self.assertIn(str(path.resolve()), str(response.content))
+
+    def test_skills_middleware_appends_available_skills(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / ".quasipilot/skills"
+            skill_dir = root / "code-review"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: code-review\ndescription: Review code changes for correctness.\n---\nUse this skill.\n",
+                encoding="utf-8",
+            )
+            middleware = SkillsMiddleware(cwd=directory, roots=[root])
+            request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+            response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+            self.assertIn("[SKILLS]", str(response.content))
+            self.assertIn("code-review", str(response.content))
+            self.assertIn(str((skill_dir / "SKILL.md").resolve()), str(response.content))
+            self.assertIn("call `read_skill`", str(response.content))
+
+    def test_skills_middleware_skips_prompt_when_no_skills_exist(self) -> None:
+        with TemporaryDirectory() as directory:
+            middleware = SkillsMiddleware(cwd=directory, roots=[Path(directory) / ".quasipilot/skills"])
+            request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+            response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+            self.assertNotIn("[SKILLS]", str(response.content))
+
+    def test_discover_skills_prefers_later_roots_on_name_collision(self) -> None:
+        with TemporaryDirectory() as directory:
+            base = Path(directory)
+            user_root = base / "user"
+            project_root = base / "project"
+            for root, description in (
+                (user_root, "User skill"),
+                (project_root, "Project override"),
+            ):
+                skill_dir = root / "code-review"
+                skill_dir.mkdir(parents=True)
+                (skill_dir / "SKILL.md").write_text(
+                    f"---\nname: code-review\ndescription: {description}\n---\nUse this skill.\n",
+                    encoding="utf-8",
+                )
+
+            skills = discover_skills(base, roots=[user_root, project_root])
+
+            self.assertEqual(len(skills), 1)
+            self.assertEqual(skills[0].description, "Project override")
+
+    def test_read_skill_tool_returns_body_and_resources(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / ".quasipilot/skills"
+            skill_dir = root / "code-review"
+            (skill_dir / "scripts").mkdir(parents=True)
+            (skill_dir / "references").mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: code-review\ndescription: Review code changes for correctness.\n---\n## Steps\nUse this skill.\n",
+                encoding="utf-8",
+            )
+            (skill_dir / "scripts/check.py").write_text("print('ok')\n", encoding="utf-8")
+            (skill_dir / "references/guide.md").write_text("# Guide\n", encoding="utf-8")
+            tool = create_read_skill_tool(cwd=directory, roots=[root])
+
+            result = tool.invoke({"name": "code-review"})
+
+            self.assertIn("<skill name=\"code-review\">", result)
+            self.assertIn("## Steps", result)
+            self.assertNotIn("description: Review code changes", result)
+            self.assertIn("scripts/check.py", result)
+            self.assertIn("references/guide.md", result)
+
+    def test_read_skill_tool_returns_error_for_unknown_skill(self) -> None:
+        with TemporaryDirectory() as directory:
+            tool = create_read_skill_tool(cwd=directory, roots=[Path(directory) / ".quasipilot/skills"])
+
+            result = tool.invoke({"name": "missing"})
+
+            self.assertIn("Error: unknown skill 'missing'", result)
 
     def test_session_load_prepends_curated_history(self) -> None:
         with TemporaryDirectory() as directory:

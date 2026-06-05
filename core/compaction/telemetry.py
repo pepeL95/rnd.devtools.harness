@@ -45,11 +45,11 @@ class CompactionTelemetry:
             self.logger.log(level, json.dumps(normalized, ensure_ascii=False, sort_keys=True))
 
 
-def compaction_logger(repo_root: Path) -> logging.Logger:
-    logger = logging.getLogger("quasipilot.compaction")
+def compaction_logger(repo_root: Path, *, name: str, log_dir: str) -> logging.Logger:
+    logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     log_filename = datetime.datetime.now().strftime("%m-%d-%Y.log")
-    log_path = (repo_root / ".logs" / "compaction" / log_filename).resolve()
+    log_path = (repo_root / ".logs" / log_dir / log_filename).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     for handler in logger.handlers:
