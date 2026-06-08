@@ -1,4 +1,5 @@
 from unittest import TestCase
+from pathlib import Path
 
 from cli.components import ChatInput
 from cli.components import RuntimeBar
@@ -152,3 +153,12 @@ class RuntimeBarTests(TestCase):
                 self.assertTrue(all(not span.style or "link " not in str(span.style) for span in rendered.spans))
 
         asyncio.run(run())
+
+
+class RuntimeConfigTests(TestCase):
+    def test_configure_python_interpreter_updates_app_state(self) -> None:
+        app = QuasipilotApp()
+
+        app.configure_python_interpreter("~/venv/bin/python")
+
+        self.assertEqual(app._python_interpreter, Path("~/venv/bin/python").expanduser().resolve())

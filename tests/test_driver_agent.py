@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
 from agents.driver.agent import _local_shell_backend
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
@@ -53,6 +54,35 @@ class DriverAgentTests(TestCase):
             agent = create_driver_agent(DriverAgentConfig(cwd=Path(directory), session_id="test-session"))
 
             self.assertEqual(type(agent).__name__, "CompiledStateGraph")
+
+    def test_driver_agent_passes_python_interpreter_to_runtime_middleware(self) -> None:
+        with TemporaryDirectory() as directory:
+            cwd = Path(directory)
+            interpreter = cwd / "venv/bin/python"
+            captured: list[object] = []
+
+            class FakeFilesystemMiddleware:
+                def __init__(self, **_: object) -> None:
+                    pass
+
+            def fake_create_agent(*, model: object, tools: list[object], middleware: list[object]) -> object:
+                captured.extend(middleware)
+                return object()
+
+            with patch("langchain.agents.create_agent", side_effect=fake_create_agent), patch(
+                "deepagents.middleware.filesystem.FilesystemMiddleware",
+                FakeFilesystemMiddleware,
+            ):
+                create_driver_agent(
+                    DriverAgentConfig(
+                        cwd=cwd,
+                        python_interpreter=interpreter,
+                        session_id="test-session",
+                    )
+                )
+
+            runtime = next(item for item in captured if type(item).__name__ == "RuntimeContextMiddleware")
+            self.assertEqual(runtime.python_interpreter, interpreter.resolve())
 
     def test_default_driver_model_uses_reasoning_profile(self) -> None:
         model = get_default_driver_model()

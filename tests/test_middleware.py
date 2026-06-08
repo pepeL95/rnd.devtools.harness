@@ -144,6 +144,18 @@ class MiddlewareTests(TestCase):
 
             self.assertIn(str(path.resolve()), str(response.content))
 
+    def test_runtime_middleware_injects_python_interpreter_when_configured(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory)
+            interpreter = path / "venv/bin/python"
+            middleware = RuntimeContextMiddleware(cwd=path, python_interpreter=interpreter)
+            request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+            response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+            self.assertIn(str(interpreter.resolve()), str(response.content))
+            self.assertIn("Use this interpreter for Python command execution.", str(response.content))
+
     def test_skills_middleware_appends_available_skills(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory) / ".quasipilot/skills"

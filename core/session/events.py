@@ -25,19 +25,26 @@ class RuntimeSnapshot:
     cwd: str
     git_branch: str | None = None
     git_dirty: bool | None = None
+    python_interpreter: str | None = None
 
     def to_prompt_block(self) -> str:
         branch = self.git_branch or "unknown"
         dirty = "unknown" if self.git_dirty is None else str(self.git_dirty).lower()
-        return "\n".join(
-            [
-                "[RUNTIME CONTEXT]",
-                f"cwd: {self.cwd}",
-                f"git_branch: {branch}",
-                f"git_dirty: {dirty}",
-                "[END RUNTIME CONTEXT]",
-            ]
-        )
+        lines = [
+            "[RUNTIME CONTEXT]",
+            f"cwd: {self.cwd}",
+            f"git_branch: {branch}",
+            f"git_dirty: {dirty}",
+        ]
+        if self.python_interpreter:
+            lines.extend(
+                [
+                    f"python_interpreter: {self.python_interpreter}",
+                    "Use this interpreter for Python command execution.",
+                ]
+            )
+        lines.append("[END RUNTIME CONTEXT]")
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True)

@@ -36,3 +36,22 @@ class SlashCommandRegistryTests(TestCase):
 
         self.assertFalse(should_exit)
         app.trigger_manual_compaction.assert_called_once()
+
+    def test_python_dispatches_runtime_reconfiguration(self) -> None:
+        registry = SlashCommandRegistry()
+        app = MagicMock()
+
+        should_exit = registry.dispatch(app, "/python ~/venv/bin/python")
+
+        self.assertFalse(should_exit)
+        app.configure_python_interpreter.assert_called_once()
+        app.notify.assert_called_once()
+
+    def test_python_requires_path_argument(self) -> None:
+        registry = SlashCommandRegistry()
+        app = MagicMock()
+
+        should_exit = registry.dispatch(app, "/python")
+
+        self.assertFalse(should_exit)
+        app.notify_warning.assert_called_once_with("usage: /python /absolute/path/to/python")

@@ -33,6 +33,7 @@ from core.utilities.defaults import get_default_driver_model
 class DriverAgentConfig:
     cwd: Path
     model: BaseChatModel = field(default_factory=get_default_driver_model)
+    python_interpreter: Path | None = None
     session_id: str | None = None
     session_manager: SessionManager | None = None
     reasoning_eagerness: ReasoningEagerness = "low"
@@ -83,7 +84,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         SessionLoadMiddleware(manager),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
         SkillsMiddleware(cwd=cwd),
-        RuntimeContextMiddleware(cwd=cwd),
+        RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         FilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager),
         LiveSteeringMiddleware(live_steering_controller),

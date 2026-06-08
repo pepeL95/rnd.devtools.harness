@@ -95,6 +95,7 @@ class QuasipilotApp(App[None]):
         super().__init__(ansi_color=True)
         self._cwd = Path.cwd()
         self._model = get_default_driver_model()
+        self._python_interpreter: Path | None = None
         self.session_id: str | None = None
         self._manager: SessionManager | None = None
         self._agent = None
@@ -192,6 +193,7 @@ class QuasipilotApp(App[None]):
             DriverAgentConfig(
                 cwd=self._cwd,
                 model=self._model,
+                python_interpreter=self._python_interpreter,
                 session_id=session_id,
                 session_manager=self._manager,
                 on_compaction_event=self._post_compaction_event,
@@ -199,6 +201,11 @@ class QuasipilotApp(App[None]):
                 live_steering_controller=self._live_steering,
             )
         )
+
+    def configure_python_interpreter(self, path: str | Path | None) -> None:
+        self._python_interpreter = Path(path).expanduser().resolve() if path else None
+        if self._manager is not None:
+            self._agent = self._build_agent(self.session_id)
 
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
         return CompactionCoordinator(
