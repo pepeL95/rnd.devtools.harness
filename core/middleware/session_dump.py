@@ -7,6 +7,7 @@ from pathlib import Path
 from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langgraph.types import Command
+from core.live_steering import LiveSteeringInterrupt
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
 from core.utilities.git import git_branch, git_dirty
@@ -50,6 +51,9 @@ class SessionDumpMiddleware(AgentMiddleware):
     def wrap_tool_call(self, request: Any, handler: Any) -> Any:
         try:
             result = handler(request)
+        except LiveSteeringInterrupt as exc:
+            self._record_interrupt("live_steering_interrupt", {"steering": exc.steering})
+            raise
         except Exception as exc:
             tool_call = getattr(request, "tool_call", None) or {}
             self._record_failure(
@@ -110,6 +114,18 @@ class SessionDumpMiddleware(AgentMiddleware):
             [
                 SessionEvent(type=EventType.META, turn=turn, payload={"kind": kind, **payload}),
                 SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "error"}),
+            ]
+        )
+        self._active_turn = None
+
+    def _record_interrupt(self, kind: str, payload: dict[str, Any]) -> None:
+        turn = self._active_turn
+        if turn is None:
+            return
+        self.manager.append(
+            [
+                SessionEvent(type=EventType.META, turn=turn, payload={"kind": kind, **payload}),
+                SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "interrupted"}),
             ]
         )
         self._active_turn = None

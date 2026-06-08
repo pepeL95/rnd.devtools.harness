@@ -11,7 +11,9 @@ from agents.driver.prompt import DRIVER_SYSTEM_PROMPT
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
+from core.live_steering import LiveSteeringController
 from core.middleware.compaction import CompactionMiddleware
+from core.middleware.live_steering import LiveSteeringMiddleware
 from core.middleware.reasoning import ReasoningEagerness, ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
@@ -37,6 +39,7 @@ class DriverAgentConfig:
     on_compaction_event: Callable[[str, dict[str, Any]], None] | None = None
     session_compaction_coordinator: CompactionCoordinator | None = None
     trajectory_compaction_coordinator: TrajectoryCompactionCoordinator | None = None
+    live_steering_controller: LiveSteeringController | None = None
 
 
 def create_driver_agent(config: DriverAgentConfig) -> Any:
@@ -65,6 +68,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         TrajectoryCompactor(policy=TrajectoryCompactionPolicy()),
         telemetry_store=telemetry_store,
     )
+    live_steering_controller = config.live_steering_controller or LiveSteeringController()
     middleware = [
         # Middleware order is load-bearing. LangChain runs before_* hooks
         # first-to-last, after_* hooks last-to-first, and wrap hooks as nested
@@ -82,6 +86,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         RuntimeContextMiddleware(cwd=cwd),
         FilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager),
+        LiveSteeringMiddleware(live_steering_controller),
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
     ]
     return create_agent(

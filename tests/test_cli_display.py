@@ -5,6 +5,7 @@ from cli.components import RuntimeBar
 from cli.components import StatusBubble
 from cli.run import QuasipilotApp
 from cli.utilities.display import content_to_plaintext
+from core.live_steering import format_live_steering_message
 
 
 class DisplayUtilityTests(TestCase):
@@ -69,7 +70,7 @@ class ChatInputTests(TestCase):
         async def run() -> None:
             app = QuasipilotApp()
             app._mount_chat = lambda widget: None  # type: ignore[method-assign]
-            app._set_busy = lambda busy: None  # type: ignore[method-assign]
+            app._set_busy = lambda busy, disable_input=True: None  # type: ignore[method-assign]
             app._show_spinner = lambda: None  # type: ignore[method-assign]
             app.run_turn = submitted.append  # type: ignore[method-assign]
 
@@ -90,7 +91,7 @@ class ChatInputTests(TestCase):
         async def run() -> None:
             app = QuasipilotApp()
             app._mount_chat = lambda widget: None  # type: ignore[method-assign]
-            app._set_busy = lambda busy: None  # type: ignore[method-assign]
+            app._set_busy = lambda busy, disable_input=True: None  # type: ignore[method-assign]
             app._show_spinner = lambda: None  # type: ignore[method-assign]
             app.run_turn = submitted.append  # type: ignore[method-assign]
 
@@ -103,6 +104,35 @@ class ChatInputTests(TestCase):
 
         self.assertEqual(submitted, [])
         self.assertEqual(snapshots, ["hi\nthere"])
+
+    def test_busy_agent_submission_is_queued_as_live_steering(self) -> None:
+        queued: list[str] = []
+        notifications: list[str] = []
+
+        app = QuasipilotApp()
+        app._busy = True
+        app._agent_active = True
+        app._live_steering.submit = queued.append  # type: ignore[method-assign]
+        app.notify = lambda message, **_: notifications.append(message)  # type: ignore[method-assign]
+
+        event = ChatInput.Submitted(type("StubInput", (), {"load_text": lambda self, _: None})(), "change direction")
+        app.on_chat_input_submitted(event)
+
+        self.assertEqual(queued, ["change direction"])
+        self.assertEqual(notifications, ["steering queued"])
+
+    def test_interrupted_turn_restarts_with_formatted_steering_message(self) -> None:
+        app = QuasipilotApp()
+        started: list[str] = []
+        focused: list[bool] = []
+        app._start_agent_turn = started.append  # type: ignore[method-assign]
+        app.query_one = lambda *_args, **_kwargs: type("FocusStub", (), {"focus": lambda self: focused.append(True)})()  # type: ignore[method-assign]
+        app._mount_chat_batch = lambda *widgets: None  # type: ignore[method-assign]
+
+        app._finish_agent_turn("partial", None, "tighten scope")
+
+        self.assertEqual(started, [format_live_steering_message("tighten scope")])
+        self.assertEqual(focused, [])
 
 
 class RuntimeBarTests(TestCase):

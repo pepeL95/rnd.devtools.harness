@@ -7,6 +7,7 @@ from typing import Literal
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.tools import tool
 
+from core.live_steering import LiveSteeringInterrupt
 from core.utilities.messages import system_message_with_appended_text
 
 
@@ -82,6 +83,8 @@ class ReasoningMiddleware(AgentMiddleware):
     def wrap_tool_call(self, request: Any, handler: Any) -> Any:
         try:
             result = handler(request)
+        except LiveSteeringInterrupt:
+            raise
         except Exception:
             self._pending_reminder = TOOL_FAILURE_REASONING_REMINDER
             raise

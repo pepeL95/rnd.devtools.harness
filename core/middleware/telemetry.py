@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from core.live_steering import LiveSteeringInterrupt
 from core.compaction.token_counter import TokenCounter
 from core.telemetry.events import TelemetryEvent
 from core.telemetry.store import TelemetryStore
@@ -70,6 +71,18 @@ class TelemetryMiddleware(AgentMiddleware):
         self.store.record(TelemetryEvent(name="tool.start", payload=payload))
         try:
             result = handler(request)
+        except LiveSteeringInterrupt as exc:
+            self.store.record(
+                TelemetryEvent(
+                    name="tool.interrupt",
+                    payload={
+                        **payload,
+                        "kind": "live_steering",
+                        "steering": exc.steering,
+                    },
+                )
+            )
+            raise
         except Exception as exc:
             self.store.record(
                 TelemetryEvent(

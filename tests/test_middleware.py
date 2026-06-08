@@ -9,6 +9,8 @@ from langchain_core.messages import ToolMessage
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langchain.agents.middleware import ModelResponse
+from core.live_steering import LiveSteeringController, LiveSteeringInterrupt
+from core.middleware.live_steering import LiveSteeringMiddleware
 from core.middleware.reasoning import ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
@@ -357,3 +359,41 @@ class MiddlewareTests(TestCase):
             self.assertTrue(any(event.type == EventType.TOOL and event.payload["name"] == "read_file" for event in dump))
             self.assertTrue(any(event.type == EventType.META and event.payload.get("kind") == "tool_error" for event in dump))
             self.assertTrue(any(event.type == EventType.TURN_END and event.payload.get("status") == "error" for event in dump))
+
+    def test_session_dump_records_live_steering_interrupt(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+
+            with self.assertRaises(LiveSteeringInterrupt):
+                middleware.wrap_tool_call(
+                    type("Req", (), {"tool_call": {"name": "read_file", "id": "call-1"}})(),
+                    lambda _: (_ for _ in ()).throw(LiveSteeringInterrupt("change course")),
+                )
+
+            dump = manager.read_dump()
+            self.assertTrue(
+                any(
+                    event.type == EventType.META
+                    and event.payload.get("kind") == "live_steering_interrupt"
+                    and event.payload.get("steering") == "change course"
+                    for event in dump
+                )
+            )
+            self.assertTrue(any(event.type == EventType.TURN_END and event.payload.get("status") == "interrupted" for event in dump))
+
+    def test_live_steering_middleware_interrupts_before_tool_runs(self) -> None:
+        controller = LiveSteeringController()
+        controller.submit("use a different approach")
+        middleware = LiveSteeringMiddleware(controller)
+        called: list[bool] = []
+
+        with self.assertRaises(LiveSteeringInterrupt):
+            middleware.wrap_tool_call(
+                type("Req", (), {"tool_call": {"name": "read_file", "id": "call-1"}})(),
+                lambda _: called.append(True),
+            )
+
+        self.assertEqual(called, [])
