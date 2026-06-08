@@ -1,5 +1,7 @@
 from unittest import TestCase
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from cli.components import ChatInput
 from cli.components import RuntimeBar
@@ -7,6 +9,8 @@ from cli.components import StatusBubble
 from cli.run import QuasipilotApp
 from cli.utilities.display import content_to_plaintext
 from core.live_steering import format_live_steering_message
+from core.session.events import RuntimeSnapshot
+from core.session.manager import SessionManager
 
 
 class DisplayUtilityTests(TestCase):
@@ -162,3 +166,29 @@ class RuntimeConfigTests(TestCase):
         app.configure_python_interpreter("~/venv/bin/python")
 
         self.assertEqual(app._python_interpreter, Path("~/venv/bin/python").expanduser().resolve())
+
+    def test_load_session_restores_python_interpreter_from_latest_runtime_artifact(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            manager = SessionManager(session_id="s1", root=root)
+            manager.record_runtime(
+                RuntimeSnapshot(
+                    cwd=str(root),
+                    git_branch="main",
+                    git_dirty=False,
+                    python_interpreter=str((root / ".venv/bin/python").resolve()),
+                ),
+                turn=1,
+            )
+
+            app = QuasipilotApp()
+            app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
+            app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
+            app._clear_chat = lambda: None  # type: ignore[method-assign]
+            app._render_history = lambda: None  # type: ignore[method-assign]
+            app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+
+            with patch("cli.run.SessionManager", side_effect=lambda session_id: SessionManager(session_id=session_id, root=root)):
+                app.load_session("s1")
+
+            self.assertEqual(app._python_interpreter, (root / ".venv/bin/python").resolve())

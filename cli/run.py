@@ -140,6 +140,7 @@ class QuasipilotApp(App[None]):
         self.session_id = session_id
         self._live_steering = LiveSteeringController()
         self._manager = SessionManager(session_id=session_id)
+        self._restore_runtime_from_session(self._manager)
         self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
         self._agent = self._build_agent(session_id)
         self._clear_chat()
@@ -206,6 +207,11 @@ class QuasipilotApp(App[None]):
         self._python_interpreter = Path(path).expanduser().resolve() if path else None
         if self._manager is not None:
             self._agent = self._build_agent(self.session_id)
+
+    def _restore_runtime_from_session(self, manager: SessionManager) -> None:
+        snapshot = manager.latest_runtime_snapshot()
+        interpreter = snapshot.python_interpreter if snapshot is not None else None
+        self._python_interpreter = Path(interpreter).expanduser().resolve() if interpreter else None
 
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
         return CompactionCoordinator(

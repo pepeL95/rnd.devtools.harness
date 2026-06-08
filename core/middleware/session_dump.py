@@ -15,8 +15,11 @@ from core.utilities.git import git_branch, git_dirty
 class SessionDumpMiddleware(AgentMiddleware):
     """Append full-fidelity agent state to dump and curated session streams."""
 
-    def __init__(self, manager: SessionManager) -> None:
+    def __init__(self, manager: SessionManager, python_interpreter: str | Path | None = None) -> None:
         self.manager = manager
+        self.python_interpreter = (
+            Path(python_interpreter).expanduser().resolve() if python_interpreter else None
+        )
         self._seen_event_keys: set[tuple[Any, ...]] = set()
         self._active_turn: int | None = None
         self._prime_seen_events()
@@ -138,7 +141,8 @@ class SessionDumpMiddleware(AgentMiddleware):
         snapshot = RuntimeSnapshot(
             cwd=str(cwd or "unknown"),
             git_branch=git_branch(cwd),
-            git_dirty=git_dirty(cwd)
+            git_dirty=git_dirty(cwd),
+            python_interpreter=str(self.python_interpreter) if self.python_interpreter else None,
         )
         return SessionEvent(
             type=EventType.RUNTIME,

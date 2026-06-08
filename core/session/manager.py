@@ -93,10 +93,27 @@ class SessionManager:
                 "cwd": snapshot.cwd,
                 "git_branch": snapshot.git_branch,
                 "git_dirty": snapshot.git_dirty,
+                "python_interpreter": snapshot.python_interpreter,
             },
         )
         self.append([event])
         return event
+
+    def latest_runtime_snapshot(self) -> RuntimeSnapshot | None:
+        for event in reversed(self.read_dump()):
+            if event.type != EventType.RUNTIME:
+                continue
+            payload = event.payload
+            cwd = payload.get("cwd")
+            if not cwd:
+                continue
+            return RuntimeSnapshot(
+                cwd=str(cwd),
+                git_branch=_optional_str(payload.get("git_branch")),
+                git_dirty=_optional_bool(payload.get("git_dirty")),
+                python_interpreter=_optional_str(payload.get("python_interpreter")),
+            )
+        return None
 
     def events_from_messages(self, messages: Iterable[Any], turn: int | None = None) -> list[SessionEvent]:
         turn_number = turn or self.next_turn()
@@ -191,3 +208,13 @@ def _message_additional_kwargs(event: SessionEvent) -> dict[str, Any]:
     if not kind:
         return {}
     return {"session_kind": kind}
+
+
+def _optional_str(value: Any) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    return None

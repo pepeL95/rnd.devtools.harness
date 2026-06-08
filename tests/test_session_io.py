@@ -4,7 +4,7 @@ from unittest import TestCase
 
 from langchain_core.messages import AIMessage
 
-from core.session.events import EventType, SessionEvent
+from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
 
 
@@ -211,3 +211,33 @@ class SessionIOTests(TestCase):
             self.assertFalse(manager.is_curated_locked())
             self.assertEqual([event.payload["content"] for event in merged], ["memory", "new"])
             self.assertEqual([event.payload["content"] for event in manager.read_curated()], ["memory", "new"])
+
+    def test_latest_runtime_snapshot_returns_latest_runtime_artifact(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.record_runtime(
+                RuntimeSnapshot(
+                    cwd="/tmp/one",
+                    git_branch="main",
+                    git_dirty=False,
+                    python_interpreter="/tmp/one/.venv/bin/python",
+                ),
+                turn=1,
+            )
+            manager.record_runtime(
+                RuntimeSnapshot(
+                    cwd="/tmp/two",
+                    git_branch="feature",
+                    git_dirty=True,
+                    python_interpreter="/tmp/two/.venv/bin/python",
+                ),
+                turn=2,
+            )
+
+            snapshot = manager.latest_runtime_snapshot()
+
+            assert snapshot is not None
+            self.assertEqual(snapshot.cwd, "/tmp/two")
+            self.assertEqual(snapshot.git_branch, "feature")
+            self.assertIs(snapshot.git_dirty, True)
+            self.assertEqual(snapshot.python_interpreter, "/tmp/two/.venv/bin/python")

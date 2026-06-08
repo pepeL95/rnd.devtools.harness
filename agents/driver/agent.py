@@ -86,7 +86,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         FilesystemMiddleware(backend=backend),
-        SessionDumpMiddleware(manager),
+        SessionDumpMiddleware(manager, python_interpreter=config.python_interpreter),
         LiveSteeringMiddleware(live_steering_controller),
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
     ]

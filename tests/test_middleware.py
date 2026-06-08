@@ -311,6 +311,18 @@ class MiddlewareTests(TestCase):
             ]
             self.assertEqual(len(trajectory_memory_events), 1)
 
+    def test_session_dump_runtime_event_persists_python_interpreter(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            interpreter = Path(directory) / "venv/bin/python"
+            middleware = SessionDumpMiddleware(manager, python_interpreter=interpreter)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+
+            runtime_events = [event for event in manager.read_dump() if event.type == EventType.RUNTIME]
+            self.assertEqual(len(runtime_events), 1)
+            self.assertEqual(runtime_events[0].payload.get("python_interpreter"), str(interpreter.resolve()))
+
     def test_session_dump_persists_model_response_before_turn_end(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
