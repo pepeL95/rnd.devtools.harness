@@ -181,34 +181,15 @@ class SessionIOTests(TestCase):
 
             self.assertEqual(messages[1].content, "hi")
 
-    def test_append_goes_to_pending_curated_while_compaction_lock_is_held(self) -> None:
+    def test_apply_compaction_result_preserves_newer_turns(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
-            manager.append([SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "old"})])
-
-            lease = manager.begin_curated_compaction(trigger="manual")
-            assert lease is not None
             manager.append([SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "new"})])
-
-            self.assertEqual([event.payload["content"] for event in manager.read_curated(include_pending=False)], ["old"])
-            self.assertEqual([event.payload["content"] for event in manager.read_pending_curated()], ["new"])
-            self.assertEqual([event.payload["content"] for event in manager.read_curated()], ["old", "new"])
-
-    def test_finalize_curated_compaction_replays_pending_events(self) -> None:
-        with TemporaryDirectory() as directory:
-            manager = SessionManager(session_id="s1", root=Path(directory))
-            manager.append([SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "old"})])
-
-            lease = manager.begin_curated_compaction(trigger="manual")
-            assert lease is not None
-            manager.append([SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "new"})])
-
-            merged = manager.finalize_curated_compaction(
-                lease,
+            merged = manager.apply_compaction_result(
                 [SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "memory"})],
+                snapshot_latest_turn=1,
             )
 
-            self.assertFalse(manager.is_curated_locked())
             self.assertEqual([event.payload["content"] for event in merged], ["memory", "new"])
             self.assertEqual([event.payload["content"] for event in manager.read_curated()], ["memory", "new"])
 

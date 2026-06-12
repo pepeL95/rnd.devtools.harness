@@ -51,14 +51,6 @@ class AgentFinished(Message):
         super().__init__()
 
 
-class ManualCompactionFinished(Message):
-    """Worker completed a blocking manual compaction run."""
-
-    def __init__(self, status: str) -> None:
-        self.status = status
-        super().__init__()
-
-
 class QuasipilotApp(App[None]):
     """Textual chat shell for the driver agent."""
 
@@ -285,25 +277,10 @@ class QuasipilotApp(App[None]):
         if self._busy:
             self.notify_warning("wait for the active operation to finish")
             return
-        self._set_busy(True, disable_input=True)
-        self._show_spinner()
-        self.run_manual_compaction()
-
-    @work(thread=True, exclusive=True)
-    def run_manual_compaction(self) -> None:
-        assert self._compaction_coordinator is not None
         status = self._compaction_coordinator.request_manual_compaction()
-        self.post_message(ManualCompactionFinished(status))
-
-    def on_manual_compaction_finished(self, event: ManualCompactionFinished) -> None:
-        self._hide_spinner()
-        self._set_busy(False)
-        status = event.status
         if status == "running":
             self.notify_warning("session compaction already running")
-        elif status == "failed":
-            self.notify_warning("session compaction could not be started")
-        elif status != "completed":
+        elif status != "started":
             self.notify_warning("session compaction was not needed")
 
     def _sync_compaction_ui(self) -> None:

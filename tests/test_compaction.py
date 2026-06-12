@@ -1,8 +1,10 @@
 import json
+from threading import Event
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
+from time import sleep
 from unittest import TestCase
 
 from core.compaction.compactor import Compactor
@@ -77,6 +79,18 @@ class ScriptedModel:
         return FakeResponse(self.responses.pop(0))
 
 
+class BlockingModel(ScriptedModel):
+    def __init__(self, responses: list[str], started: Event, release: Event) -> None:
+        super().__init__(responses)
+        self.started = started
+        self.release = release
+
+    def invoke(self, messages: list[object]) -> FakeResponse:
+        self.started.set()
+        self.release.wait(timeout=2)
+        return super().invoke(messages)
+
+
 def scripted_session_policy(*, trigger_tokens: int = 1, keep_last_turns: int = 1, max_critic_loops: int = 2, trigger_on_day_change: bool = False) -> CompactionPolicy:
     model = ScriptedModel(
         [
@@ -119,6 +133,11 @@ def dated_event(turn: int, when: datetime, content: str = "x") -> SessionEvent:
 
 
 class CompactionTests(TestCase):
+    def _wait_until_idle(self, coordinator: CompactionCoordinator, timeout_seconds: float = 2.0) -> None:
+        deadline = datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)
+        while coordinator.is_running() and datetime.now(timezone.utc) < deadline:
+            sleep(0.01)
+
     def _compaction_telemetry_entries(self, path: Path) -> list[dict[str, object]]:
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
@@ -287,7 +306,7 @@ class CompactionTests(TestCase):
         self.assertEqual(len(compactor_model.calls), 1)
         self.assertEqual(len(critic_model.calls), 1)
 
-    def test_compaction_middleware_runs_compaction_synchronously(self) -> None:
+    def test_compaction_middleware_runs_compaction_in_background(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append(
@@ -310,6 +329,7 @@ class CompactionTests(TestCase):
             middleware = CompactionMiddleware(coordinator)
 
             middleware.after_agent({"messages": []}, runtime=None)
+            self._wait_until_idle(coordinator)
 
             curated = manager.read_curated()
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
@@ -353,7 +373,8 @@ class CompactionTests(TestCase):
             )
 
             status = coordinator.request_policy_compaction(runtime=None)
-            self.assertEqual(status, "completed")
+            self.assertEqual(status, "started")
+            self._wait_until_idle(coordinator)
 
             self.assertEqual([phase for phase, _ in observed], ["start", "end"])
             self.assertEqual(observed[0][1]["token_usage"]["source_tokens"], 999)
@@ -394,7 +415,8 @@ class CompactionTests(TestCase):
 
             status = coordinator.request_manual_compaction()
 
-            self.assertEqual(status, "completed")
+            self.assertEqual(status, "started")
+            self._wait_until_idle(coordinator)
             curated = manager.read_curated()
             self.assertEqual(curated[0].payload["kind"], "memory_restore")
             self.assertEqual(curated[1].payload["content"], "new")
@@ -414,13 +436,42 @@ class CompactionTests(TestCase):
             compactor = Compactor(
                 policy=scripted_session_policy(),
             )
-            coordinator = CompactionCoordinator(manager, compactor, token_counter=FixedTokenCounter(999))
-            assert coordinator._run_lock.acquire(blocking=False)
+            started = Event()
+            release = Event()
+            blocking_model = BlockingModel(
+                [
+                    "EPISODE 1: old\nTURNS: 1 to 1",
+                    COMPLETE_MEMORY_DOCUMENT,
+                    "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                ],
+                started=started,
+                release=release,
+            )
+            coordinator = CompactionCoordinator(
+                manager,
+                Compactor(
+                    policy=CompactionPolicy(
+                        trigger_tokens=1,
+                        keep_last_turns=1,
+                        task_extractor_model=blocking_model,
+                        compactor_model=blocking_model,
+                        critic_model=blocking_model,
+                    )
+                ),
+                token_counter=FixedTokenCounter(999),
+                telemetry_store=TelemetryStore(Path(directory) / "telemetry.jsonl"),
+                repo_root=Path(directory),
+            )
+
+            first = coordinator.request_manual_compaction()
+            self.assertEqual(first, "started")
+            self.assertTrue(started.wait(timeout=1))
 
             status = coordinator.request_manual_compaction()
 
             self.assertEqual(status, "running")
-            coordinator._run_lock.release()
+            release.set()
+            self._wait_until_idle(coordinator)
 
     def test_compaction_coordinator_uses_date_policy(self) -> None:
         with TemporaryDirectory() as directory:
@@ -445,13 +496,59 @@ class CompactionTests(TestCase):
 
             runtime = SimpleNamespace(context={"now": datetime(2026, 5, 23, 1, tzinfo=timezone.utc)})
             status = coordinator.request_policy_compaction(runtime=runtime)
-            self.assertEqual(status, "completed")
+            self.assertEqual(status, "started")
+            self._wait_until_idle(coordinator)
 
             self.assertEqual(manager.read_curated()[0].payload["kind"], "memory_restore")
             self.assertEqual(
                 [entry["name"] for entry in self._compaction_telemetry_entries(telemetry_path)],
                 ["compaction.start", "compaction.end"],
             )
+
+    def test_compaction_coordinator_preserves_newer_turns_added_while_running(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    event(1, EventType.USER, "old"),
+                    event(2, EventType.USER, "new"),
+                ]
+            )
+            started = Event()
+            release = Event()
+            blocking_model = BlockingModel(
+                [
+                    "EPISODE 1: old\nTURNS: 1 to 1",
+                    COMPLETE_MEMORY_DOCUMENT,
+                    "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                ],
+                started=started,
+                release=release,
+            )
+            coordinator = CompactionCoordinator(
+                manager,
+                Compactor(
+                    policy=CompactionPolicy(
+                        trigger_tokens=1,
+                        keep_last_turns=1,
+                        task_extractor_model=blocking_model,
+                        compactor_model=blocking_model,
+                        critic_model=blocking_model,
+                    )
+                ),
+                token_counter=FixedTokenCounter(999),
+                telemetry_store=TelemetryStore(Path(directory) / "telemetry.jsonl"),
+                repo_root=Path(directory),
+            )
+
+            status = coordinator.request_manual_compaction()
+            self.assertEqual(status, "started")
+            self.assertTrue(started.wait(timeout=1))
+            manager.append([event(3, EventType.USER, "latest")])
+            release.set()
+            self._wait_until_idle(coordinator)
+
+            self.assertEqual([item.payload["content"] for item in manager.read_curated()], [memory_restore_message(COMPLETE_MEMORY_DOCUMENT), "new", "latest"])
 
     def test_memory_restore_message_matches_injection_contract(self) -> None:
         content = memory_restore_message("DOC")

@@ -6,7 +6,6 @@ from time import perf_counter
 
 from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span
 from core.compaction.token_counter import TokenCounter
-from core.locks.session import SessionLease
 from core.session.events import SessionEvent
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
@@ -40,40 +39,38 @@ class TrajectoryCompactionCoordinator:
     def is_running(self) -> bool:
         with self._mutex:
             worker = self._worker
-        return (worker is not None and worker.is_alive()) or self.manager.is_curated_locked()
+        return worker is not None and worker.is_alive()
 
     def request_compaction(self) -> str:
         with self._mutex:
             worker = self._worker
             if worker is not None and worker.is_alive():
                 return "running"
-            snapshot = self.manager.read_curated(include_pending=True)
+            snapshot = self.manager.read_curated()
             payload = self._payload(snapshot, trigger="trajectory", reason="turn_interval")
             if not self.compactor.should_compact(snapshot):
                 self.telemetry.skip(payload)
                 return "not_needed"
-            lease = self.manager.begin_curated_compaction(
-                trigger="trajectory",
-                metadata={"reason": "turn_interval"},
-            )
-            if lease is None:
-                return "running"
+            latest_turn = max((event.turn for event in snapshot), default=0)
             self._worker = Thread(
                 target=self._run_compaction,
-                args=(lease,),
+                args=(snapshot, latest_turn),
                 name=f"trajectory-compaction-{self.manager.session_id}",
                 daemon=True,
             )
             self._worker.start()
             return "started"
 
-    def _run_compaction(self, lease: SessionLease) -> None:
-        payload = self._payload(lease.snapshot_events, trigger="trajectory", reason="turn_interval")
+    def _run_compaction(self, snapshot_events: list[SessionEvent], snapshot_latest_turn: int) -> None:
+        payload = self._payload(snapshot_events, trigger="trajectory", reason="turn_interval")
         started = perf_counter()
         self.telemetry.start(payload)
         try:
-            result = self.compactor.compact(lease.snapshot_events)
-            self.manager.finalize_curated_compaction(lease, result.events)
+            result = self.compactor.compact(snapshot_events)
+            merged_events = self.manager.apply_compaction_result(
+                result.events,
+                snapshot_latest_turn=snapshot_latest_turn,
+            )
             self.telemetry.end(
                 {
                     **payload,
@@ -82,6 +79,7 @@ class TrajectoryCompactionCoordinator:
                         "compacted_event_count": result.compacted_event_count,
                         "compacted_turn_count": len(result.compacted_turns),
                         "result_event_count": len(result.events),
+                        "curated_event_count": len(merged_events),
                     },
                     "model_names": result.model_names,
                     "token_usage": {
@@ -92,7 +90,6 @@ class TrajectoryCompactionCoordinator:
                 }
             )
         except Exception as exc:
-            self.manager.abort_curated_compaction(lease)
             self.telemetry.error(
                 {
                     **payload,

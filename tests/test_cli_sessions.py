@@ -30,6 +30,25 @@ class CliSessionUtilityTests(TestCase):
             self.assertEqual([item.session_id for item in summaries], [newer_id, older_id])
             self.assertEqual(summaries[0].preview, newer_id)
 
+    def test_list_sessions_uses_first_user_message_for_preview(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_id = "s1"
+            _, curated = session_paths(session_id, root)
+            append_events(
+                curated,
+                [
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "first prompt"}),
+                    SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "reply"}),
+                    SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "latest prompt"}),
+                ],
+            )
+
+            summaries = list_sessions(root)
+
+            self.assertEqual(len(summaries), 1)
+            self.assertEqual(summaries[0].preview, "first prompt")
+
     def test_clear_session_files_removes_dump_and_curated(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

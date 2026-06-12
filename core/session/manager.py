@@ -13,11 +13,9 @@ from core.utilities.messages import (
     message_text_content,
     message_tool_calls,
 )
-from core.locks.session import SessionLease, SessionLock
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.io import (
     append_events,
-    compaction_paths,
     read_events,
     replace_events,
     session_paths,
@@ -32,21 +30,12 @@ class SessionManager:
         self.session_id = session_id or uuid4().hex
         self.root = root
         self.dump_path, self.curated_path = session_paths(self.session_id, root)
-        self.compaction_lock_path, self.compaction_pending_path = compaction_paths(self.session_id, root)
-        self.curated_lock = SessionLock(
-            curated_path=self.curated_path,
-            lock_path=self.compaction_lock_path,
-            pending_path=self.compaction_pending_path,
-        )
 
     def read_dump(self) -> list[SessionEvent]:
         return read_events(self.dump_path)
 
-    def read_curated(self, include_pending: bool = True) -> list[SessionEvent]:
-        return self.curated_lock.read_curated(include_pending=include_pending)
-
-    def read_pending_curated(self) -> list[SessionEvent]:
-        return self.curated_lock.read_pending()
+    def read_curated(self) -> list[SessionEvent]:
+        return read_events(self.curated_path)
 
     def append(self, events: Iterable[SessionEvent], curated: bool = True) -> None:
         materialized = list(events)
@@ -54,33 +43,22 @@ class SessionManager:
             return
         append_events(self.dump_path, materialized)
         if curated:
-            self.curated_lock.append(materialized)
+            append_events(self.curated_path, materialized)
 
     def replace_curated(self, events: Iterable[SessionEvent]) -> None:
         replace_events(self.curated_path, events)
 
-    def is_curated_locked(self) -> bool:
-        return self.curated_lock.is_locked()
-
-    def current_compaction_lock(self) -> dict[str, Any] | None:
-        return self.curated_lock.current()
-
-    def begin_curated_compaction(
+    def apply_compaction_result(
         self,
-        trigger: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> SessionLease | None:
-        return self.curated_lock.begin(name=trigger, metadata=metadata)
-
-    def finalize_curated_compaction(
-        self,
-        lease: SessionLease,
         compacted_events: Iterable[SessionEvent],
+        *,
+        snapshot_latest_turn: int,
     ) -> list[SessionEvent]:
-        return self.curated_lock.finalize(lease, compacted_events)
-
-    def abort_curated_compaction(self, lease: SessionLease) -> list[SessionEvent]:
-        return self.curated_lock.abort(lease)
+        current = self.read_curated()
+        preserved = [event for event in current if event.turn > snapshot_latest_turn]
+        merged = [*list(compacted_events), *preserved]
+        replace_events(self.curated_path, merged)
+        return merged
 
     def next_turn(self) -> int:
         return next_turn(self.read_dump())
@@ -187,7 +165,7 @@ class SessionManager:
 
     def load_curated_messages(self) -> list[BaseMessage]:
         restored: list[BaseMessage] = []
-        for event in agent_history_events(self.read_curated(include_pending=True)):
+        for event in agent_history_events(self.read_curated()):
             role = str(event.payload.get("role") or event.type.value)
             content = event.payload.get("content", "")
             restored.append(

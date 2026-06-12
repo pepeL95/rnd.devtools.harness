@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 from time import perf_counter
 from typing import Any
 
@@ -18,7 +18,7 @@ CompactionEventCallback = Callable[[str, dict[str, Any]], None]
 
 
 class CompactionCoordinator:
-    """Run full session compaction synchronously against the curated session."""
+    """Run full session compaction in the background against the curated session."""
 
     def __init__(
         self,
@@ -39,10 +39,13 @@ class CompactionCoordinator:
             store=telemetry_store or TelemetryStore(telemetry_session_path(manager.session_id)),
             logger=compaction_logger(resolved_root, name="quasipilot.compaction", log_dir="compaction"),
         )
-        self._run_lock = Lock()
+        self._mutex = Lock()
+        self._worker: Thread | None = None
 
     def is_running(self) -> bool:
-        return self._run_lock.locked()
+        with self._mutex:
+            worker = self._worker
+        return worker is not None and worker.is_alive()
 
     def request_manual_compaction(self, runtime: Any = None) -> str:
         return self._schedule(trigger="manual", runtime=runtime, force=True)
@@ -51,10 +54,11 @@ class CompactionCoordinator:
         return self._schedule(trigger="policy", runtime=runtime, force=False)
 
     def _schedule(self, trigger: str, runtime: Any, force: bool) -> str:
-        if not self._run_lock.acquire(blocking=False):
-            return "running"
-        try:
-            source_events = list(self.manager.read_curated(include_pending=True))
+        with self._mutex:
+            worker = self._worker
+            if worker is not None and worker.is_alive():
+                return "running"
+            source_events = list(self.manager.read_curated())
             latest_turn = max((event.turn for event in source_events), default=0)
             source_tokens = self.token_counter.count_events(source_events) if source_events else 0
             base_payload = {
@@ -91,16 +95,22 @@ class CompactionCoordinator:
                     self.telemetry.skip({**base_payload, "reason": decision.reason or "not_needed"})
                     return "not_needed"
                 base_payload["reason"] = decision.reason or "policy"
-            return "completed" if self._run_compaction(source_events, source_tokens, base_payload) else "failed"
-        finally:
-            self._run_lock.release()
+            self._worker = Thread(
+                target=self._run_compaction,
+                args=(source_events, source_tokens, latest_turn, base_payload),
+                name=f"session-compaction-{self.manager.session_id}",
+                daemon=True,
+            )
+            self._worker.start()
+            return "started"
 
     def _run_compaction(
         self,
         source_events: list[SessionEvent],
         source_tokens: int,
+        snapshot_latest_turn: int,
         payload: dict[str, Any],
-    ) -> bool:
+    ) -> None:
         started = perf_counter()
         start_payload = {
             **payload,
@@ -110,7 +120,10 @@ class CompactionCoordinator:
         self._emit_compaction_event("start", start_payload)
         try:
             result = self.compactor.compact(source_events, token_estimate=source_tokens)
-            self.manager.replace_curated(result.events)
+            merged_events = self.manager.apply_compaction_result(
+                result.events,
+                snapshot_latest_turn=snapshot_latest_turn,
+            )
             duration_ms = int((perf_counter() - started) * 1000)
             end_payload = {
                 **payload,
@@ -119,7 +132,7 @@ class CompactionCoordinator:
                     "compacted_event_count": result.compacted_event_count,
                     "retained_event_count": result.retained_event_count,
                     "result_event_count": len(result.events),
-                    "curated_event_count": len(result.events),
+                    "curated_event_count": len(merged_events),
                     "revisions": result.revisions,
                 },
                 "model_names": result.model_names,
@@ -137,7 +150,6 @@ class CompactionCoordinator:
             }
             self.telemetry.end(end_payload)
             self._emit_compaction_event("end", end_payload)
-            return True
         except Exception as exc:
             error_payload = {
                 **payload,
@@ -147,7 +159,9 @@ class CompactionCoordinator:
             }
             self.telemetry.error(error_payload)
             self._emit_compaction_event("error", error_payload)
-            return False
+        finally:
+            with self._mutex:
+                self._worker = None
 
     def _emit_compaction_event(self, phase: str, payload: dict[str, Any]) -> None:
         if self.on_compaction_event is None:

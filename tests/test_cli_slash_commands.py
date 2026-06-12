@@ -31,6 +31,7 @@ class SlashCommandRegistryTests(TestCase):
     def test_compact_dispatches_manual_compaction(self) -> None:
         registry = SlashCommandRegistry()
         app = MagicMock()
+        app._compaction_coordinator.request_manual_compaction.return_value = "started"
 
         should_exit = registry.dispatch(app, "/compact")
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from cli.utilities.display import content_to_plaintext
 from core.session.events import EventType
-from core.session.io import compaction_paths, default_session_root, read_events, session_paths
+from core.session.io import default_session_root, read_events, session_paths
 
 
 @dataclass(frozen=True)
@@ -17,8 +17,8 @@ class SessionSummary:
     preview: str
 
 
-def _latest_user_preview(events: list) -> str:
-    for event in reversed(events):
+def _first_user_preview(events: list) -> str:
+    for event in events:
         if event.type == EventType.USER:
             text = content_to_plaintext(event.payload.get("content", ""))
             return _truncate(text)
@@ -47,7 +47,7 @@ def list_sessions(root: Path | None = None) -> list[SessionSummary]:
                 session_id=path.stem,
                 path=path,
                 modified_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
-                preview=_latest_user_preview(events),
+                preview=_first_user_preview(events),
             )
         )
     summaries.sort(key=lambda item: item.modified_at, reverse=True)
@@ -56,7 +56,6 @@ def list_sessions(root: Path | None = None) -> list[SessionSummary]:
 
 def clear_session_files(session_id: str, root: Path | None = None) -> None:
     dump_path, curated_path = session_paths(session_id, root)
-    lock_path, pending_path = compaction_paths(session_id, root)
-    for path in (dump_path, curated_path, lock_path, pending_path):
+    for path in (dump_path, curated_path):
         if path.exists():
             path.unlink()
