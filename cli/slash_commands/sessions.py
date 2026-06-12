@@ -13,5 +13,5 @@ class SessionsCommand(SlashCommand):
             if session_id:
                 app.load_session(session_id)
 
-        app.push_screen(SessionPickerScreen(list_sessions()), on_pick)
+        app.push_screen(SessionPickerScreen(list_sessions(current_cwd=app._cwd)), on_pick)
         return False

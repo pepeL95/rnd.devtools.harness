@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+import os
 
 from core.session.events import EventType, SessionEvent
 from core.session.io import append_events, session_paths
@@ -33,6 +34,45 @@ class CliSessionUtilityTests(TestCase):
             summaries = list_sessions(root)
             self.assertEqual([item.session_id for item in summaries], [newer_id, older_id])
             self.assertEqual(summaries[0].preview, newer_id)
+
+    def test_list_sessions_prioritizes_current_cwd_matches(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            current_cwd = root / "repo-a"
+            other_cwd = root / "repo-b"
+            current_cwd.mkdir()
+            other_cwd.mkdir()
+
+            dump, curated = session_paths("older-match", root)
+            append_events(
+                dump,
+                [
+                    SessionEvent(type=EventType.RUNTIME, turn=1, payload={"cwd": str(current_cwd)}),
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "match"}),
+                ],
+            )
+            append_events(curated, [SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "match"})])
+
+            dump, curated = session_paths("newer-other", root)
+            append_events(
+                dump,
+                [
+                    SessionEvent(type=EventType.RUNTIME, turn=1, payload={"cwd": str(other_cwd)}),
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "other"}),
+                ],
+            )
+            append_events(curated, [SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "other"})])
+
+            older_curated = session_paths("older-match", root)[1]
+            newer_curated = session_paths("newer-other", root)[1]
+            os.utime(older_curated, (1, 1))
+            os.utime(newer_curated, (2, 2))
+
+            summaries = list_sessions(root, current_cwd=current_cwd)
+
+            self.assertEqual([item.session_id for item in summaries], ["older-match", "newer-other"])
+            self.assertTrue(summaries[0].cwd_matches)
+            self.assertFalse(summaries[1].cwd_matches)
 
     def test_list_sessions_uses_first_user_message_for_preview(self) -> None:
         with TemporaryDirectory() as directory:
