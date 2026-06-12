@@ -5,9 +5,9 @@ import os
 
 from core.session.events import EventType, SessionEvent
 from core.session.io import append_events, session_paths
-from cli.components.session_picker import _item_dom_id, _session_id_from_dom_id
+from cli.components.session_picker import SessionPickerScreen, _item_dom_id, _session_id_from_dom_id
 from cli.utilities.messages import format_tool_call, message_text
-from cli.utilities.sessions import clear_session_files, list_sessions
+from cli.utilities.sessions import SessionSummary, clear_session_files, list_sessions
 
 
 class CliSessionUtilityTests(TestCase):
@@ -120,6 +120,21 @@ class SessionPickerIdTests(TestCase):
         dom_id = _item_dom_id(session_id)
         self.assertTrue(dom_id[0].isalpha())
         self.assertEqual(_session_id_from_dom_id(dom_id), session_id)
+
+    def test_session_picker_inserts_divider_after_sponsored_results(self) -> None:
+        from datetime import datetime, timezone
+
+        screen = SessionPickerScreen(
+            [
+                SessionSummary("s1", Path("/tmp/s1.jsonl"), datetime.now(timezone.utc), "one", cwd_matches=True),
+                SessionSummary("s2", Path("/tmp/s2.jsonl"), datetime.now(timezone.utc), "two", cwd_matches=False),
+            ]
+        )
+
+        items = screen._items()
+
+        self.assertEqual(len(items), 3)
+        self.assertEqual(items[1].id, "session-divider")
 
 
 class CliMessageUtilityTests(TestCase):
