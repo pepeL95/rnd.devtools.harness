@@ -15,7 +15,11 @@ class CliSessionUtilityTests(TestCase):
             root = Path(directory)
             older_id, newer_id = "older", "newer"
             for session_id in (older_id, newer_id):
-                _, curated = session_paths(session_id, root)
+                dump, curated = session_paths(session_id, root)
+                append_events(
+                    dump,
+                    [SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": session_id})],
+                )
                 append_events(
                     curated,
                     [SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": session_id})],
@@ -34,9 +38,16 @@ class CliSessionUtilityTests(TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             session_id = "s1"
-            _, curated = session_paths(session_id, root)
+            dump, curated = session_paths(session_id, root)
             append_events(
                 curated,
+                [
+                    SessionEvent(type=EventType.META, turn=1, payload={"kind": "memory_restore", "content": "summary"}),
+                    SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "latest prompt"}),
+                ],
+            )
+            append_events(
+                dump,
                 [
                     SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "first prompt"}),
                     SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "reply"}),

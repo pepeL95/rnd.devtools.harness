@@ -41,7 +41,8 @@ def list_sessions(root: Path | None = None) -> list[SessionSummary]:
     summaries: list[SessionSummary] = []
     for path in curated_dir.glob("*.jsonl"):
         stat = path.stat()
-        events = read_events(path)
+        dump_path, _ = session_paths(path.stem, root)
+        events = read_events(dump_path)
         summaries.append(
             SessionSummary(
                 session_id=path.stem,
