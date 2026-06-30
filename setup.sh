@@ -50,10 +50,10 @@ else
   echo "pyproject.toml not found; installing core runtime and CLI packages manually"
   python -m pip install \
     "chromadb>=1.0" \
-    "deepagents>=0.6" \
-    "langchain>=1.2,<2" \
-    "langchain-google-genai>=4.0" \
-    "langgraph>=1.1" \
+    "deepagents>=0.6.12" \
+    "langchain>=1.3.11,<2" \
+    "langchain-google-genai>=4.2.5" \
+    "langgraph>=1.2.5" \
     "pydantic>=2.0" \
     "python-dotenv>=1.0" \
     "textual>=6.0" \

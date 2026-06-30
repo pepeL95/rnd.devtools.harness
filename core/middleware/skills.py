@@ -16,9 +16,14 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SKILLS_PROMPT = """\
 [SKILLS]
-You have access to optional skills that provide task-specific instructions.
-If a task clearly matches a skill, call `read_skill` with the skill name before proceeding.
-After reading a skill, resolve relative paths against the reported skill directory and use absolute paths in tool calls.
+You have access to skills that act as reusable operational knowledge, environmental guidance, and capability amplifiers.
+You must always consider whether a relevant skill would improve your approach before acting on substantive work.
+Review this catalog early in the task, not only when blocked.
+If a skill seems relevant, call `read_skill` early instead of waiting until you are stuck.
+Err on the side of reading a relevant skill because it is cheap and often changes the correct approach.
+You may read multiple skills when the task spans multiple domains.
+Skills are not just narrow task recipes. They may contain durable memories, tool usage guidance, workflows, and environment-specific practices that make you more effective.
+After reading a skill, follow it as authoritative guidance for that domain, resolve relative paths against the reported skill directory, and use absolute paths in tool calls.
 
 **Available skills:**
 {skills}
@@ -231,7 +236,7 @@ def create_read_skill_tool(
     return StructuredTool.from_function(
         func=read_skill,
         name="read_skill",
-        description="Load the full instructions for a discovered skill by exact name. Use this when a skill from the skills catalog matches the task.",
+        description="Load the full instructions for a discovered skill by exact name. Use this proactively whenever a relevant skill could improve how you approach the task or use the environment.",
         args_schema=ReadSkillSchema,
         infer_schema=False,
     )

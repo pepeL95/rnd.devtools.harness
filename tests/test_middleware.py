@@ -173,7 +173,10 @@ class MiddlewareTests(TestCase):
             self.assertIn("[SKILLS]", str(response.content))
             self.assertIn("code-review", str(response.content))
             self.assertIn(str((skill_dir / "SKILL.md").resolve()), str(response.content))
-            self.assertIn("call `read_skill`", str(response.content))
+            self.assertIn("You must always consider whether a relevant skill would improve your approach", str(response.content))
+            self.assertIn("call `read_skill` early", str(response.content))
+            self.assertIn("not only when blocked", str(response.content))
+            self.assertIn("Skills are not just narrow task recipes", str(response.content))
 
     def test_skills_middleware_skips_prompt_when_no_skills_exist(self) -> None:
         with TemporaryDirectory() as directory:
@@ -234,6 +237,13 @@ class MiddlewareTests(TestCase):
             result = tool.invoke({"name": "missing"})
 
             self.assertIn("Error: unknown skill 'missing'", result)
+
+    def test_read_skill_tool_description_encourages_proactive_usage(self) -> None:
+        tool = create_read_skill_tool(cwd=Path.cwd())
+
+        self.assertIn("Use this proactively", tool.description)
+        self.assertIn("relevant skill", tool.description)
+        self.assertIn("use the environment", tool.description)
 
     def test_session_load_prepends_curated_history(self) -> None:
         with TemporaryDirectory() as directory:
