@@ -63,7 +63,7 @@ class ToolStream(Static):
         if name == "grep":
             return "Grepped"
         if name == "ls":
-            return "Listed files"
+            return "Listed"
         if name == "reasoning":
             return "Pondering"
         if name == "read_skill":
