@@ -70,7 +70,7 @@ class DriverAgentTests(TestCase):
                 return object()
 
             with patch("langchain.agents.create_agent", side_effect=fake_create_agent), patch(
-                "deepagents.middleware.filesystem.FilesystemMiddleware",
+                "agents.driver.agent.HarnessFilesystemMiddleware",
                 FakeFilesystemMiddleware,
             ):
                 create_driver_agent(

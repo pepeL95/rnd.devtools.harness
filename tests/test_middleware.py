@@ -10,6 +10,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langchain.agents.middleware import ModelResponse
 from core.live_steering import LiveSteeringController, LiveSteeringInterrupt
+from core.middleware.filesystem import HarnessFilesystemMiddleware
+from core.middleware.filesystem import MAKE_FILE_TOOL_NAME
 from core.middleware.live_steering import LiveSteeringMiddleware
 from core.middleware.reasoning import ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
@@ -25,6 +27,7 @@ from core.session.manager import SessionManager
 class FakeModelRequest:
     system_message: SystemMessage | None
     messages: list[Any]
+    tools: list[Any] | None = None
     state: dict[str, Any] | None = None
     runtime: Any = None
 
@@ -143,6 +146,24 @@ class MiddlewareTests(TestCase):
             response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
 
             self.assertIn(str(path.resolve()), str(response.content))
+
+    def test_harness_filesystem_middleware_renames_write_file_tool(self) -> None:
+        middleware = HarnessFilesystemMiddleware()
+
+        tool_names = [tool.name for tool in middleware.tools]
+
+        self.assertIn(MAKE_FILE_TOOL_NAME, tool_names)
+        self.assertNotIn("write_file", tool_names)
+
+    def test_harness_filesystem_middleware_prompt_discourages_overwrite_usage(self) -> None:
+        middleware = HarnessFilesystemMiddleware()
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[], tools=middleware.tools)
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+
+        self.assertIn("make_file", str(response.content))
+        self.assertIn("Use `make_file` only for new files at new paths", str(response.content))
+        self.assertIn("Do not use `make_file` as an overwrite tool", str(response.content))
 
     def test_runtime_middleware_injects_python_interpreter_when_configured(self) -> None:
         with TemporaryDirectory() as directory:

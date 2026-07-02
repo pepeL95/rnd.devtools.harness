@@ -13,6 +13,7 @@ from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.live_steering import LiveSteeringController
 from core.middleware.compaction import CompactionMiddleware
+from core.middleware.filesystem import HarnessFilesystemMiddleware
 from core.middleware.live_steering import LiveSteeringMiddleware
 from core.middleware.reasoning import ReasoningEagerness, ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
@@ -51,7 +52,6 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     """
 
     from deepagents.backends import LocalShellBackend
-    from deepagents.middleware.filesystem import FilesystemMiddleware
     from langchain.agents import create_agent
 
     cwd = config.cwd.expanduser().resolve()
@@ -85,7 +85,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
         SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
-        FilesystemMiddleware(backend=backend),
+        HarnessFilesystemMiddleware(backend=backend),
         SessionDumpMiddleware(manager, python_interpreter=config.python_interpreter),
         LiveSteeringMiddleware(live_steering_controller),
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
