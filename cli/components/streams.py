@@ -32,19 +32,20 @@ class ToolStream(Static):
 
     def set_output(self, output: Any) -> None:
         self._tool_output = output
-        self.update(self._build_content(self._tool_name, self._tool_input_text, self._tool_output))
+        self.update(self._build_content(self._tool_name,
+                    self._tool_input_text, self._tool_output))
 
     def _build_content(self, name: str, input_text: str, output: Any) -> Text:
         text = Text()
         text.append(self._pretty_name(name), style="bold #8BC4A3")
         if input_text:
             text.append(" ")
-            text.append(input_text)
+            text.append(_format_input_block(name, input_text))
 
         output_block = _truncate_output(_pretty_output(output))
         if output_block:
             text.append("\n")
-            text.append(_format_output_block(output_block), style="dim")
+            text.append(_format_output_block(name, output_block), style="dim")
 
         return text
 
@@ -63,6 +64,8 @@ class ToolStream(Static):
             return "Grepped"
         if name == "ls":
             return "Listed files"
+        if name == "reasoning":
+            return "Pondering"
         return name
 
 
@@ -108,15 +111,19 @@ def _truncate_output(text: str, limit: int = 600) -> str:
     return text[: limit - 1] + "…"
 
 
-def _indent_block(text: str, prefix: str = "  ") -> str:
-    return "\n".join(f"{prefix}{line}" if line else prefix.rstrip() for line in text.splitlines())
-
-
 def _pretty_output(value: Any) -> str:
     return _pretty_json(value)
 
+def _format_input_block(name: str, text: str, limit: int = 400) -> str:
+    if name == "reasoning":
+        return text
+    return _truncate_output(text, limit)
 
-def _format_output_block(text: str) -> str:
+def _format_output_block(name: str, text: str) -> str:
+    ignore_names = {"reasoning"}
+    if name in ignore_names:
+        return ""
+
     lines = text.splitlines() or [text]
     shown = _summarize_output_lines(lines)
     formatted: list[str] = []

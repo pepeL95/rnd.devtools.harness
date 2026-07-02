@@ -36,7 +36,7 @@ class DriverAgentConfig:
     python_interpreter: Path | None = None
     session_id: str | None = None
     session_manager: SessionManager | None = None
-    reasoning_eagerness: ReasoningEagerness = "low"
+    reasoning_eagerness: ReasoningEagerness = "high"
     on_compaction_event: Callable[[str, dict[str, Any]], None] | None = None
     session_compaction_coordinator: CompactionCoordinator | None = None
     trajectory_compaction_coordinator: TrajectoryCompactionCoordinator | None = None
