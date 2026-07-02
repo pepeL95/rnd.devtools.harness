@@ -54,6 +54,7 @@ def iter_agent_turn(
                             {
                                 "name": name,
                                 "input": input_text,
+                                "tool_call_id": tool_call_id,
                             },
                         )
                     reasoning = message_reasoning(message)
@@ -71,6 +72,7 @@ def iter_agent_turn(
                             "name": name,
                             "input": input_text,
                             "output": content_to_plaintext(getattr(message, "content", "")),
+                            "tool_call_id": tool_call_id,
                         },
                     )
 

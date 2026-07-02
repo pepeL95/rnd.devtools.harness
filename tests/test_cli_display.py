@@ -76,7 +76,7 @@ class ToolStreamTests(TestCase):
 
         rendered = stream._build_content("execute", "pytest tests/test_cli_display.py", None)
 
-        self.assertEqual(rendered.plain, "\u2022 [tool] execute pytest tests/test_cli_display.py")
+        self.assertTrue(rendered.plain.endswith("pytest tests/test_cli_display.py"))
 
     def test_tool_stream_formats_muted_output_continuation(self) -> None:
         output = "\n".join(
@@ -90,17 +90,70 @@ class ToolStreamTests(TestCase):
             ]
         )
 
-        rendered = ToolStream("execute", "", output, continuation=True)._build_content(
-            "execute",
-            "",
-            output,
-            continuation=True,
-        )
+        rendered = ToolStream("execute", "", output)._build_content("execute", "", output)
 
         self.assertIn("  \u2514 ============================= test session starts ==============================", rendered.plain)
         self.assertIn("    platform darwin -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0", rendered.plain)
         self.assertIn("    \u2026 +2 lines", rendered.plain)
         self.assertIn("    ============================== 12 passed in 2.00s ==============================", rendered.plain)
+
+    def test_tool_stream_set_output_updates_existing_row(self) -> None:
+        stream = ToolStream("execute", "pytest tests/test_cli_display.py")
+        stream.update = lambda content: None  # type: ignore[method-assign]
+
+        stream.set_output("line 1\nline 2")
+
+        rendered = stream._build_content(stream._tool_name, stream._tool_input_text, stream._tool_output)
+        self.assertTrue(rendered.plain.startswith(("Dispatched", "Yeeted", "Ran", "Slammed", "Ramrodded")))
+        self.assertIn("  \u2514 line 1", rendered.plain)
+
+
+class AgentStreamUiTests(TestCase):
+    def test_tool_output_updates_existing_tool_stream(self) -> None:
+        app = QuasipilotApp()
+        mounted: list[object] = []
+        def mount_chat(widget: object) -> None:
+            if isinstance(widget, ToolStream):
+                widget.update = lambda content: None  # type: ignore[method-assign]
+            mounted.append(widget)
+
+        app._mount_chat = mount_chat  # type: ignore[method-assign]
+        app._scroll_chat_to_bottom = lambda: None  # type: ignore[method-assign]
+
+        app.on_agent_stream(
+            type(
+                "Event",
+                (),
+                {
+                    "kind": "tool",
+                    "payload": {"name": "execute", "input": "pytest tests/test_cli_display.py", "tool_call_id": "call-1"},
+                },
+            )()
+        )
+        app.on_agent_stream(
+            type(
+                "Event",
+                (),
+                {
+                    "kind": "tool_output",
+                    "payload": {
+                        "name": "execute",
+                        "input": "pytest tests/test_cli_display.py",
+                        "output": "============================== 12 passed in 2.00s ==============================",
+                        "tool_call_id": "call-1",
+                    },
+                },
+            )()
+        )
+
+        self.assertEqual(len(mounted), 1)
+        self.assertIsInstance(mounted[0], ToolStream)
+        rendered = mounted[0]._build_content(
+            mounted[0]._tool_name,
+            mounted[0]._tool_input_text,
+            mounted[0]._tool_output,
+        )
+        self.assertIn("12 passed in 2.00s", rendered.plain)
 
 
 class ChatInputTests(TestCase):

@@ -98,6 +98,7 @@ class QuasipilotApp(App[None]):
         self._compaction_coordinator: CompactionCoordinator | None = None
         self._compaction_active = False
         self._live_steering = LiveSteeringController()
+        self._tool_streams: dict[str, ToolStream] = {}
 
     @property
     def manager(self) -> SessionManager | None:
@@ -123,6 +124,7 @@ class QuasipilotApp(App[None]):
         self._manager = None
         self._agent = None
         self._live_steering = LiveSteeringController()
+        self._tool_streams = {}
         self._compaction_coordinator = None
         self._compaction_active = False
         self._clear_chat()
@@ -131,6 +133,7 @@ class QuasipilotApp(App[None]):
     def load_session(self, session_id: str) -> None:
         self.session_id = session_id
         self._live_steering = LiveSteeringController()
+        self._tool_streams = {}
         self._manager = SessionManager(session_id=session_id)
         self._restore_runtime_from_session(self._manager)
         self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
@@ -165,6 +168,7 @@ class QuasipilotApp(App[None]):
         self._scroll_chat_to_bottom()
 
     def _clear_chat(self) -> None:
+        self._tool_streams = {}
         self._chat_scroll().remove_children()
         self._chat_scroll().scroll_home(animate=False)
 
@@ -340,21 +344,28 @@ class QuasipilotApp(App[None]):
 
     def on_agent_stream(self, event: AgentStream) -> None:
         if event.kind == "tool":
-            self._mount_chat(
-                ToolStream(
-                    name=event.payload.get("name", "tool"),
-                    input_text=event.payload.get("input", ""),
-                )
+            widget = ToolStream(
+                name=event.payload.get("name", "tool"),
+                input_text=event.payload.get("input", ""),
             )
+            tool_call_id = str(event.payload.get("tool_call_id") or "")
+            if tool_call_id:
+                self._tool_streams[tool_call_id] = widget
+            self._mount_chat(widget)
         elif event.kind == "tool_output":
-            self._mount_chat(
-                ToolStream(
-                    name=event.payload.get("name", "tool"),
-                    input_text=event.payload.get("input", ""),
-                    output=event.payload.get("output"),
-                    continuation=True,
+            tool_call_id = str(event.payload.get("tool_call_id") or "")
+            widget = self._tool_streams.get(tool_call_id) if tool_call_id else None
+            if widget is not None:
+                widget.set_output(event.payload.get("output"))
+                self._scroll_chat_to_bottom()
+            else:
+                self._mount_chat(
+                    ToolStream(
+                        name=event.payload.get("name", "tool"),
+                        input_text=event.payload.get("input", ""),
+                        output=event.payload.get("output"),
+                    )
                 )
-            )
         elif event.kind == "reason":
             self._mount_chat_batch(Divider(), ReasonStream(event.payload.get("text", "")))
 

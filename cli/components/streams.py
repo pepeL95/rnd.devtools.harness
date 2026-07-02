@@ -24,26 +24,26 @@ class ToolStream(Static):
         name: str,
         input_text: str = "",
         output: Any = None,
-        *,
-        continuation: bool = False,
     ) -> None:
-        super().__init__(self._build_content(name, input_text,
-                                             output, continuation=continuation), markup=False)
+        self._tool_name = name
+        self._tool_input_text = input_text
+        self._tool_output = output
+        super().__init__(self._build_content(name, input_text, output), markup=False)
 
-    def _build_content(self, name: str, input_text: str, output: Any, *, continuation: bool = False) -> Text:
+    def set_output(self, output: Any) -> None:
+        self._tool_output = output
+        self.update(self._build_content(self._tool_name, self._tool_input_text, self._tool_output))
+
+    def _build_content(self, name: str, input_text: str, output: Any) -> Text:
         text = Text()
-        if not continuation:
-            # text.append("\u2022 ", style="#8BC4A3")
-            # text.append("[tool] ", style="bold #8BC4A3")
-            text.append(self._pretty_name(name), style="bold #8BC4A3")
-            if input_text:
-                text.append(" ")
-                text.append(input_text)
+        text.append(self._pretty_name(name), style="bold #8BC4A3")
+        if input_text:
+            text.append(" ")
+            text.append(input_text)
 
         output_block = _truncate_output(_pretty_output(output))
         if output_block:
-            if not continuation:
-                text.append("\n")
+            text.append("\n")
             text.append(_format_output_block(output_block), style="dim")
 
         return text
