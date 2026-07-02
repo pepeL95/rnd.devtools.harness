@@ -343,8 +343,16 @@ class QuasipilotApp(App[None]):
             self._mount_chat(
                 ToolStream(
                     name=event.payload.get("name", "tool"),
-                    args=event.payload.get("args"),
+                    input_text=event.payload.get("input", ""),
+                )
+            )
+        elif event.kind == "tool_output":
+            self._mount_chat(
+                ToolStream(
+                    name=event.payload.get("name", "tool"),
+                    input_text=event.payload.get("input", ""),
                     output=event.payload.get("output"),
+                    continuation=True,
                 )
             )
         elif event.kind == "reason":

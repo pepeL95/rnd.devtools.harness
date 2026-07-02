@@ -68,20 +68,39 @@ class CompactionUiTests(TestCase):
 
 
 class ToolStreamTests(TestCase):
-    def test_tool_stream_prettifies_args_and_mutes_output(self) -> None:
+    def test_tool_stream_formats_compact_header_and_indented_output(self) -> None:
         stream = ToolStream(
-            "read_file",
-            {"path": "/tmp/example", "recursive": True},
-            {"result": "ok"},
+            "execute",
+            "pytest tests/test_cli_display.py",
         )
 
-        rendered = stream._build_content("read_file", {"path": "/tmp/example", "recursive": True}, {"result": "ok"})
+        rendered = stream._build_content("execute", "pytest tests/test_cli_display.py", None)
 
-        self.assertIn("[tool] read_file", rendered.plain)
-        self.assertIn('"path": "/tmp/example"', rendered.plain)
-        self.assertIn('"recursive": true', rendered.plain)
-        self.assertIn('  {', rendered.plain)
-        self.assertIn('"result": "ok"', rendered.plain)
+        self.assertEqual(rendered.plain, "\u2022 [tool] execute pytest tests/test_cli_display.py")
+
+    def test_tool_stream_formats_muted_output_continuation(self) -> None:
+        output = "\n".join(
+            [
+                "============================= test session starts ==============================",
+                "platform darwin -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0",
+                "cachedir: .pytest_cache",
+                "rootdir: /tmp/project",
+                "plugins: anyio-4.13.0",
+                "============================== 12 passed in 2.00s ==============================",
+            ]
+        )
+
+        rendered = ToolStream("execute", "", output, continuation=True)._build_content(
+            "execute",
+            "",
+            output,
+            continuation=True,
+        )
+
+        self.assertIn("  \u2514 ============================= test session starts ==============================", rendered.plain)
+        self.assertIn("    platform darwin -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0", rendered.plain)
+        self.assertIn("    \u2026 +2 lines", rendered.plain)
+        self.assertIn("    ============================== 12 passed in 2.00s ==============================", rendered.plain)
 
 
 class ChatInputTests(TestCase):

@@ -43,3 +43,53 @@ def format_tool_call(call: dict[str, Any]) -> tuple[str, str]:
         return name, ""
     parts = [f"{key}={value!r}" for key, value in args.items()]
     return name, " ".join(parts)
+
+
+def format_tool_input(call: dict[str, Any]) -> tuple[str, str]:
+    name = str(call.get("name") or call.get("type") or "tool")
+    args = call.get("args") or call.get("arguments") or {}
+    if not isinstance(args, dict):
+        return name, str(args).strip()
+    if not args:
+        return name, ""
+
+    if name in {"execute", "shell", "bash"}:
+        command = args.get("cmd") or args.get("command")
+        if command:
+            return name, str(command).strip()
+
+    preferred_keys = (
+        "path",
+        "file_path",
+        "pattern",
+        "query",
+        "q",
+        "url",
+        "session_id",
+        "location",
+        "text",
+        "prompt",
+    )
+    if len(args) == 1:
+        only_key = next(iter(args))
+        return name, _tool_value_to_text(args[only_key])
+
+    ordered_keys = [key for key in preferred_keys if key in args]
+    ordered_keys.extend(key for key in args if key not in ordered_keys)
+    parts: list[str] = []
+    for key in ordered_keys:
+        value = args[key]
+        rendered = _tool_value_to_text(value)
+        if key in {"path", "file_path", "pattern", "query", "q", "url", "session_id", "location", "text", "prompt"}:
+            parts.append(rendered)
+        else:
+            parts.append(f"{key}={rendered}")
+    return name, " ".join(part for part in parts if part)
+
+
+def _tool_value_to_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)) or value is None:
+        return repr(value)
+    return str(value)

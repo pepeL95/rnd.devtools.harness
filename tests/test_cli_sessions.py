@@ -6,7 +6,7 @@ import os
 from core.session.events import EventType, SessionEvent
 from core.session.io import append_events, session_paths
 from cli.components.session_picker import SessionPickerScreen, _item_dom_id, _session_id_from_dom_id
-from cli.utilities.messages import format_tool_call, message_text
+from cli.utilities.messages import format_tool_call, format_tool_input, message_text
 from cli.utilities.sessions import SessionSummary, clear_session_files, list_sessions
 
 
@@ -148,3 +148,8 @@ class CliMessageUtilityTests(TestCase):
         name, args = format_tool_call({"name": "read", "args": {"path": "/tmp"}})
         self.assertEqual(name, "read")
         self.assertIn("path=", args)
+
+    def test_format_tool_input_prefers_human_command_shape(self) -> None:
+        name, args = format_tool_input({"name": "execute", "args": {"cmd": "pytest tests/test_cli_display.py"}})
+        self.assertEqual(name, "execute")
+        self.assertEqual(args, "pytest tests/test_cli_display.py")
