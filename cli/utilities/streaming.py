@@ -5,7 +5,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from cli.utilities.messages import format_tool_call, message_reasoning, message_text, message_tool_calls
+from cli.utilities.messages import message_reasoning, message_text, message_tool_calls
 
 
 StreamCallback = Callable[[str, dict[str, Any]], None]
@@ -43,8 +43,13 @@ def iter_agent_turn(
 
                 if isinstance(message, AIMessage):
                     for call in message_tool_calls(message):
-                        name, args = format_tool_call(call)
-                        on_event("tool", {"name": name, "args": args})
+                        on_event(
+                            "tool",
+                            {
+                                "name": str(call.get("name") or call.get("type") or "tool"),
+                                "args": call.get("args") or call.get("arguments") or {},
+                            },
+                        )
                     reasoning = message_reasoning(message)
                     if reasoning:
                         on_event("reason", {"text": reasoning})

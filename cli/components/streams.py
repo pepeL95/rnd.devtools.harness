@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
+from rich.text import Text
 from textual.widgets import Static
 
 
@@ -14,13 +18,22 @@ class ToolStream(Static):
     }
     """
 
-    def __init__(self, name: str, args: str = "") -> None:
-        args = args.split("=") if args else []
-        args = args[1].strip() if len(args) > 1 else ""
-        if args.startswith("'") and args.endswith("'"):
-            args = args[1:-1]
-        label = f"[b]\[tool] {name}[/] [i]{args}[/]".strip()
-        super().__init__(label, markup=True)
+    def __init__(self, name: str, args: Any = None, output: Any = None) -> None:
+        super().__init__(self._render(name, args, output), markup=False)
+
+    def _render(self, name: str, args: Any, output: Any) -> Text:
+        text = Text()
+        text.append("[tool] ", style="bold")
+        text.append(name, style="bold")
+        args_block = _pretty_json(args)
+        if args_block:
+            text.append("\n")
+            text.append(args_block)
+        output_block = _pretty_json(output)
+        if output_block:
+            text.append("\n")
+            text.append(output_block, style="dim")
+        return text
 
 
 class ReasonStream(Static):
@@ -37,3 +50,21 @@ class ReasonStream(Static):
 
     def __init__(self, text: str) -> None:
         super().__init__(text, markup=False)
+
+
+def _pretty_json(value: Any) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return ""
+        try:
+            parsed = json.loads(stripped)
+        except Exception:
+            return stripped
+        return json.dumps(parsed, indent=2, ensure_ascii=False)
+    try:
+        return json.dumps(value, indent=2, ensure_ascii=False)
+    except Exception:
+        return str(value)

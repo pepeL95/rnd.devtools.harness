@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from cli.components import ChatInput
+from cli.components import ToolStream
 from cli.components import RuntimeBar
 from cli.components import StatusBubble
 from cli.run import QuasipilotApp
@@ -64,6 +65,21 @@ class CompactionUiTests(TestCase):
         self.assertEqual(len(mounted), 1)
         self.assertIsInstance(mounted[0], StatusBubble)
         self.assertEqual(notifications, ["session compaction finished"])
+
+
+class ToolStreamTests(TestCase):
+    def test_tool_stream_prettifies_args_and_mutes_output(self) -> None:
+        stream = ToolStream(
+            "read_file",
+            {"path": "/tmp/example", "recursive": True},
+            {"result": "ok"},
+        )
+
+        rendered = stream._render("read_file", {"path": "/tmp/example", "recursive": True}, {"result": "ok"})
+
+        self.assertIn('"path": "/tmp/example"', str(rendered))
+        self.assertIn('"recursive": true', str(rendered))
+        self.assertIn('"result": "ok"', str(rendered))
 
 
 class ChatInputTests(TestCase):
