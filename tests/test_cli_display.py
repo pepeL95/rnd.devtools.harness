@@ -77,11 +77,11 @@ class ToolStreamTests(TestCase):
 
         rendered = stream._build_content("read_file", {"path": "/tmp/example", "recursive": True}, {"result": "ok"})
 
-        self.assertEqual(len(rendered.renderables), 3)
-        self.assertIn("[tool]", str(rendered.renderables[0]))
-        self.assertIn('"path": "/tmp/example"', rendered.renderables[1].renderable.code)
-        self.assertIn('"recursive": true', rendered.renderables[1].renderable.code)
-        self.assertIn('"result": "ok"', rendered.renderables[2].renderable.code)
+        self.assertIn("[tool] read_file", rendered.plain)
+        self.assertIn('"path": "/tmp/example"', rendered.plain)
+        self.assertIn('"recursive": true', rendered.plain)
+        self.assertIn('  {', rendered.plain)
+        self.assertIn('"result": "ok"', rendered.plain)
 
 
 class ChatInputTests(TestCase):
