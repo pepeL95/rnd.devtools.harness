@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from typing import Any
 
 from rich.text import Text
@@ -26,14 +27,15 @@ class ToolStream(Static):
         *,
         continuation: bool = False,
     ) -> None:
-        super().__init__(self._build_content(name, input_text, output, continuation=continuation), markup=False)
+        super().__init__(self._build_content(name, input_text,
+                                             output, continuation=continuation), markup=False)
 
     def _build_content(self, name: str, input_text: str, output: Any, *, continuation: bool = False) -> Text:
         text = Text()
         if not continuation:
-            text.append("\u2022 ", style="#8BC4A3")
-            text.append("[tool] ", style="bold #8BC4A3")
-            text.append(name, style="bold")
+            # text.append("\u2022 ", style="#8BC4A3")
+            # text.append("[tool] ", style="bold #8BC4A3")
+            text.append(self._pretty_name(name), style="bold #8BC4A3")
             if input_text:
                 text.append(" ")
                 text.append(input_text)
@@ -45,6 +47,23 @@ class ToolStream(Static):
             text.append(_format_output_block(output_block), style="dim")
 
         return text
+
+    def _pretty_name(self, name: str) -> str:
+        if name == "execute":
+            return random.choice(["Dispatched", "Yeeted", "Ran", "Slammed", "Ramrodded"])
+        if name == "read_file":
+            return "Read"
+        if name == "write_file":
+            return "Created"
+        if name == "edit_file":
+            return "Edited"
+        if name == "glob":
+            return "Searched"
+        if name == "grep":
+            return "Grepped"
+        if name == "ls":
+            return "Listed files"
+        return name
 
 
 class ReasonStream(Static):
