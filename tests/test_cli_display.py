@@ -75,7 +75,7 @@ class ToolStreamTests(TestCase):
             {"result": "ok"},
         )
 
-        rendered = stream._render("read_file", {"path": "/tmp/example", "recursive": True}, {"result": "ok"})
+        rendered = stream._build_content("read_file", {"path": "/tmp/example", "recursive": True}, {"result": "ok"})
 
         self.assertIn('"path": "/tmp/example"', str(rendered))
         self.assertIn('"recursive": true', str(rendered))

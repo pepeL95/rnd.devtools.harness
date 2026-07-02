@@ -19,9 +19,9 @@ class ToolStream(Static):
     """
 
     def __init__(self, name: str, args: Any = None, output: Any = None) -> None:
-        super().__init__(self._render(name, args, output), markup=False)
+        super().__init__(self._build_content(name, args, output), markup=False)
 
-    def _render(self, name: str, args: Any, output: Any) -> Text:
+    def _build_content(self, name: str, args: Any, output: Any) -> Text:
         text = Text()
         text.append("[tool] ", style="bold")
         text.append(name, style="bold")
