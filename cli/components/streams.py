@@ -66,6 +66,8 @@ class ToolStream(Static):
             return "Listed files"
         if name == "reasoning":
             return "Pondering"
+        if name == "read_skill":
+            return "Equipped"
         return name
 
 
