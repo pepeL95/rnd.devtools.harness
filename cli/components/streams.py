@@ -13,6 +13,7 @@ class ToolStream(Static):
     DEFAULT_CSS = """
     ToolStream {
         width: 100%;
+        height: auto;
         margin: 1 2;
         color: #C3E7CA;
     }

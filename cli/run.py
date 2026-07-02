@@ -340,10 +340,13 @@ class QuasipilotApp(App[None]):
 
     def on_agent_stream(self, event: AgentStream) -> None:
         if event.kind == "tool":
-            args = event.payload.get("args", "")
-            if not isinstance(args, str):
-                args = ""
-            self._mount_chat(ToolStream(name=event.payload.get("name", "tool"), args=args))
+            self._mount_chat(
+                ToolStream(
+                    name=event.payload.get("name", "tool"),
+                    args=event.payload.get("args"),
+                    output=event.payload.get("output"),
+                )
+            )
         elif event.kind == "reason":
             self._mount_chat_batch(Divider(), ReasonStream(event.payload.get("text", "")))
 
