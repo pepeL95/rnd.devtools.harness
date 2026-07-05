@@ -12,6 +12,7 @@ from textual.widget import Widget
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from cli.components import (
     AIBubble,
+    CanceledMessage,
     ChatInput,
     StatusBubble,
     ReasonStream,
@@ -45,10 +46,11 @@ class AgentStream(Message):
 class AgentFinished(Message):
     """Worker completed a turn."""
 
-    def __init__(self, text: str, error: str | None = None, steering: str | None = None) -> None:
+    def __init__(self, text: str, error: str | None = None, steering: str | None = None, cancelled: bool = False) -> None:
         self.text = text
         self.error = error
         self.steering = steering
+        self.cancelled = cancelled
         super().__init__()
 
 
@@ -338,6 +340,7 @@ class QuasipilotApp(App[None]):
         error: str | None = None
         assistant_text = ""
         steering: str | None = None
+        cancelled = False
         try:
             self._ensure_session()
             assert self._agent is not None
@@ -347,12 +350,12 @@ class QuasipilotApp(App[None]):
 
             assistant_text = iter_agent_turn(self._agent, text, on_event)
         except CancellationInterrupt:
-            pass  # middleware wrote the introspection + TURN_END; nothing to surface
+            cancelled = True
         except LiveSteeringInterrupt as exc:
             steering = exc.steering
         except Exception as exc:  # pragma: no cover - surfaced in UI
             error = str(exc)
-        self.post_message(AgentFinished(assistant_text, error, steering))
+        self.post_message(AgentFinished(assistant_text, error, steering, cancelled=cancelled))
 
     def on_agent_stream(self, event: AgentStream) -> None:
         if event.kind == "tool":
@@ -382,11 +385,13 @@ class QuasipilotApp(App[None]):
             self._mount_chat_batch(Divider(), ReasonStream(event.payload.get("text", "")))
 
     def on_agent_finished(self, event: AgentFinished) -> None:
-        self.call_after_refresh(self._finish_agent_turn, event.text, event.error, event.steering)
+        self.call_after_refresh(self._finish_agent_turn, event.text, event.error, event.steering, event.cancelled)
 
-    def _finish_agent_turn(self, text: str, error: str | None, interrupted_steering: str | None = None) -> None:
+    def _finish_agent_turn(self, text: str, error: str | None, interrupted_steering: str | None = None, cancelled: bool = False) -> None:
         if error:
             self._mount_chat_batch(Divider(), AIBubble(f"error: {error}"))
+        elif cancelled:
+            self._mount_chat(CanceledMessage())
         elif text:
             self._mount_chat_batch(Divider(), AIBubble(text))
         next_steering = interrupted_steering or self._live_steering.drain()
