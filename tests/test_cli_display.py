@@ -9,7 +9,7 @@ from cli.components import RuntimeBar
 from cli.components import StatusBubble
 from cli.run import QuasipilotApp
 from cli.utilities.display import content_to_plaintext
-from core.live_steering import format_live_steering_message
+from core.live_steering import LiveSteeringController
 from core.session.events import RuntimeSnapshot
 from core.session.manager import SessionManager
 
@@ -250,7 +250,7 @@ class ChatInputTests(TestCase):
         self.assertEqual(queued, ["change direction"])
         self.assertEqual(notifications, ["steering queued"])
 
-    def test_interrupted_turn_restarts_with_formatted_steering_message(self) -> None:
+    def test_interrupted_turn_restarts_with_raw_steering_text(self) -> None:
         app = QuasipilotApp()
         started: list[str] = []
         focused: list[bool] = []
@@ -260,7 +260,7 @@ class ChatInputTests(TestCase):
 
         app._finish_agent_turn("partial", None, "tighten scope")
 
-        self.assertEqual(started, [format_live_steering_message("tighten scope")])
+        self.assertEqual(started, ["tighten scope"])
         self.assertEqual(focused, [])
 
 

@@ -288,6 +288,21 @@ class MiddlewareTests(TestCase):
             restored_contents = [getattr(message, "content", None) for message in update["messages"]]
             self.assertIn("prior", restored_contents)
 
+    def test_session_load_skips_restoration_on_interrupted_reentry(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append([SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "prior"})])
+            dump_middleware = SessionDumpMiddleware(manager)
+            load_middleware = SessionLoadMiddleware(manager, session_dump=dump_middleware)
+
+            # Simulate an interrupted state
+            dump_middleware._interrupted = True
+
+            # before_agent must return None — LangGraph state is preserved as-is
+            update = load_middleware.before_agent({"messages": []}, runtime=None)
+
+            self.assertIsNone(update, "SessionLoadMiddleware must not overwrite state on interrupted re-entry")
+
     def test_session_dump_does_not_reappend_restored_assistant_text_on_later_turns(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
@@ -430,6 +445,7 @@ class MiddlewareTests(TestCase):
             middleware = SessionDumpMiddleware(manager)
 
             middleware.before_agent({"messages": []}, runtime=None)
+            turn = middleware._active_turn
 
             with self.assertRaises(LiveSteeringInterrupt):
                 middleware.wrap_tool_call(
@@ -438,15 +454,98 @@ class MiddlewareTests(TestCase):
                 )
 
             dump = manager.read_dump()
+
+            # USER event carries the steering text on the same turn
             self.assertTrue(
                 any(
-                    event.type == EventType.META
+                    event.type == EventType.USER
+                    and event.turn == turn
+                    and event.payload.get("content") == "change course"
                     and event.payload.get("kind") == "live_steering_interrupt"
-                    and event.payload.get("steering") == "change course"
                     for event in dump
-                )
+                ),
+                "expected USER event with steering text on the active turn",
             )
-            self.assertTrue(any(event.type == EventType.TURN_END and event.payload.get("status") == "interrupted" for event in dump))
+
+            # REASONING event is the first-person introspection on the same turn
+            self.assertTrue(
+                any(
+                    event.type == EventType.REASONING
+                    and event.turn == turn
+                    and event.payload.get("reasoning_format") == "live_steering"
+                    for event in dump
+                ),
+                "expected REASONING introspection event on the active turn",
+            )
+
+            # Turn must NOT be closed — the turn continues after re-entry
+            self.assertFalse(
+                any(event.type == EventType.TURN_END for event in dump),
+                "TURN_END must not be written until the agent finishes after steering",
+            )
+
+            # _active_turn is preserved so before_agent can reuse it
+            self.assertEqual(middleware._active_turn, turn)
+            self.assertTrue(middleware._interrupted)
+
+    def test_session_dump_reuses_turn_on_interrupted_reentry(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+            original_turn = middleware._active_turn
+
+            with self.assertRaises(LiveSteeringInterrupt):
+                middleware.wrap_tool_call(
+                    type("Req", (), {"tool_call": {"name": "read_file", "id": "call-1"}})(),
+                    lambda _: (_ for _ in ()).throw(LiveSteeringInterrupt("redirect")),
+                )
+
+            # Simulate the CLI restarting the agent loop after the interrupt
+            middleware.before_agent({"messages": []}, runtime=None)
+
+            # Turn number must be unchanged — same logical turn continues
+            self.assertEqual(middleware._active_turn, original_turn)
+            self.assertFalse(middleware._interrupted)
+
+            dump = manager.read_dump()
+            # Only one TURN_BEGIN for the entire interaction so far
+            turn_begins = [e for e in dump if e.type == EventType.TURN_BEGIN]
+            self.assertEqual(len(turn_begins), 1)
+
+    def test_session_dump_does_not_duplicate_steering_message_on_reentry(self) -> None:
+        """Regression: steering USER event must appear exactly once even when
+        LangGraph state already contains the steering message on re-entry."""
+        from langchain_core.messages import HumanMessage
+
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+
+            with self.assertRaises(LiveSteeringInterrupt):
+                middleware.wrap_tool_call(
+                    type("Req", (), {"tool_call": {"name": "read_file", "id": "call-1"}})(),
+                    lambda _: (_ for _ in ()).throw(LiveSteeringInterrupt("change direction")),
+                )
+
+            # Re-enter with the steering message already present in LangGraph state
+            # (as the CLI passes it back as the new user input).
+            steering_in_state = HumanMessage(content="change direction")
+            middleware.before_agent({"messages": [steering_in_state]}, runtime=None)
+
+            dump = manager.read_dump()
+            steering_events = [
+                e for e in dump
+                if e.type == EventType.USER and e.payload.get("content") == "change direction"
+            ]
+            self.assertEqual(
+                len(steering_events),
+                1,
+                f"expected exactly 1 steering USER event, got {len(steering_events)}",
+            )
 
     def test_live_steering_middleware_interrupts_before_tool_runs(self) -> None:
         controller = LiveSteeringController()

@@ -7,7 +7,7 @@ from pathlib import Path
 from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langgraph.types import Command
-from core.live_steering import LiveSteeringInterrupt
+from core.live_steering import LiveSteeringInterrupt, format_steering_introspection
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
 from core.utilities.git import git_branch, git_dirty
@@ -22,16 +22,27 @@ class SessionDumpMiddleware(AgentMiddleware):
         )
         self._seen_event_keys: set[tuple[Any, ...]] = set()
         self._active_turn: int | None = None
+        self._interrupted: bool = False
         self._prime_seen_events()
 
+    @property
+    def is_interrupted(self) -> bool:
+        """True when the last turn was interrupted and the agent is re-entering."""
+        return self._interrupted
+
     def before_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
-        self._active_turn = self.manager.next_turn()
-        self.manager.append(
-            [
-                SessionEvent(type=EventType.TURN_BEGIN, turn=self._active_turn, payload={}),
-                self._runtime_event(runtime),
-            ]
-        )
+        if self._interrupted and self._active_turn is not None:
+            # Re-entering after a live-steering interrupt: continue the same turn,
+            # no new TURN_BEGIN or RUNTIME event needed.
+            self._interrupted = False
+        else:
+            self._active_turn = self.manager.next_turn()
+            self.manager.append(
+                [
+                    SessionEvent(type=EventType.TURN_BEGIN, turn=self._active_turn, payload={}),
+                    self._runtime_event(runtime),
+                ]
+            )
         self._dump_new_messages(state)
         return None
 
@@ -125,13 +136,30 @@ class SessionDumpMiddleware(AgentMiddleware):
         turn = self._active_turn
         if turn is None:
             return
-        self.manager.append(
-            [
-                SessionEvent(type=EventType.META, turn=turn, payload={"kind": kind, **payload}),
-                SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "interrupted"}),
-            ]
+        steering = payload.get("steering", "")
+        user_event = SessionEvent(
+            type=EventType.USER,
+            turn=turn,
+            payload={"role": "user", "content": steering, "kind": kind},
         )
-        self._active_turn = None
+        reasoning_event = SessionEvent(
+            type=EventType.REASONING,
+            turn=turn,
+            payload={
+                "role": "assistant",
+                "content": format_steering_introspection(steering),
+                "reasoning_format": "live_steering",
+                "signature": None,
+                "index": 0,
+            },
+        )
+        # Register both events before writing so _dump_new_messages on re-entry
+        # doesn't see the steering message in LangGraph state and write it again.
+        self._seen_event_keys.add(self._event_key(user_event))
+        self._seen_event_keys.add(self._event_key(reasoning_event))
+        self.manager.append([user_event, reasoning_event])
+        # Turn stays open; _active_turn is preserved for re-entry via before_agent.
+        self._interrupted = True
 
     def _end_turn(self, turn: int) -> None:
         self.manager.append([SessionEvent(type=EventType.TURN_END, turn=turn, payload={})])

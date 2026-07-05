@@ -70,6 +70,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         telemetry_store=telemetry_store,
     )
     live_steering_controller = config.live_steering_controller or LiveSteeringController()
+    session_dump = SessionDumpMiddleware(manager, python_interpreter=config.python_interpreter)
     middleware = [
         # Middleware order is load-bearing. LangChain runs before_* hooks
         # first-to-last, after_* hooks last-to-first, and wrap hooks as nested
@@ -81,12 +82,12 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         TelemetryMiddleware(telemetry_store),
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
         CompactionMiddleware(session_compaction_coordinator),
-        SessionLoadMiddleware(manager),
+        SessionLoadMiddleware(manager, session_dump=session_dump),
         SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
         SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         HarnessFilesystemMiddleware(backend=backend),
-        SessionDumpMiddleware(manager, python_interpreter=config.python_interpreter),
+        session_dump,
         LiveSteeringMiddleware(live_steering_controller),
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
     ]

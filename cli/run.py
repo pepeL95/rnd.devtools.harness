@@ -26,7 +26,7 @@ from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
-from core.live_steering import LiveSteeringController, LiveSteeringInterrupt, format_live_steering_message
+from core.live_steering import LiveSteeringController, LiveSteeringInterrupt
 from core.session.events import EventType
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
@@ -379,7 +379,11 @@ class QuasipilotApp(App[None]):
             self._mount_chat_batch(Divider(), AIBubble(text))
         next_steering = interrupted_steering or self._live_steering.drain()
         if next_steering:
-            self._start_agent_turn(format_live_steering_message(next_steering))
+            # Re-enter the agent as a continuation of the same turn.  The
+            # session middleware already recorded the steering as a USER event
+            # on the active turn, so we pass the raw text here — the agent's
+            # context is built from the session transcript, not this string.
+            self._start_agent_turn(next_steering)
             return
         self._agent_active = False
         self._hide_spinner()

@@ -3,8 +3,6 @@ from __future__ import annotations
 from threading import Lock
 
 
-STEERING_PREFIX = "The user has interrupted your session by providing the following instructions:"
-
 
 class LiveSteeringInterrupt(Exception):
     """Raised to stop the active turn at the next tool boundary."""
@@ -37,8 +35,14 @@ class LiveSteeringController:
         return "\n\n".join(pending)
 
 
-def format_live_steering_message(steering: str) -> str:
-    note = steering.strip()
-    if not note:
-        return STEERING_PREFIX
-    return f"{STEERING_PREFIX} {note}"
+
+
+STEERING_INTROSPECTION = (
+    "The user has redirected me. I will carry forward everything I have learned so far "
+    "and adjust my approach — no need to start over."
+)
+
+
+def format_steering_introspection(steering: str) -> str:
+    """Concise first-person pivot note injected after a live steering interrupt."""
+    return STEERING_INTROSPECTION
