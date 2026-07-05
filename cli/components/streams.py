@@ -57,7 +57,7 @@ class ToolStream(Static):
             if normalized == "find" or normalized.startswith("find "):
                 return "Found"
             if normalized == "grep" or normalized.startswith("grep "):
-                return "Searched"
+                return "Grepped"
             if normalized == "mkdir" or normalized.startswith("mkdir "):
                 return "Created"
             if normalized.startswith("rg --files"):
