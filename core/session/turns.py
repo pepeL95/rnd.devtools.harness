@@ -13,8 +13,19 @@ def next_turn(events: Iterable[SessionEvent]) -> int:
 
 
 def agent_history_events(events: Iterable[SessionEvent]) -> list[SessionEvent]:
-    """Events safe to restore into a LangChain agent transcript."""
-    allowed = {EventType.USER, EventType.ASSISTANT}
+    """Events safe to restore into a LangChain agent transcript.
+
+    Includes the full internal trajectory (tool calls, tool outputs, reasoning
+    blocks) so the agent re-enters cross-turn with complete context rather than
+    only the surface-level user/assistant dialogue.
+    """
+    allowed = {
+        EventType.USER,
+        EventType.ASSISTANT,
+        EventType.TOOL,
+        EventType.TOOL_OUTPUT,
+        EventType.REASONING,
+    }
     return [event for event in events if event.type in allowed]
 
 

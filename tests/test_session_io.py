@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
@@ -33,25 +33,111 @@ class SessionIOTests(TestCase):
 
             self.assertEqual([message.content for message in messages], ["hello", "hi"])
 
-    def test_load_curated_messages_skips_tool_output(self) -> None:
+    def test_load_curated_messages_reconstructs_tool_call_round_trip(self) -> None:
+        """Full tool-call sequence: TOOL → TOOL_OUTPUT → ASSISTANT round-trips correctly."""
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append(
                 [
                     SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "run git status"}),
-                    SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "ok"}),
+                    SessionEvent(
+                        type=EventType.TOOL,
+                        turn=1,
+                        payload={"role": "assistant", "name": "execute", "args": {"command": "git status"}, "tool_call_id": "call-1", "index": 0},
+                    ),
                     SessionEvent(
                         type=EventType.TOOL_OUTPUT,
                         turn=1,
-                        payload={"role": "tool", "content": "on branch main"},
+                        payload={"role": "tool", "content": "on branch main", "tool_call_id": "call-1"},
+                    ),
+                    SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "done"}),
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            self.assertEqual(len(messages), 4)
+            self.assertIsInstance(messages[0], HumanMessage)
+            self.assertEqual(messages[0].content, "run git status")
+
+            self.assertIsInstance(messages[1], AIMessage)
+            self.assertEqual(len(messages[1].tool_calls), 1)
+            self.assertEqual(messages[1].tool_calls[0]["name"], "execute")
+            self.assertEqual(messages[1].tool_calls[0]["id"], "call-1")
+
+            self.assertIsInstance(messages[2], ToolMessage)
+            self.assertEqual(messages[2].content, "on branch main")
+            self.assertEqual(messages[2].tool_call_id, "call-1")
+
+            self.assertIsInstance(messages[3], AIMessage)
+            self.assertEqual(messages[3].content, "done")
+
+    def test_load_curated_messages_reconstructs_parallel_tool_calls(self) -> None:
+        """Multiple TOOL events from the same AIMessage become a single AIMessage with multiple tool_calls."""
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "check two files"}),
+                    SessionEvent(
+                        type=EventType.TOOL,
+                        turn=1,
+                        payload={"role": "assistant", "name": "read_file", "args": {"path": "/a"}, "tool_call_id": "call-a", "index": 0},
+                    ),
+                    SessionEvent(
+                        type=EventType.TOOL,
+                        turn=1,
+                        payload={"role": "assistant", "name": "read_file", "args": {"path": "/b"}, "tool_call_id": "call-b", "index": 1},
+                    ),
+                    SessionEvent(
+                        type=EventType.TOOL_OUTPUT,
+                        turn=1,
+                        payload={"role": "tool", "content": "contents of a", "tool_call_id": "call-a"},
+                    ),
+                    SessionEvent(
+                        type=EventType.TOOL_OUTPUT,
+                        turn=1,
+                        payload={"role": "tool", "content": "contents of b", "tool_call_id": "call-b"},
                     ),
                 ]
             )
 
             messages = manager.load_curated_messages()
 
+            self.assertEqual(len(messages), 4)
+            ai_msg = messages[1]
+            self.assertIsInstance(ai_msg, AIMessage)
+            self.assertEqual(len(ai_msg.tool_calls), 2)
+            self.assertEqual(ai_msg.tool_calls[0]["id"], "call-a")
+            self.assertEqual(ai_msg.tool_calls[1]["id"], "call-b")
+
+            self.assertIsInstance(messages[2], ToolMessage)
+            self.assertEqual(messages[2].tool_call_id, "call-a")
+            self.assertIsInstance(messages[3], ToolMessage)
+            self.assertEqual(messages[3].tool_call_id, "call-b")
+
+    def test_load_curated_messages_skips_live_steering_reasoning(self) -> None:
+        """REASONING events with reasoning_format=live_steering are not fed back to the model."""
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "do something"}),
+                    SessionEvent(
+                        type=EventType.REASONING,
+                        turn=1,
+                        payload={"role": "assistant", "content": "The user has redirected me.", "reasoning_format": "live_steering", "signature": None, "index": 0},
+                    ),
+                    SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "ok"}),
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            # live_steering reasoning must be skipped; only HumanMessage + AIMessage remain
             self.assertEqual(len(messages), 2)
-            self.assertEqual(messages[0].content, "run git status")
+            self.assertIsInstance(messages[0], HumanMessage)
+            self.assertIsInstance(messages[1], AIMessage)
             self.assertEqual(messages[1].content, "ok")
 
     def test_load_curated_messages_marks_memory_restore_messages(self) -> None:

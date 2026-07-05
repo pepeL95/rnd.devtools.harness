@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
 
 from cli.utilities.display import content_to_plaintext
 from cli.utilities.messages import format_tool_input, message_reasoning, message_text, message_tool_calls
@@ -37,6 +37,19 @@ def iter_agent_turn(
             if not isinstance(update, dict):
                 continue
             messages = update.get("messages") or []
+
+            # Skip chunks that are session-history injections. SessionLoadMiddleware
+            # resets the LangGraph message channel by prepending a RemoveMessage
+            # followed by the full restored transcript. These are not new events
+            # produced in the current turn and must not be rendered in the UI.
+            if any(isinstance(m, RemoveMessage) for m in messages):
+                # Still register the IDs of restored messages so the seen-set is
+                # primed and the same messages are not rendered if they arrive again.
+                for m in messages:
+                    if not isinstance(m, RemoveMessage):
+                        seen_message_ids.add(str(getattr(m, "id", id(m))))
+                continue
+
             for message in messages:
                 message_id = str(getattr(message, "id", id(message)))
                 if message_id in seen_message_ids:

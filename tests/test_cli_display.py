@@ -316,3 +316,69 @@ class RuntimeConfigTests(TestCase):
                 app.load_session("s1")
 
             self.assertEqual(app._python_interpreter, (root / ".venv/bin/python").resolve())
+
+
+class StreamingTests(TestCase):
+    def test_iter_agent_turn_skips_restored_history_chunk(self) -> None:
+        """Messages in a chunk that contains RemoveMessage must not be rendered.
+
+        SessionLoadMiddleware injects restored session history as a state update
+        that begins with RemoveMessage. iter_agent_turn must ignore those messages
+        so prior-turn tool calls are not re-surfaced in the UI on every new turn.
+        """
+        from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
+        from langgraph.graph.message import REMOVE_ALL_MESSAGES
+        from cli.utilities.streaming import iter_agent_turn
+
+        restored_ai = AIMessage(
+            content="",
+            tool_calls=[{"name": "execute", "args": {"command": "git status"}, "id": "old-call"}],
+            id="restored-ai",
+        )
+        restored_tool = ToolMessage(content="on branch main", tool_call_id="old-call", id="restored-tool")
+        new_ai = AIMessage(content="all done", id="new-ai")
+
+        # Simulate two update chunks: first is the state-reset (history injection),
+        # second contains the newly produced message.
+        stream = iter([
+            ("updates", {"session_load": {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), restored_ai, restored_tool]}}),
+            ("updates", {"agent": {"messages": [new_ai]}}),
+        ])
+
+        events: list[tuple[str, dict]] = []
+        result = iter_agent_turn(
+            type("FakeAgent", (), {"stream": lambda self, inputs, stream_mode: stream})(),
+            "hello",
+            lambda kind, payload: events.append((kind, payload)),
+        )
+
+        # Only the new AI message should be surfaced — no tool events from history
+        tool_events = [e for e in events if e[0] in {"tool", "tool_output"}]
+        self.assertEqual(tool_events, [], "restored tool calls must not be rendered in the UI")
+        self.assertEqual(result, "all done")
+
+    def test_iter_agent_turn_registers_restored_ids_to_prevent_double_render(self) -> None:
+        """IDs of restored messages are primed in seen_message_ids so they are
+        not rendered even if LangGraph emits them again in a subsequent chunk."""
+        from langchain_core.messages import AIMessage, RemoveMessage
+        from langgraph.graph.message import REMOVE_ALL_MESSAGES
+        from cli.utilities.streaming import iter_agent_turn
+
+        restored_ai = AIMessage(content="old reply", id="shared-id")
+        new_ai = AIMessage(content="new reply", id="shared-id")  # same ID, different chunk
+
+        stream = iter([
+            ("updates", {"session_load": {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), restored_ai]}}),
+            ("updates", {"agent": {"messages": [new_ai]}}),
+        ])
+
+        events: list[tuple[str, dict]] = []
+        result = iter_agent_turn(
+            type("FakeAgent", (), {"stream": lambda self, inputs, stream_mode: stream})(),
+            "hi",
+            lambda kind, payload: events.append((kind, payload)),
+        )
+
+        # The shared ID was primed during the skip, so the second occurrence is
+        # also suppressed — result is empty string (no unrestored text).
+        self.assertEqual(result, "")
