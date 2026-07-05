@@ -54,7 +54,7 @@ class ToolStream(Static):
             return random.choice(["Dispatched", "Yeeted", "Ran", "Slammed", "Ramrodded"])
         if name == "read_file":
             return "Read"
-        if name == "write_file" or name == "make_file":
+        if name == "make_file":
             return "Created"
         if name == "edit_file":
             return "Edited"
