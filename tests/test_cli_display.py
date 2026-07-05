@@ -68,6 +68,40 @@ class CompactionUiTests(TestCase):
 
 
 class ToolStreamTests(TestCase):
+    def test_tool_stream_labels_ls_as_listed(self) -> None:
+        rendered = ToolStream("execute", "ls -la")._build_content("execute", "ls -la", None)
+
+        self.assertTrue(rendered.plain.startswith("Listed ls -la"))
+
+    def test_tool_stream_labels_find_as_found(self) -> None:
+        command = 'find . -name "*.py"'
+        rendered = ToolStream("execute", command)._build_content("execute", command, None)
+
+        self.assertTrue(rendered.plain.startswith(f"Found {command}"))
+
+    def test_tool_stream_labels_grep_as_searched(self) -> None:
+        command = 'grep -R "SessionManager" core'
+        rendered = ToolStream("execute", command)._build_content("execute", command, None)
+
+        self.assertTrue(rendered.plain.startswith(f"Searched {command}"))
+
+    def test_tool_stream_labels_mkdir_as_created(self) -> None:
+        command = "mkdir -p tmp/cache"
+        rendered = ToolStream("execute", command)._build_content("execute", command, None)
+
+        self.assertTrue(rendered.plain.startswith(f"Created {command}"))
+
+    def test_tool_stream_labels_rg_file_discovery_as_discovered(self) -> None:
+        rendered = ToolStream("execute", "rg --files core")._build_content("execute", "rg --files core", None)
+
+        self.assertTrue(rendered.plain.startswith("Discovered rg --files core"))
+
+    def test_tool_stream_labels_rg_search_as_searched(self) -> None:
+        command = 'rg -n --no-heading --color never "SessionManager" core tests'
+        rendered = ToolStream("execute", command)._build_content("execute", command, None)
+
+        self.assertTrue(rendered.plain.startswith(f"Searched {command}"))
+
     def test_tool_stream_formats_compact_header_and_indented_output(self) -> None:
         stream = ToolStream(
             "execute",

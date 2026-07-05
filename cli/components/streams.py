@@ -37,7 +37,7 @@ class ToolStream(Static):
 
     def _build_content(self, name: str, input_text: str, output: Any) -> Text:
         text = Text()
-        text.append(self._pretty_name(name), style="bold #8BC4A3")
+        text.append(self._pretty_name(name, input_text), style="bold #8BC4A3")
         if input_text:
             text.append(" ")
             text.append(_format_input_block(name, input_text))
@@ -49,8 +49,21 @@ class ToolStream(Static):
 
         return text
 
-    def _pretty_name(self, name: str) -> str:
+    def _pretty_name(self, name: str, input_text: str = "") -> str:
         if name == "execute":
+            normalized = input_text.strip()
+            if normalized == "ls" or normalized.startswith("ls "):
+                return "Listed"
+            if normalized == "find" or normalized.startswith("find "):
+                return "Found"
+            if normalized == "grep" or normalized.startswith("grep "):
+                return "Searched"
+            if normalized == "mkdir" or normalized.startswith("mkdir "):
+                return "Created"
+            if normalized.startswith("rg --files"):
+                return "Discovered"
+            if normalized.startswith("rg ") or " rg " in normalized:
+                return "Searched"
             return random.choice(["Dispatched", "Yeeted", "Ran", "Slammed", "Ramrodded"])
         if name == "read_file":
             return "Read"
@@ -58,12 +71,6 @@ class ToolStream(Static):
             return "Created"
         if name == "edit_file":
             return "Edited"
-        if name == "glob":
-            return "Searched"
-        if name == "grep":
-            return "Grepped"
-        if name == "ls":
-            return "Listed"
         if name == "reasoning":
             return "Pondering"
         if name == "read_skill":

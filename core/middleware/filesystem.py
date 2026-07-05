@@ -12,8 +12,9 @@ from langchain.agents.middleware.types import ExtendedModelResponse, ModelReques
 from langchain_core.tools import StructuredTool
 
 MAKE_FILE_TOOL_NAME = "make_file"
+EXCLUDED_FILESYSTEM_TOOL_NAMES = {"ls", "glob", "grep"}
 
-MAKE_FILE_TOOL_DESCRIPTION = """Creates a new file in the filesystem.
+MAKE_FILE_TOOL_DESCRIPTION = """Creates a new file in the filesystem with the provided contents.
 
 Usage:
 - Use `make_file` only when creating a new file at a new path.
@@ -37,22 +38,21 @@ HARNESS_FILESYSTEM_SYSTEM_PROMPT_TEMPLATE = """## Following Conventions
 - Mimic existing style, naming conventions, and patterns.
 - Use `make_file` only for new files at new paths.
 - Use `edit_file` for every change to an existing file. Do not use `make_file` as an overwrite tool.
+- For file discovery and text search, use `execute` with `rg --files` and `rg -n --no-heading --color never`.
 
-## Filesystem Tools `ls`, `read_file`, `make_file`, `edit_file`, `glob`, `grep`
+## Filesystem Tools `read_file`, `make_file`, `edit_file`, `execute`
 
 You have access to a filesystem which you can interact with using these tools.
 All file paths must start with a /. Follow the tool docs for the available tools, and use pagination (offset/limit) when reading large files.
 
-- ls: list files in a directory (requires absolute path)
 - read_file: read a file from the filesystem
 - make_file: create a new file at a new path only
 - edit_file: modify an existing file by exact string replacement
-- glob: find files matching a pattern (e.g., "**/*.py")
-- grep: search for text within files
+- execute: run shell commands
 
 ## Large Tool Results
 
-When a tool result is too large, it may be offloaded into the filesystem instead of being returned inline. In those cases, use `read_file` to inspect the saved result in chunks, or use `grep` within `{large_tool_results_prefix}/` if you need to search across offloaded tool results and do not know the exact file path. Offloaded tool results are stored under `{large_tool_results_prefix}/<tool_call_id>`."""
+When a tool result is too large, it may be offloaded into the filesystem instead of being returned inline. In those cases, use `read_file` to inspect the saved result in chunks, or use `execute` with `rg` inside `{large_tool_results_prefix}/` if you need to search across offloaded tool results and do not know the exact file path. Offloaded tool results are stored under `{large_tool_results_prefix}/<tool_call_id>`."""
 
 
 class HarnessFilesystemMiddleware(FilesystemMiddleware):
@@ -83,7 +83,11 @@ class HarnessFilesystemMiddleware(FilesystemMiddleware):
             max_execute_timeout=max_execute_timeout,
             _permissions=_permissions,
         )
-        self.tools = [self._rename_write_file_tool(tool) if getattr(tool, "name", None) == "write_file" else tool for tool in self.tools]
+        self.tools = [
+            self._rename_write_file_tool(tool) if getattr(tool, "name", None) == "write_file" else tool
+            for tool in self.tools
+            if getattr(tool, "name", None) not in EXCLUDED_FILESYSTEM_TOOL_NAMES
+        ]
 
     def wrap_model_call(
         self,

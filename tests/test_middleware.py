@@ -154,6 +154,12 @@ class MiddlewareTests(TestCase):
 
         self.assertIn(MAKE_FILE_TOOL_NAME, tool_names)
         self.assertNotIn("write_file", tool_names)
+        self.assertNotIn("ls", tool_names)
+        self.assertNotIn("glob", tool_names)
+        self.assertNotIn("grep", tool_names)
+        self.assertEqual(sorted(tool_names), ["edit_file", "execute", "make_file", "read_file"])
+        make_file_tool = next(tool for tool in middleware.tools if tool.name == MAKE_FILE_TOOL_NAME)
+        self.assertIn("Provide the full initial file contents", make_file_tool.description)
 
     def test_harness_filesystem_middleware_prompt_discourages_overwrite_usage(self) -> None:
         middleware = HarnessFilesystemMiddleware()
@@ -164,6 +170,9 @@ class MiddlewareTests(TestCase):
         self.assertIn("make_file", str(response.content))
         self.assertIn("Use `make_file` only for new files at new paths", str(response.content))
         self.assertIn("Do not use `make_file` as an overwrite tool", str(response.content))
+        self.assertIn("use `execute` with `rg --files`", str(response.content))
+        self.assertIn("`rg -n --no-heading --color never`", str(response.content))
+        self.assertNotIn("Filesystem Tools `ls`", str(response.content))
 
     def test_runtime_middleware_injects_python_interpreter_when_configured(self) -> None:
         with TemporaryDirectory() as directory:
