@@ -46,6 +46,21 @@ class SessionManager:
         if curated:
             append_events(self.curated_path, materialized)
 
+    def pop_turn(self) -> int | None:
+        """Remove all events for the latest turn from both dump and curated streams.
+
+        Returns the removed turn number, or None if the session was empty.
+        """
+        dump_events = self.read_dump()
+        if not dump_events:
+            return None
+        latest = max(event.turn for event in dump_events)
+        keep = [event for event in dump_events if event.turn != latest]
+        replace_events(self.dump_path, keep)
+        curated_events = self.read_curated()
+        replace_events(self.curated_path, [event for event in curated_events if event.turn != latest])
+        return latest
+
     def replace_curated(self, events: Iterable[SessionEvent]) -> None:
         replace_events(self.curated_path, events)
 

@@ -308,3 +308,38 @@ class SessionIOTests(TestCase):
             self.assertEqual(snapshot.git_branch, "feature")
             self.assertIs(snapshot.git_dirty, True)
             self.assertEqual(snapshot.python_interpreter, "/tmp/two/.venv/bin/python")
+
+    def test_pop_turn_removes_latest_turn_from_both_streams(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append([
+                SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "first"}),
+                SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "reply one"}),
+                SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "second"}),
+                SessionEvent(type=EventType.ASSISTANT, turn=2, payload={"role": "assistant", "content": "reply two"}),
+            ])
+
+            removed = manager.pop_turn()
+
+            self.assertEqual(removed, 2)
+            dump_turns = {event.turn for event in manager.read_dump()}
+            curated_turns = {event.turn for event in manager.read_curated()}
+            self.assertEqual(dump_turns, {1})
+            self.assertEqual(curated_turns, {1})
+
+    def test_pop_turn_returns_none_on_empty_session(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            self.assertIsNone(manager.pop_turn())
+
+    def test_pop_turn_on_single_turn_leaves_session_empty(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append([
+                SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "hello"}),
+            ])
+
+            manager.pop_turn()
+
+            self.assertEqual(manager.read_dump(), [])
+            self.assertEqual(manager.read_curated(), [])
