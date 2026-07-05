@@ -8,11 +8,11 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
+from textual.widgets import Static
 
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from cli.components import (
     AIBubble,
-    CanceledMessage,
     ChatInput,
     StatusBubble,
     ReasonStream,
@@ -81,6 +81,12 @@ class QuasipilotApp(App[None]):
     ChatInput:disabled {
         opacity: 0.65;
         background: #272c34;
+    }
+
+    .canceled-message {
+        width: 100%;
+        text-align: center;
+        color: $text-muted;
     }
     """
 
@@ -391,7 +397,7 @@ class QuasipilotApp(App[None]):
         if error:
             self._mount_chat_batch(Divider(), AIBubble(f"error: {error}"))
         elif cancelled:
-            self._mount_chat_batch(Divider(), CanceledMessage())
+            self._mount_chat_batch(Divider(), Static("Canceled Request", classes="canceled-message"), Divider())
         elif text:
             self._mount_chat_batch(Divider(), AIBubble(text))
         next_steering = interrupted_steering or self._live_steering.drain()

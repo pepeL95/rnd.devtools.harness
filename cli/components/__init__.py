@@ -1,5 +1,4 @@
 from cli.components.bubbles import AIBubble, StatusBubble, UserBubble
-from cli.components.canceled import CanceledMessage
 from cli.components.divider import Divider
 from cli.components.input import ChatInput
 from cli.components.runtime_bar import RuntimeBar
@@ -9,7 +8,6 @@ from cli.components.streams import ReasonStream, ToolStream
 
 __all__ = [
     "AIBubble",
-    "CanceledMessage",
     "ChatInput",
     "Divider",
     "ReasonStream",
