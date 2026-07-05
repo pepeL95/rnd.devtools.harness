@@ -391,7 +391,7 @@ class QuasipilotApp(App[None]):
         if error:
             self._mount_chat_batch(Divider(), AIBubble(f"error: {error}"))
         elif cancelled:
-            self._mount_chat(CanceledMessage())
+            self._mount_chat_batch(Divider(), CanceledMessage())
         elif text:
             self._mount_chat_batch(Divider(), AIBubble(text))
         next_steering = interrupted_steering or self._live_steering.drain()
