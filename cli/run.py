@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Event
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -26,7 +27,7 @@ from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
-from core.live_steering import LiveSteeringController, LiveSteeringInterrupt
+from core.live_steering import CancellationInterrupt, LiveSteeringController, LiveSteeringInterrupt
 from core.session.events import EventType
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
@@ -81,7 +82,7 @@ class QuasipilotApp(App[None]):
     }
     """
 
-    BINDINGS = [("ctrl+c", "quit", "Quit")]
+    BINDINGS = [("ctrl+c", "quit", "Quit"), ("escape", "cancel_turn", "Cancel")]
 
     def __init__(self) -> None:
         super().__init__(ansi_color=True)
@@ -98,6 +99,7 @@ class QuasipilotApp(App[None]):
         self._compaction_coordinator: CompactionCoordinator | None = None
         self._compaction_active = False
         self._live_steering = LiveSteeringController()
+        self._cancel_event = Event()
         self._tool_streams: dict[str, ToolStream] = {}
 
     @property
@@ -124,6 +126,7 @@ class QuasipilotApp(App[None]):
         self._manager = None
         self._agent = None
         self._live_steering = LiveSteeringController()
+        self._cancel_event = Event()
         self._tool_streams = {}
         self._compaction_coordinator = None
         self._compaction_active = False
@@ -196,6 +199,7 @@ class QuasipilotApp(App[None]):
                 on_compaction_event=self._post_compaction_event,
                 session_compaction_coordinator=self._compaction_coordinator,
                 live_steering_controller=self._live_steering,
+                cancel_event=self._cancel_event,
             )
         )
 
@@ -319,9 +323,15 @@ class QuasipilotApp(App[None]):
     def _start_agent_turn(self, text: str) -> None:
         self._mount_chat(UserBubble(text))
         self._agent_active = True
+        self._cancel_event.clear()
         self._set_busy(True, disable_input=False)
         self._show_spinner()
         self.run_turn(text)
+
+    def action_cancel_turn(self) -> None:
+        if self._agent_active:
+            self._cancel_event.set()
+            self.notify("cancelling…", timeout=2, markup=False)
 
     @work(thread=True, exclusive=True)
     def run_turn(self, text: str) -> None:
@@ -336,6 +346,8 @@ class QuasipilotApp(App[None]):
                 self.post_message(AgentStream(kind, payload))
 
             assistant_text = iter_agent_turn(self._agent, text, on_event)
+        except CancellationInterrupt:
+            pass  # middleware wrote the introspection + TURN_END; nothing to surface
         except LiveSteeringInterrupt as exc:
             steering = exc.steering
         except Exception as exc:  # pragma: no cover - surfaced in UI

@@ -46,3 +46,19 @@ STEERING_INTROSPECTION = (
 def format_steering_introspection(steering: str) -> str:
     """Concise first-person pivot note injected after a live steering interrupt."""
     return STEERING_INTROSPECTION
+
+
+class CancellationInterrupt(Exception):
+    """Raised to abort the active turn at the next tool boundary."""
+
+
+CANCELLATION_INTROSPECTION = (
+    "The user cancelled this task mid-execution. I should reflect on why: perhaps "
+    "I was diverging from their intent, they changed their mind, or the approach "
+    "felt wrong. I will stop here — no further action — and await new direction."
+)
+
+
+def format_cancellation_introspection() -> str:
+    """Compact first-person reflection injected when the user cancels a turn."""
+    return CANCELLATION_INTROSPECTION

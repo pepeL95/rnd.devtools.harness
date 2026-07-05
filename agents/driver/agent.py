@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Event
 from typing import Any, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -12,6 +13,7 @@ from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.live_steering import LiveSteeringController
+from core.middleware.cancellation import CancellationMiddleware
 from core.middleware.compaction import CompactionMiddleware
 from core.middleware.filesystem import HarnessFilesystemMiddleware
 from core.middleware.live_steering import LiveSteeringMiddleware
@@ -42,6 +44,7 @@ class DriverAgentConfig:
     session_compaction_coordinator: CompactionCoordinator | None = None
     trajectory_compaction_coordinator: TrajectoryCompactionCoordinator | None = None
     live_steering_controller: LiveSteeringController | None = None
+    cancel_event: Event | None = None
 
 
 def create_driver_agent(config: DriverAgentConfig) -> Any:
@@ -89,6 +92,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         HarnessFilesystemMiddleware(backend=backend),
         session_dump,
         LiveSteeringMiddleware(live_steering_controller),
+        *([CancellationMiddleware(config.cancel_event)] if config.cancel_event is not None else []),
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
     ]
     return create_agent(

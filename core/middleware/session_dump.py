@@ -7,7 +7,7 @@ from pathlib import Path
 from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langgraph.types import Command
-from core.live_steering import LiveSteeringInterrupt, format_steering_introspection
+from core.live_steering import CancellationInterrupt, LiveSteeringInterrupt, format_cancellation_introspection, format_steering_introspection
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
 from core.utilities.git import git_branch, git_dirty
@@ -65,6 +65,9 @@ class SessionDumpMiddleware(AgentMiddleware):
     def wrap_tool_call(self, request: Any, handler: Any) -> Any:
         try:
             result = handler(request)
+        except CancellationInterrupt:
+            self._record_cancellation()
+            raise
         except LiveSteeringInterrupt as exc:
             self._record_interrupt("live_steering_interrupt", {"steering": exc.steering})
             raise
@@ -130,6 +133,28 @@ class SessionDumpMiddleware(AgentMiddleware):
                 SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "error"}),
             ]
         )
+        self._active_turn = None
+
+    def _record_cancellation(self) -> None:
+        turn = self._active_turn
+        if turn is None:
+            return
+        event = SessionEvent(
+            type=EventType.REASONING,
+            turn=turn,
+            payload={
+                "role": "assistant",
+                "content": format_cancellation_introspection(),
+                "reasoning_format": "cancellation",
+                "signature": None,
+                "index": 0,
+            },
+        )
+        self._seen_event_keys.add(self._event_key(event))
+        self.manager.append([
+            event,
+            SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "cancelled"}),
+        ])
         self._active_turn = None
 
     def _record_interrupt(self, kind: str, payload: dict[str, Any]) -> None:

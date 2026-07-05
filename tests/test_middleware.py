@@ -560,3 +560,72 @@ class MiddlewareTests(TestCase):
             )
 
         self.assertEqual(called, [])
+
+    def test_cancellation_middleware_raises_when_event_set(self) -> None:
+        from threading import Event
+        from core.live_steering import CancellationInterrupt
+        from core.middleware.cancellation import CancellationMiddleware
+
+        cancel = Event()
+        cancel.set()
+        middleware = CancellationMiddleware(cancel)
+        called: list[bool] = []
+
+        with self.assertRaises(CancellationInterrupt):
+            middleware.wrap_tool_call(
+                type("Req", (), {"tool_call": {"name": "execute", "id": "c1"}})(),
+                lambda _: called.append(True),
+            )
+
+        self.assertEqual(called, [], "handler must not be called when cancel is set")
+
+    def test_cancellation_middleware_passes_through_when_event_clear(self) -> None:
+        from threading import Event
+        from core.middleware.cancellation import CancellationMiddleware
+
+        cancel = Event()
+        middleware = CancellationMiddleware(cancel)
+        called: list[bool] = []
+
+        middleware.wrap_tool_call(
+            type("Req", (), {"tool_call": {"name": "execute", "id": "c1"}})(),
+            lambda _: called.append(True),
+        )
+
+        self.assertEqual(called, [True])
+
+    def test_session_dump_records_cancellation_introspection_and_closes_turn(self) -> None:
+        from core.live_steering import CancellationInterrupt
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+            turn = middleware._active_turn
+
+            with self.assertRaises(CancellationInterrupt):
+                middleware.wrap_tool_call(
+                    type("Req", (), {"tool_call": {"name": "execute", "id": "c1"}})(),
+                    lambda _: (_ for _ in ()).throw(CancellationInterrupt()),
+                )
+
+            dump = manager.read_dump()
+
+            self.assertTrue(
+                any(
+                    event.type == EventType.REASONING
+                    and event.turn == turn
+                    and event.payload.get("reasoning_format") == "cancellation"
+                    for event in dump
+                ),
+                "expected cancellation REASONING event",
+            )
+            self.assertTrue(
+                any(
+                    event.type == EventType.TURN_END
+                    and event.payload.get("status") == "cancelled"
+                    for event in dump
+                ),
+                "expected TURN_END with status=cancelled",
+            )
+            self.assertIsNone(middleware._active_turn)

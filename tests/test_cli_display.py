@@ -320,12 +320,7 @@ class RuntimeConfigTests(TestCase):
 
 class StreamingTests(TestCase):
     def test_iter_agent_turn_skips_restored_history_chunk(self) -> None:
-        """Messages in a chunk that contains RemoveMessage must not be rendered.
-
-        SessionLoadMiddleware injects restored session history as a state update
-        that begins with RemoveMessage. iter_agent_turn must ignore those messages
-        so prior-turn tool calls are not re-surfaced in the UI on every new turn.
-        """
+        """Messages in a chunk that contains RemoveMessage must not be rendered."""
         from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
         from langgraph.graph.message import REMOVE_ALL_MESSAGES
         from cli.utilities.streaming import iter_agent_turn
@@ -338,8 +333,6 @@ class StreamingTests(TestCase):
         restored_tool = ToolMessage(content="on branch main", tool_call_id="old-call", id="restored-tool")
         new_ai = AIMessage(content="all done", id="new-ai")
 
-        # Simulate two update chunks: first is the state-reset (history injection),
-        # second contains the newly produced message.
         stream = iter([
             ("updates", {"session_load": {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), restored_ai, restored_tool]}}),
             ("updates", {"agent": {"messages": [new_ai]}}),
@@ -352,20 +345,18 @@ class StreamingTests(TestCase):
             lambda kind, payload: events.append((kind, payload)),
         )
 
-        # Only the new AI message should be surfaced — no tool events from history
         tool_events = [e for e in events if e[0] in {"tool", "tool_output"}]
         self.assertEqual(tool_events, [], "restored tool calls must not be rendered in the UI")
         self.assertEqual(result, "all done")
 
     def test_iter_agent_turn_registers_restored_ids_to_prevent_double_render(self) -> None:
-        """IDs of restored messages are primed in seen_message_ids so they are
-        not rendered even if LangGraph emits them again in a subsequent chunk."""
+        """IDs of restored messages are primed so they are not rendered again."""
         from langchain_core.messages import AIMessage, RemoveMessage
         from langgraph.graph.message import REMOVE_ALL_MESSAGES
         from cli.utilities.streaming import iter_agent_turn
 
         restored_ai = AIMessage(content="old reply", id="shared-id")
-        new_ai = AIMessage(content="new reply", id="shared-id")  # same ID, different chunk
+        new_ai = AIMessage(content="new reply", id="shared-id")
 
         stream = iter([
             ("updates", {"session_load": {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), restored_ai]}}),
@@ -379,6 +370,38 @@ class StreamingTests(TestCase):
             lambda kind, payload: events.append((kind, payload)),
         )
 
-        # The shared ID was primed during the skip, so the second occurrence is
-        # also suppressed — result is empty string (no unrestored text).
         self.assertEqual(result, "")
+
+    def test_iter_agent_turn_propagates_cancellation_interrupt(self) -> None:
+        """CancellationInterrupt raised by middleware propagates through iter_agent_turn."""
+        from langchain_core.messages import AIMessage
+        from core.live_steering import CancellationInterrupt
+        from cli.utilities.streaming import iter_agent_turn
+
+        def _stream_raising(self, inputs, **kwargs):
+            yield ("updates", {"agent": {"messages": [AIMessage(content="partial", id="m1")]}})
+            raise CancellationInterrupt()
+
+        with self.assertRaises(CancellationInterrupt):
+            iter_agent_turn(
+                type("FakeAgent", (), {"stream": _stream_raising})(),
+                "go",
+                lambda kind, payload: None,
+            )
+
+    def test_iter_agent_turn_without_cancel_event_completes_normally(self) -> None:
+        """When no cancel_event is passed the full stream is consumed."""
+        from langchain_core.messages import AIMessage
+        from cli.utilities.streaming import iter_agent_turn
+
+        stream = iter([
+            ("updates", {"agent": {"messages": [AIMessage(content="done", id="m1")]}}),
+        ])
+
+        result = iter_agent_turn(
+            type("FakeAgent", (), {"stream": lambda self, inputs, stream_mode: stream})(),
+            "hi",
+            lambda kind, payload: None,
+        )
+
+        self.assertEqual(result, "done")
