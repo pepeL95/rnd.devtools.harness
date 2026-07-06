@@ -39,7 +39,10 @@ class SystemPromptMiddleware(AgentMiddleware):
         if home_path.exists():
             return home_path.read_text(encoding="utf-8").strip()
             
-        return ""
+        raise FileNotFoundError(
+            "No system prompt found. Please provide a prompt, prompt_path, or ensure "
+            ".quasipilot/SYSTEM.md exists in the current working or home directory."
+        )
 
     def wrap_model_call(
         self,
