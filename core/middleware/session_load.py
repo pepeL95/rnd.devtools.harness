@@ -23,12 +23,6 @@ class SessionLoadMiddleware(AgentMiddleware):
         self._session_dump = session_dump
 
     def before_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
-        if self._session_dump is not None and self._session_dump.is_interrupted:
-            # Re-entering after a live-steering interrupt: LangGraph state already
-            # contains the full message history from the interrupted run, including
-            # tool calls and results. Restoring curated history would wipe that
-            # context and cause the agent to redo already-completed work.
-            return None
         restored = self.manager.load_curated_messages()
         if not restored:
             return None

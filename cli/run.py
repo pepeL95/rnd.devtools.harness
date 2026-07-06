@@ -344,6 +344,15 @@ class QuasipilotApp(App[None]):
         self._show_spinner()
         self.run_turn(text)
 
+    def _resume_interrupted_turn(self, steering: str) -> None:
+        self._mount_chat(UserBubble(steering))
+        self._agent_active = True
+        self._cancellation_pending = False
+        self._cancel_event.clear()
+        self._set_busy(True, disable_input=False)
+        self._show_spinner()
+        self.run_turn(None)
+
     def action_cancel_turn(self) -> None:
         if self._agent_active and not self._cancellation_pending:
             self._cancellation_pending = True
@@ -352,7 +361,7 @@ class QuasipilotApp(App[None]):
             self.notify("cancelling…", timeout=2, markup=False)
 
     @work(thread=True, exclusive=True)
-    def run_turn(self, text: str) -> None:
+    def run_turn(self, text: str | None) -> None:
         error: str | None = None
         assistant_text = ""
         steering: str | None = None
@@ -413,11 +422,10 @@ class QuasipilotApp(App[None]):
             self._mount_chat_batch(Divider(), AIBubble(text))
         next_steering = interrupted_steering or self._live_steering.drain()
         if next_steering:
-            # Re-enter the agent as a continuation of the same turn.  The
-            # session middleware already recorded the steering as a USER event
-            # on the active turn, so we pass the raw text here — the agent's
-            # context is built from the session transcript, not this string.
-            self._start_agent_turn(next_steering)
+            # Re-enter the same logical turn from the restored transcript. The
+            # steering message is already persisted on the active turn, so we
+            # resume without injecting a second HumanMessage into agent state.
+            self._resume_interrupted_turn(next_steering)
             return
         self._agent_active = False
         self._hide_spinner()

@@ -14,12 +14,12 @@ StreamCallback = Callable[[str, dict[str, Any]], None]
 
 def iter_agent_turn(
     agent: Any,
-    user_text: str,
+    user_text: str | None,
     on_event: StreamCallback,
 ) -> str:
     """Stream a single user turn and return the final assistant text."""
 
-    inputs = {"messages": [HumanMessage(content=user_text)]}
+    inputs = {"messages": [HumanMessage(content=user_text)]} if user_text is not None else {"messages": []}
     assistant_text = ""
     seen_message_ids: set[str] = set()
     pending_tools: dict[str, tuple[str, str]] = {}

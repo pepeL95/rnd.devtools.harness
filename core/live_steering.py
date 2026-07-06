@@ -38,8 +38,11 @@ class LiveSteeringController:
 
 
 STEERING_INTROSPECTION = (
-    "The user has redirected me. I will carry forward everything I have learned so far "
-    "and adjust my approach — no need to start over."
+    "The user has interrupted me with new guidance. I should first decide whether they are "
+    "replacing the task or steering the current one. Unless they clearly abandoned the "
+    "original task, I should preserve it and treat the new message as refinement or "
+    "constraint. I should keep both the original objective and the new guidance in mind, "
+    "carry forward useful work, and continue without restarting unnecessarily."
 )
 
 

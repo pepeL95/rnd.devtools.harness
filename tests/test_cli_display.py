@@ -250,11 +250,11 @@ class ChatInputTests(TestCase):
         self.assertEqual(queued, ["change direction"])
         self.assertEqual(notifications, ["steering queued"])
 
-    def test_interrupted_turn_restarts_with_raw_steering_text(self) -> None:
+    def test_interrupted_turn_restarts_from_restored_transcript(self) -> None:
         app = QuasipilotApp()
         started: list[str] = []
         focused: list[bool] = []
-        app._start_agent_turn = started.append  # type: ignore[method-assign]
+        app._resume_interrupted_turn = started.append  # type: ignore[method-assign]
         app.query_one = lambda *_args, **_kwargs: type("FocusStub", (), {"focus": lambda self: focused.append(True)})()  # type: ignore[method-assign]
         app._mount_chat_batch = lambda *widgets: None  # type: ignore[method-assign]
 

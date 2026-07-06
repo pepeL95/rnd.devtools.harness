@@ -116,8 +116,8 @@ class SessionIOTests(TestCase):
             self.assertIsInstance(messages[3], ToolMessage)
             self.assertEqual(messages[3].tool_call_id, "call-b")
 
-    def test_load_curated_messages_skips_live_steering_reasoning(self) -> None:
-        """REASONING events with reasoning_format=live_steering are not fed back to the model."""
+    def test_load_curated_messages_restores_live_steering_reasoning(self) -> None:
+        """Live steering introspection is restored as thinking content."""
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append(
@@ -126,7 +126,19 @@ class SessionIOTests(TestCase):
                     SessionEvent(
                         type=EventType.REASONING,
                         turn=1,
-                        payload={"role": "assistant", "content": "The user has redirected me.", "reasoning_format": "live_steering", "signature": None, "index": 0},
+                        payload={
+                            "role": "assistant",
+                            "content": (
+                                "The user has interrupted me with new guidance. I should first decide whether "
+                                "they are replacing the task or steering the current one. Unless they clearly "
+                                "abandoned the original task, I should preserve it and treat the new message "
+                                "as refinement or constraint. I should keep both the original objective and the "
+                                "new guidance in mind, carry forward useful work, and continue without restarting unnecessarily."
+                            ),
+                            "reasoning_format": "live_steering",
+                            "signature": None,
+                            "index": 0,
+                        },
                     ),
                     SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "ok"}),
                 ]
@@ -134,14 +146,29 @@ class SessionIOTests(TestCase):
 
             messages = manager.load_curated_messages()
 
-            # live_steering reasoning must be skipped; only HumanMessage + AIMessage remain
-            self.assertEqual(len(messages), 2)
+            self.assertEqual(len(messages), 3)
             self.assertIsInstance(messages[0], HumanMessage)
             self.assertIsInstance(messages[1], AIMessage)
-            self.assertEqual(messages[1].content, "ok")
+            self.assertEqual(
+                messages[1].content,
+                [
+                    {
+                        "type": "thinking",
+                        "thinking": (
+                            "The user has interrupted me with new guidance. I should first decide whether "
+                            "they are replacing the task or steering the current one. Unless they clearly "
+                            "abandoned the original task, I should preserve it and treat the new message "
+                            "as refinement or constraint. I should keep both the original objective and the "
+                            "new guidance in mind, carry forward useful work, and continue without restarting unnecessarily."
+                        ),
+                    }
+                ],
+            )
+            self.assertIsInstance(messages[2], AIMessage)
+            self.assertEqual(messages[2].content, "ok")
 
-    def test_load_curated_messages_skips_cancellation_reasoning(self) -> None:
-        """Cancellation introspection is session metadata and must not be replayed into the next turn."""
+    def test_load_curated_messages_restores_cancellation_reasoning(self) -> None:
+        """Cancellation introspection is restored as thinking content."""
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append(
@@ -164,10 +191,15 @@ class SessionIOTests(TestCase):
 
             messages = manager.load_curated_messages()
 
-            self.assertEqual(len(messages), 2)
+            self.assertEqual(len(messages), 3)
             self.assertIsInstance(messages[0], HumanMessage)
             self.assertIsInstance(messages[1], AIMessage)
-            self.assertEqual(messages[1].content, "ok")
+            self.assertEqual(
+                messages[1].content,
+                [{"type": "thinking", "thinking": "The user cancelled this task mid-execution."}],
+            )
+            self.assertIsInstance(messages[2], AIMessage)
+            self.assertEqual(messages[2].content, "ok")
 
     def test_load_curated_messages_marks_memory_restore_messages(self) -> None:
         with TemporaryDirectory() as directory:

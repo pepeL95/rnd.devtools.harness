@@ -288,7 +288,7 @@ class MiddlewareTests(TestCase):
             restored_contents = [getattr(message, "content", None) for message in update["messages"]]
             self.assertIn("prior", restored_contents)
 
-    def test_session_load_skips_restoration_on_interrupted_reentry(self) -> None:
+    def test_session_load_restores_curated_history_on_interrupted_reentry(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
             manager.append([SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "prior"})])
@@ -298,10 +298,12 @@ class MiddlewareTests(TestCase):
             # Simulate an interrupted state
             dump_middleware._interrupted = True
 
-            # before_agent must return None — LangGraph state is preserved as-is
             update = load_middleware.before_agent({"messages": []}, runtime=None)
 
-            self.assertIsNone(update, "SessionLoadMiddleware must not overwrite state on interrupted re-entry")
+            self.assertIsNotNone(update)
+            assert update is not None
+            restored_contents = [getattr(message, "content", None) for message in update["messages"]]
+            self.assertIn("prior", restored_contents)
 
     def test_session_dump_does_not_reappend_restored_assistant_text_on_later_turns(self) -> None:
         with TemporaryDirectory() as directory:
