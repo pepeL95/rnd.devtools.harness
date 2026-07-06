@@ -18,6 +18,7 @@ MAKE_FILE_TOOL_DESCRIPTION = """Creates a new file in the filesystem with the pr
 
 Usage:
 - Use `make_file` only when creating a new file at a new path.
+- Provide the full initial file contents.
 - Never use `make_file` to modify an existing file. If the path already exists, use `read_file` and then `edit_file`.
 - Prefer `edit_file` for changes to existing files.
 """

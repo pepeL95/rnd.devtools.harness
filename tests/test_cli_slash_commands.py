@@ -1,7 +1,8 @@
 from unittest import TestCase
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from cli.slash_commands.registry import SlashCommandRegistry
+from core.session.events import EventType
 
 
 class SlashCommandRegistryTests(TestCase):
@@ -56,3 +57,26 @@ class SlashCommandRegistryTests(TestCase):
 
         self.assertFalse(should_exit)
         app.notify_warning.assert_called_once_with("usage: /python /absolute/path/to/python")
+
+    @patch("cli.slash_commands.copy.subprocess.run")
+    def test_copy_copies_last_agent_message(self, mock_run: MagicMock) -> None:
+        registry = SlashCommandRegistry()
+        app = MagicMock()
+        
+        class MockEvent:
+            def __init__(self, type, payload):
+                self.type = type
+                self.payload = payload
+        
+        event = MockEvent(EventType.ASSISTANT, {"content": "hello world"})
+        
+        app.manager.read_display_history.return_value = [event]
+
+        should_exit = registry.dispatch(app, "/copy")
+
+        self.assertFalse(should_exit)
+        mock_run.assert_called_once()
+        args, kwargs = mock_run.call_args
+        self.assertEqual(args[0][0], "pbcopy")
+        self.assertEqual(kwargs["input"], b"hello world")
+        app.notify.assert_called_once_with("Copied latest agent message to clipboard.")
