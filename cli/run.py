@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from threading import Event
 
@@ -21,6 +22,7 @@ from cli.components import (
     UserBubble,
     WorkingSpinner,
     Divider,
+    System,
 )
 from cli.slash_commands.registry import SlashCommandRegistry
 from cli.utilities.display import content_to_plaintext
@@ -397,7 +399,7 @@ class QuasipilotApp(App[None]):
         if error:
             self._mount_chat_batch(Divider(), AIBubble(f"error: {error}"))
         elif cancelled:
-            self._mount_chat_batch(Divider(), Static("Canceled Request", classes="canceled-message"), Divider())
+            self._mount_chat_batch(System("Canceled Request"))
         elif text:
             self._mount_chat_batch(Divider(), AIBubble(text))
         next_steering = interrupted_steering or self._live_steering.drain()
