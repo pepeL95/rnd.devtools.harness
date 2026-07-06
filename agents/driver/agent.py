@@ -8,7 +8,6 @@ from typing import Any, Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from agents.driver.prompt import DRIVER_SYSTEM_PROMPT
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
@@ -86,7 +85,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
         CompactionMiddleware(session_compaction_coordinator),
         SessionLoadMiddleware(manager, session_dump=session_dump),
-        SystemPromptMiddleware(prompt=DRIVER_SYSTEM_PROMPT),
+        SystemPromptMiddleware(cwd=cwd),
         SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         HarnessFilesystemMiddleware(backend=backend),
