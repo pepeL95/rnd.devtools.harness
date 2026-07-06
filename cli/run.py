@@ -110,6 +110,7 @@ class QuasipilotApp(App[None]):
         self._compaction_active = False
         self._live_steering = LiveSteeringController()
         self._cancel_event = Event()
+        self._cancellation_pending = False
         self._tool_streams: dict[str, ToolStream] = {}
 
     @property
@@ -137,6 +138,7 @@ class QuasipilotApp(App[None]):
         self._agent = None
         self._live_steering = LiveSteeringController()
         self._cancel_event = Event()
+        self._cancellation_pending = False
         self._tool_streams = {}
         self._compaction_coordinator = None
         self._compaction_active = False
@@ -146,6 +148,7 @@ class QuasipilotApp(App[None]):
     def load_session(self, session_id: str) -> None:
         self.session_id = session_id
         self._live_steering = LiveSteeringController()
+        self._cancellation_pending = False
         self._tool_streams = {}
         self._manager = SessionManager(session_id=session_id)
         self._restore_runtime_from_session(self._manager)
@@ -313,7 +316,9 @@ class QuasipilotApp(App[None]):
             return
 
         if self._busy:
-            if self._agent_active:
+            if self._cancellation_pending:
+                self.notify_warning("cancellation in progress")
+            elif self._agent_active:
                 self._live_steering.submit(text)
                 self.notify("steering queued", timeout=2, markup=False)
             else:
@@ -333,14 +338,17 @@ class QuasipilotApp(App[None]):
     def _start_agent_turn(self, text: str) -> None:
         self._mount_chat(UserBubble(text))
         self._agent_active = True
+        self._cancellation_pending = False
         self._cancel_event.clear()
         self._set_busy(True, disable_input=False)
         self._show_spinner()
         self.run_turn(text)
 
     def action_cancel_turn(self) -> None:
-        if self._agent_active:
+        if self._agent_active and not self._cancellation_pending:
+            self._cancellation_pending = True
             self._cancel_event.set()
+            self._set_busy(True, disable_input=True)
             self.notify("cancelling…", timeout=2, markup=False)
 
     @work(thread=True, exclusive=True)
@@ -396,6 +404,7 @@ class QuasipilotApp(App[None]):
         self.call_after_refresh(self._finish_agent_turn, event.text, event.error, event.steering, event.cancelled)
 
     def _finish_agent_turn(self, text: str, error: str | None, interrupted_steering: str | None = None, cancelled: bool = False) -> None:
+        self._cancellation_pending = False
         if error:
             self._mount_chat_batch(Divider(), AIBubble(f"error: {error}"))
         elif cancelled:

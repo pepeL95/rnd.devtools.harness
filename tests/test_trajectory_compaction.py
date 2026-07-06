@@ -218,6 +218,61 @@ class TrajectoryCompactionTests(TestCase):
             any(item.type == EventType.REASONING and item.turn == 8 and item.payload.get("kind") != "trajectory_memory" for item in result.events)
         )
 
+    def test_compactor_compacts_cancelled_turn_and_inserts_memory_before_turn_end(self) -> None:
+        policy, _ = scripted_trajectory_policy(
+            '{"turns":[{"turn":1,"synthesis":"High-signal summary for turn 1.","live_edge":"Next edge 1."},{"turn":2,"synthesis":"High-signal summary for turn 2.","live_edge":"Next edge 2."}]}'
+        )
+        compactor = TrajectoryCompactor(policy=policy)
+        events = [
+            event(1, EventType.USER, "user 1", role="user"),
+            event(1, EventType.REASONING, "reasoning 1"),
+            event(1, EventType.ASSISTANT, "assistant 1", role="assistant"),
+            event(2, EventType.USER, "user 2", role="user"),
+            event(2, EventType.REASONING, "reasoning 2"),
+            SessionEvent(type=EventType.TURN_END, turn=2, payload={"status": "cancelled"}),
+            event(3, EventType.USER, "user 3", role="user"),
+            event(3, EventType.REASONING, "reasoning 3"),
+            event(3, EventType.ASSISTANT, "assistant 3", role="assistant"),
+            event(4, EventType.USER, "user 4", role="user"),
+            event(4, EventType.REASONING, "reasoning 4"),
+            event(4, EventType.ASSISTANT, "assistant 4", role="assistant"),
+        ]
+
+        result = compactor.compact(events)
+
+        self.assertEqual(result.compacted_turns, [1, 2])
+        turn_two_events = [item for item in result.events if item.turn == 2]
+        memory_index = next(index for index, item in enumerate(turn_two_events) if item.payload.get("kind") == "trajectory_memory")
+        turn_end_index = next(index for index, item in enumerate(turn_two_events) if item.type == EventType.TURN_END)
+        self.assertLess(memory_index, turn_end_index)
+
+    def test_compactor_inserts_memory_before_turn_end_when_no_assistant_exists(self) -> None:
+        policy, _ = scripted_trajectory_policy(
+            '{"turns":[{"turn":1,"synthesis":"High-signal summary for turn 1.","live_edge":"Next edge 1."},{"turn":2,"synthesis":"High-signal summary for turn 2.","live_edge":"Next edge 2."}]}'
+        )
+        compactor = TrajectoryCompactor(policy=policy)
+        events = [
+            event(1, EventType.USER, "user 1", role="user"),
+            event(1, EventType.REASONING, "reasoning 1"),
+            SessionEvent(type=EventType.TURN_END, turn=1, payload={}),
+            event(2, EventType.USER, "user 2", role="user"),
+            event(2, EventType.REASONING, "reasoning 2"),
+            event(2, EventType.ASSISTANT, "assistant 2", role="assistant"),
+            event(3, EventType.USER, "user 3", role="user"),
+            event(3, EventType.REASONING, "reasoning 3"),
+            event(3, EventType.ASSISTANT, "assistant 3", role="assistant"),
+            event(4, EventType.USER, "user 4", role="user"),
+            event(4, EventType.REASONING, "reasoning 4"),
+            event(4, EventType.ASSISTANT, "assistant 4", role="assistant"),
+        ]
+
+        result = compactor.compact(events)
+
+        turn_one_events = [item for item in result.events if item.turn == 1]
+        memory_index = next(index for index, item in enumerate(turn_one_events) if item.payload.get("kind") == "trajectory_memory")
+        turn_end_index = next(index for index, item in enumerate(turn_one_events) if item.type == EventType.TURN_END)
+        self.assertLess(memory_index, turn_end_index)
+
     def test_coordinator_merges_new_turns_after_background_compaction(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

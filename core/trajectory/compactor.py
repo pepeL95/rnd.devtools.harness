@@ -165,8 +165,8 @@ def _rewrite_events(
     compacted_turn_set = set(compacted_turns)
     rewritten: list[SessionEvent] = []
     inserted_turns: set[int] = set()
-    last_index_by_turn = {
-        turn: max(index for index, event in enumerate(events) if event.turn == turn)
+    fallback_insert_index_by_turn = {
+        turn: _fallback_insert_index(events, turn)
         for turn in compacted_turns
     }
     for index, event in enumerate(events):
@@ -178,10 +178,14 @@ def _rewrite_events(
                 and event.type == EventType.ASSISTANT
                 and event.turn not in inserted_turns
             ):
-                rewritten.append(memory_events[event.turn])
-                inserted_turns.add(event.turn)
+                    rewritten.append(memory_events[event.turn])
+                    inserted_turns.add(event.turn)
             rewritten.append(event)
-        if event.turn in compacted_turn_set and index == last_index_by_turn[event.turn] and event.turn not in inserted_turns:
+        if (
+            event.turn in compacted_turn_set
+            and index == fallback_insert_index_by_turn[event.turn]
+            and event.turn not in inserted_turns
+        ):
             rewritten.append(memory_events[event.turn])
             inserted_turns.add(event.turn)
     return rewritten
@@ -222,6 +226,14 @@ def _is_compacted_turn_event(event: SessionEvent, all_events: list[SessionEvent]
     turn_events = [item for item in all_events if item.turn == event.turn]
     compacted_ids = {item.id for item in _compacted_source_events(turn_events)}
     return event.id in compacted_ids
+def _fallback_insert_index(events: list[SessionEvent], turn: int) -> int:
+    turn_indexes = [index for index, event in enumerate(events) if event.turn == turn]
+    if not turn_indexes:
+        raise ValueError(f"turn {turn} has no events")
+    for index in turn_indexes:
+        if events[index].type == EventType.TURN_END:
+            return index - 1 if index > turn_indexes[0] else index
+    return turn_indexes[-1]
 
 
 def _invoke_text(

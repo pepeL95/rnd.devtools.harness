@@ -140,6 +140,35 @@ class SessionIOTests(TestCase):
             self.assertIsInstance(messages[1], AIMessage)
             self.assertEqual(messages[1].content, "ok")
 
+    def test_load_curated_messages_skips_cancellation_reasoning(self) -> None:
+        """Cancellation introspection is session metadata and must not be replayed into the next turn."""
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "do something"}),
+                    SessionEvent(
+                        type=EventType.REASONING,
+                        turn=1,
+                        payload={
+                            "role": "assistant",
+                            "content": "The user cancelled this task mid-execution.",
+                            "reasoning_format": "cancellation",
+                            "signature": None,
+                            "index": 0,
+                        },
+                    ),
+                    SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "ok"}),
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            self.assertEqual(len(messages), 2)
+            self.assertIsInstance(messages[0], HumanMessage)
+            self.assertIsInstance(messages[1], AIMessage)
+            self.assertEqual(messages[1].content, "ok")
+
     def test_load_curated_messages_marks_memory_restore_messages(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

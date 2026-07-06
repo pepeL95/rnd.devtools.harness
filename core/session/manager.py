@@ -248,7 +248,7 @@ def _reconstruct_agent_messages(events: list[SessionEvent]) -> list[BaseMessage]
         elif event.type == EventType.REASONING:
             # Skip middleware-injected steering introspections — they are session
             # metadata, not model-generated thinking blocks.
-            if event.payload.get("reasoning_format") == "live_steering":
+            if event.payload.get("reasoning_format") in {"live_steering", "cancellation"}:
                 continue
             text = str(event.payload.get("content") or "").strip()
             if not text:

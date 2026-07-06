@@ -263,6 +263,23 @@ class ChatInputTests(TestCase):
         self.assertEqual(started, ["tighten scope"])
         self.assertEqual(focused, [])
 
+    def test_busy_agent_submission_is_blocked_while_cancellation_pending(self) -> None:
+        queued: list[str] = []
+        warnings: list[str] = []
+
+        app = QuasipilotApp()
+        app._busy = True
+        app._agent_active = True
+        app._cancellation_pending = True
+        app._live_steering.submit = queued.append  # type: ignore[method-assign]
+        app.notify_warning = warnings.append  # type: ignore[method-assign]
+
+        event = ChatInput.Submitted(type("StubInput", (), {"load_text": lambda self, _: None})(), "change direction")
+        app.on_chat_input_submitted(event)
+
+        self.assertEqual(queued, [])
+        self.assertEqual(warnings, ["cancellation in progress"])
+
 
 class RuntimeBarTests(TestCase):
     def test_update_runtime_renders_curated_path_when_session_active(self) -> None:
