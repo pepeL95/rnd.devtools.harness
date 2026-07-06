@@ -291,6 +291,17 @@ class SessionIOTests(TestCase):
             self.assertEqual(events[0].payload["tool_call_id"], "call-1")
             self.assertEqual(events[1].payload["content"], "Reading the file now.")
 
+    def test_events_from_messages_preserves_tool_message_tool_call_id(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            message = ToolMessage(content="on branch main", tool_call_id="call-1")
+
+            events = manager.events_from_messages([message], turn=2)
+
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].type, EventType.TOOL_OUTPUT)
+            self.assertEqual(events[0].payload["tool_call_id"], "call-1")
+
     def test_events_from_messages_does_not_duplicate_reasoning_inside_assistant_payload(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
@@ -327,6 +338,25 @@ class SessionIOTests(TestCase):
             messages = manager.load_curated_messages()
 
             self.assertEqual(messages[1].content, "hi")
+
+    def test_tool_output_round_trip_preserves_tool_call_id_from_serialized_messages(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            source_messages = [
+                HumanMessage(content="run git status"),
+                AIMessage(content="", tool_calls=[{"name": "execute", "args": {"command": "git status"}, "id": "call-1"}]),
+                ToolMessage(content="on branch main", tool_call_id="call-1"),
+            ]
+
+            events = manager.events_from_messages(source_messages, turn=1)
+            manager.append(events)
+            restored = manager.load_curated_messages()
+
+            self.assertEqual(len(restored), 3)
+            self.assertIsInstance(restored[1], AIMessage)
+            self.assertEqual(restored[1].tool_calls[0]["id"], "call-1")
+            self.assertIsInstance(restored[2], ToolMessage)
+            self.assertEqual(restored[2].tool_call_id, "call-1")
 
     def test_apply_compaction_result_preserves_newer_turns(self) -> None:
         with TemporaryDirectory() as directory:

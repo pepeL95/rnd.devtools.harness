@@ -173,6 +173,7 @@ class SessionManager:
                     payload={
                         "role": role,
                         "content": getattr(message, "content", message),
+                        "tool_call_id": getattr(message, "tool_call_id", None),
                         "message_type": message_type,
                     },
                 )
