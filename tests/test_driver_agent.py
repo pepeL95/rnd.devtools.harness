@@ -84,6 +84,28 @@ class DriverAgentTests(TestCase):
             runtime = next(item for item in captured if type(item).__name__ == "RuntimeContextMiddleware")
             self.assertEqual(runtime.python_interpreter, interpreter.resolve())
 
+    def test_driver_agent_places_trajectory_compaction_before_session_load(self) -> None:
+        with TemporaryDirectory() as directory:
+            cwd = Path(directory)
+            captured: list[object] = []
+
+            class FakeFilesystemMiddleware:
+                def __init__(self, **_: object) -> None:
+                    pass
+
+            def fake_create_agent(*, model: object, tools: list[object], middleware: list[object]) -> object:
+                captured.extend(middleware)
+                return object()
+
+            with patch("langchain.agents.create_agent", side_effect=fake_create_agent), patch(
+                "agents.driver.agent.HarnessFilesystemMiddleware",
+                FakeFilesystemMiddleware,
+            ):
+                create_driver_agent(DriverAgentConfig(cwd=cwd, session_id="test-session"))
+
+            names = [type(item).__name__ for item in captured]
+            self.assertLess(names.index("TrajectoryCompactionMiddleware"), names.index("SessionLoadMiddleware"))
+
     def test_default_driver_model_uses_reasoning_profile(self) -> None:
         model = get_default_driver_model()
 

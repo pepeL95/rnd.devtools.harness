@@ -105,9 +105,9 @@ class TrajectoryCompactor:
     def _compactable_turns(self, events: list[SessionEvent]) -> list[int]:
         turns = sorted({event.turn for event in events})
         window_size = self.policy.trigger_every_turns
-        if len(turns) < window_size * 2:
+        if len(turns) < window_size:
             return []
-        candidate_turns = turns[-(window_size * 2) : -window_size]
+        candidate_turns = turns[-window_size:]
         turns_with_internal_events: list[int] = []
         for turn in candidate_turns:
             turn_events = [event for event in events if event.turn == turn]

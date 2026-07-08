@@ -351,9 +351,9 @@ class MiddlewareTests(TestCase):
             manager.append(
                 [
                     SessionEvent(
-                        type=EventType.USER,
+                        type=EventType.REASONING,
                         turn=1,
-                        payload={"role": "user", "content": "[TRAJECTORY MEMORY]\n...", "kind": "trajectory_memory"},
+                        payload={"role": "assistant", "content": "[TRAJECTORY MEMORY]\n...", "kind": "trajectory_memory"},
                     )
                 ]
             )

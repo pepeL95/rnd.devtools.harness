@@ -250,6 +250,15 @@ def _reconstruct_agent_messages(events: list[SessionEvent]) -> list[BaseMessage]
             text = str(event.payload.get("content") or "").strip()
             if not text:
                 continue
+            if event.payload.get("kind") == "trajectory_memory":
+                flush_pending_tool_calls()
+                messages.append(
+                    AIMessage(
+                        content=[{"type": "thinking", "thinking": text}],
+                        additional_kwargs=_message_additional_kwargs(event),
+                    )
+                )
+                continue
             if pending_tool_calls:
                 # Attach to the pending tool-call AIMessage.
                 pending_thinking.append({"thinking": text})

@@ -78,12 +78,14 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         # first-to-last, after_* hooks last-to-first, and wrap hooks as nested
         # wrappers. Telemetry is outermost; the curated-session rewrite middlewares
         # run after SessionDump so they compact a completed turn from a stable
-        # snapshot. Trajectory compaction is placed closer to SessionLoad so its
-        # after_agent hook runs before the broader compaction middleware.
+        # snapshot. Trajectory compaction runs before session restore so any
+        # completed pending syntheses are applied before curated history is
+        # reconstructed for the next model invocation.
         # Source: https://docs.langchain.com/oss/python/langchain/middleware/custom
         TelemetryMiddleware(telemetry_store),
         ReasoningMiddleware(eagerness=config.reasoning_eagerness),
         CompactionMiddleware(session_compaction_coordinator),
+        TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
         SessionLoadMiddleware(manager, session_dump=session_dump),
         SystemPromptMiddleware(cwd=cwd),
         SkillsMiddleware(cwd=cwd),
@@ -92,7 +94,6 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         session_dump,
         LiveSteeringMiddleware(live_steering_controller),
         *([CancellationMiddleware(config.cancel_event)] if config.cancel_event is not None else []),
-        TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
     ]
     return create_agent(
         model=config.model,

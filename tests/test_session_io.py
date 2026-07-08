@@ -218,6 +218,23 @@ class SessionIOTests(TestCase):
 
             self.assertEqual(messages[0].additional_kwargs.get("session_kind"), "memory_restore")
 
+    def test_load_curated_messages_marks_trajectory_memory_messages(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.REASONING,
+                        turn=1,
+                        payload={"role": "assistant", "content": "[TRAJECTORY MEMORY]\n...", "kind": "trajectory_memory"},
+                    )
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            self.assertEqual(messages[0].additional_kwargs.get("session_kind"), "trajectory_memory")
+
     def test_read_display_history_uses_dump_and_hides_memory_restore(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

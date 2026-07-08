@@ -21,7 +21,7 @@ class TrajectoryCompactionPolicy:
     def compaction_decision(self, turn_count: int, latest_turn: int) -> TrajectoryCompactionDecision:
         if latest_turn <= 0 or turn_count <= 0:
             return TrajectoryCompactionDecision(False)
-        if turn_count < self.trigger_every_turns * 2:
+        if turn_count < self.trigger_every_turns:
             return TrajectoryCompactionDecision(False)
         if latest_turn % self.trigger_every_turns == 0:
             return TrajectoryCompactionDecision(True, "turn_interval")
