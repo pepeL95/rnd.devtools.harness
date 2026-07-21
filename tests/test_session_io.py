@@ -201,6 +201,51 @@ class SessionIOTests(TestCase):
             self.assertIsInstance(messages[2], AIMessage)
             self.assertEqual(messages[2].content, "ok")
 
+    def test_load_curated_messages_restores_interrupted_tool_call_with_terminating_tool_message(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "do something"}),
+                    SessionEvent(
+                        type=EventType.TOOL,
+                        turn=1,
+                        payload={"role": "assistant", "name": "read_file", "args": {"path": "/tmp/x"}, "tool_call_id": "call-1", "index": 0},
+                    ),
+                    SessionEvent(
+                        type=EventType.TOOL_OUTPUT,
+                        turn=1,
+                        payload={"role": "tool", "content": "Tool execution was interrupted before completion due to live steering.", "tool_call_id": "call-1"},
+                    ),
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "change direction", "kind": "live_steering_interrupt"},
+                    ),
+                    SessionEvent(
+                        type=EventType.REASONING,
+                        turn=1,
+                        payload={
+                            "role": "assistant",
+                            "content": "The user has interrupted me with new guidance.",
+                            "reasoning_format": "live_steering",
+                            "signature": None,
+                            "index": 0,
+                        },
+                    ),
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            self.assertEqual(len(messages), 5)
+            self.assertIsInstance(messages[1], AIMessage)
+            self.assertEqual(messages[1].tool_calls[0]["id"], "call-1")
+            self.assertIsInstance(messages[2], ToolMessage)
+            self.assertEqual(messages[2].tool_call_id, "call-1")
+            self.assertEqual(messages[3].content, "change direction")
+            self.assertIsInstance(messages[4], AIMessage)
+
     def test_load_curated_messages_marks_memory_restore_messages(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

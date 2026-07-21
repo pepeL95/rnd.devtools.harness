@@ -66,10 +66,15 @@ class SessionDumpMiddleware(AgentMiddleware):
         try:
             result = handler(request)
         except CancellationInterrupt:
-            self._record_cancellation()
+            tool_call = getattr(request, "tool_call", None) or {}
+            self._record_cancellation(tool_call)
             raise
         except LiveSteeringInterrupt as exc:
-            self._record_interrupt("live_steering_interrupt", {"steering": exc.steering})
+            tool_call = getattr(request, "tool_call", None) or {}
+            self._record_interrupt(
+                "live_steering_interrupt",
+                {"steering": exc.steering, "tool_call_id": tool_call.get("id"), "tool_name": tool_call.get("name")},
+            )
             raise
         except Exception as exc:
             tool_call = getattr(request, "tool_call", None) or {}
@@ -135,26 +140,20 @@ class SessionDumpMiddleware(AgentMiddleware):
         )
         self._active_turn = None
 
-    def _record_cancellation(self) -> None:
+    def _record_cancellation(self, tool_call: dict[str, Any] | None = None) -> None:
         turn = self._active_turn
         if turn is None:
             return
-        event = SessionEvent(
-            type=EventType.REASONING,
+        events = _termination_events(
             turn=turn,
-            payload={
-                "role": "assistant",
-                "content": format_cancellation_introspection(),
-                "reasoning_format": "cancellation",
-                "signature": None,
-                "index": 0,
-            },
+            reasoning_content=format_cancellation_introspection(),
+            reasoning_format="cancellation",
+            tool_call=tool_call,
+            tool_message_content="Tool execution was cancelled before completion.",
         )
-        self._seen_event_keys.add(self._event_key(event))
-        self.manager.append([
-            event,
-            SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "cancelled"}),
-        ])
+        for event in events:
+            self._seen_event_keys.add(self._event_key(event))
+        self.manager.append([*events, SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "cancelled"})])
         self._active_turn = None
 
     def _record_interrupt(self, kind: str, payload: dict[str, Any]) -> None:
@@ -162,27 +161,21 @@ class SessionDumpMiddleware(AgentMiddleware):
         if turn is None:
             return
         steering = payload.get("steering", "")
-        user_event = SessionEvent(
-            type=EventType.USER,
+        tool_call = {"id": payload.get("tool_call_id"), "name": payload.get("tool_name")}
+        events = _termination_events(
             turn=turn,
-            payload={"role": "user", "content": steering, "kind": kind},
-        )
-        reasoning_event = SessionEvent(
-            type=EventType.REASONING,
-            turn=turn,
-            payload={
-                "role": "assistant",
-                "content": format_steering_introspection(steering),
-                "reasoning_format": "live_steering",
-                "signature": None,
-                "index": 0,
-            },
+            reasoning_content=format_steering_introspection(steering),
+            reasoning_format="live_steering",
+            tool_call=tool_call,
+            tool_message_content="Tool execution was interrupted before completion due to live steering.",
+            steering=steering,
+            steering_kind=kind,
         )
         # Register both events before writing so _dump_new_messages on re-entry
         # doesn't see the steering message in LangGraph state and write it again.
-        self._seen_event_keys.add(self._event_key(user_event))
-        self._seen_event_keys.add(self._event_key(reasoning_event))
-        self.manager.append([user_event, reasoning_event])
+        for event in events:
+            self._seen_event_keys.add(self._event_key(event))
+        self.manager.append(events)
         # Turn stays open; _active_turn is preserved for re-entry via before_agent.
         self._interrupted = True
 
@@ -228,3 +221,53 @@ def _tool_result_messages(result: Any) -> list[Any]:
 
 def _is_message_like(value: Any) -> bool:
     return hasattr(value, "content") or hasattr(value, "tool_call_id")
+
+
+def _termination_events(
+    *,
+    turn: int,
+    reasoning_content: str,
+    reasoning_format: str,
+    tool_call: dict[str, Any] | None = None,
+    tool_message_content: str,
+    steering: str | None = None,
+    steering_kind: str | None = None,
+) -> list[SessionEvent]:
+    events: list[SessionEvent] = []
+    tool_call_id = str((tool_call or {}).get("id") or "").strip()
+    if tool_call_id:
+        events.append(
+            SessionEvent(
+                type=EventType.TOOL_OUTPUT,
+                turn=turn,
+                payload={
+                    "role": "tool",
+                    "content": tool_message_content,
+                    "tool_call_id": tool_call_id,
+                    "name": (tool_call or {}).get("name"),
+                    "status": "interrupted" if steering is not None else "cancelled",
+                },
+            )
+        )
+    if steering is not None:
+        events.append(
+            SessionEvent(
+                type=EventType.USER,
+                turn=turn,
+                payload={"role": "user", "content": steering, "kind": steering_kind},
+            )
+        )
+    events.append(
+        SessionEvent(
+            type=EventType.REASONING,
+            turn=turn,
+            payload={
+                "role": "assistant",
+                "content": reasoning_content,
+                "reasoning_format": reasoning_format,
+                "signature": None,
+                "index": 0,
+            },
+        )
+    )
+    return events

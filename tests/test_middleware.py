@@ -460,6 +460,16 @@ class MiddlewareTests(TestCase):
             # USER event carries the steering text on the same turn
             self.assertTrue(
                 any(
+                    event.type == EventType.TOOL_OUTPUT
+                    and event.turn == turn
+                    and event.payload.get("tool_call_id") == "call-1"
+                    for event in dump
+                ),
+                "expected terminating TOOL_OUTPUT event for interrupted tool call",
+            )
+
+            self.assertTrue(
+                any(
                     event.type == EventType.USER
                     and event.turn == turn
                     and event.payload.get("content") == "change course"
@@ -613,6 +623,15 @@ class MiddlewareTests(TestCase):
 
             dump = manager.read_dump()
 
+            self.assertTrue(
+                any(
+                    event.type == EventType.TOOL_OUTPUT
+                    and event.turn == turn
+                    and event.payload.get("tool_call_id") == "c1"
+                    for event in dump
+                ),
+                "expected terminating TOOL_OUTPUT for cancelled tool call",
+            )
             self.assertTrue(
                 any(
                     event.type == EventType.REASONING
