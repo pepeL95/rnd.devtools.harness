@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from threading import Event
 
@@ -32,9 +32,12 @@ from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.live_steering import CancellationInterrupt, LiveSteeringController, LiveSteeringInterrupt
 from core.session.events import EventType
+from core.session.events import RuntimeSnapshot
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.utilities.defaults import get_default_driver_model, get_model_name
+from core.utilities.git import git_branch, git_dirty
+from core.utilities.workspace import ensure_local_workspace, load_python_interpreter, load_session_id, save_python_interpreter, save_runtime_context
 
 class AgentStream(Message):
     """Worker thread event for live tool/reason updates."""
@@ -97,8 +100,10 @@ class QuasipilotApp(App[None]):
     def __init__(self) -> None:
         super().__init__(ansi_color=True)
         self._cwd = Path.cwd()
+        ensure_local_workspace(self._cwd)
+        self._startup_session_id = load_session_id(self._cwd)
         self._model = get_default_driver_model()
-        self._python_interpreter: Path | None = None
+        self._python_interpreter: Path | None = load_python_interpreter(self._cwd)
         self.session_id: str | None = None
         self._manager: SessionManager | None = None
         self._agent = None
@@ -112,6 +117,10 @@ class QuasipilotApp(App[None]):
         self._cancel_event = Event()
         self._cancellation_pending = False
         self._tool_streams: dict[str, ToolStream] = {}
+        self._pending_session_title: str | None = None
+        self._session_date: str | None = None
+        if self._startup_session_id is None:
+            self._persist_workspace_context()
 
     @property
     def manager(self) -> SessionManager | None:
@@ -127,6 +136,7 @@ class QuasipilotApp(App[None]):
     def on_mount(self) -> None:
         self.screen.styles.background = "transparent"
         self.query_one(ChatInput).focus()
+        self._restore_startup_session()
         self._sync_compaction_ui()
 
     def notify_warning(self, message: str) -> None:
@@ -136,24 +146,32 @@ class QuasipilotApp(App[None]):
         self.session_id = None
         self._manager = None
         self._agent = None
+        self._python_interpreter = load_python_interpreter(self._cwd)
         self._live_steering = LiveSteeringController()
         self._cancel_event = Event()
         self._cancellation_pending = False
         self._tool_streams = {}
+        self._pending_session_title = None
+        self._session_date = None
         self._compaction_coordinator = None
         self._compaction_active = False
+        self._persist_workspace_context()
         self._clear_chat()
         self._sync_compaction_ui()
 
     def load_session(self, session_id: str) -> None:
         self.session_id = session_id
+        self._startup_session_id = None
         self._live_steering = LiveSteeringController()
         self._cancellation_pending = False
         self._tool_streams = {}
         self._manager = SessionManager(session_id=session_id)
-        self._restore_runtime_from_session(self._manager)
+        self._python_interpreter = load_python_interpreter(self._cwd)
         self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
         self._agent = self._build_agent(session_id)
+        self._pending_session_title = None
+        self._session_date = self._loaded_session_date(self._manager)
+        self._persist_workspace_context()
         self._clear_chat()
         self._render_history()
         self._sync_compaction_ui()
@@ -162,8 +180,11 @@ class QuasipilotApp(App[None]):
         if self._manager is None:
             self._manager = SessionManager()
             self.session_id = self._manager.session_id
+            ensure_local_workspace(self._cwd)
             self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
             self._agent = self._build_agent(self.session_id)
+            self._session_date = date.today().isoformat()
+            self._persist_workspace_context()
             self._sync_compaction_ui()
         return self._manager
 
@@ -217,14 +238,55 @@ class QuasipilotApp(App[None]):
         )
 
     def configure_python_interpreter(self, path: str | Path | None) -> None:
-        self._python_interpreter = Path(path).expanduser().resolve() if path else None
+        self._python_interpreter = save_python_interpreter(path, self._cwd) if path else None
+        self._persist_workspace_context()
         if self._manager is not None:
             self._agent = self._build_agent(self.session_id)
 
-    def _restore_runtime_from_session(self, manager: SessionManager) -> None:
-        snapshot = manager.latest_runtime_snapshot()
-        interpreter = snapshot.python_interpreter if snapshot is not None else None
-        self._python_interpreter = Path(interpreter).expanduser().resolve() if interpreter else None
+    def _runtime_snapshot(self) -> RuntimeSnapshot:
+        return RuntimeSnapshot(
+            cwd=str(self._cwd),
+            git_branch=git_branch(self._cwd),
+            git_dirty=git_dirty(self._cwd),
+            python_interpreter=str(self._python_interpreter) if self._python_interpreter else None,
+        )
+
+    def _active_session_title(self) -> str | None:
+        if self._pending_session_title:
+            return self._pending_session_title
+        if self._manager is None:
+            return None
+        for event in self._manager.read_display_history():
+            if event.type != EventType.USER:
+                continue
+            text = " ".join(content_to_plaintext(event.payload.get("content", "")).split())
+            return text[:71] + "…" if len(text) > 72 else text
+        return None
+
+    def _persist_workspace_context(self) -> None:
+        save_runtime_context(
+            session_id=self.session_id,
+            session_title=self._active_session_title(),
+            session_date=self._session_date,
+            model_name=get_model_name(self._model),
+            runtime=self._runtime_snapshot(),
+            cwd=self._cwd,
+        )
+
+    def _restore_startup_session(self) -> None:
+        if not self._startup_session_id:
+            return
+        self.load_session(self._startup_session_id)
+
+    @staticmethod
+    def _loaded_session_date(manager: SessionManager) -> str | None:
+        events = manager.read_dump()
+        if not events:
+            return None
+        try:
+            return datetime.fromisoformat(events[0].timestamp).date().isoformat()
+        except ValueError:
+            return None
 
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
         return CompactionCoordinator(
@@ -336,6 +398,9 @@ class QuasipilotApp(App[None]):
         self._start_agent_turn(text)
 
     def _start_agent_turn(self, text: str) -> None:
+        if self._manager is None and self.session_id is None:
+            compact = " ".join(text.split())
+            self._pending_session_title = compact[:71] + "…" if len(compact) > 72 else compact
         self._mount_chat(UserBubble(text))
         self._agent_active = True
         self._cancellation_pending = False
@@ -427,6 +492,8 @@ class QuasipilotApp(App[None]):
             # resume without injecting a second HumanMessage into agent state.
             self._resume_interrupted_turn(next_steering)
             return
+        self._pending_session_title = None
+        self._persist_workspace_context()
         self._agent_active = False
         self._hide_spinner()
         self._set_busy(False)

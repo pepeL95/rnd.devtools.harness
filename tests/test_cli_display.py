@@ -1,3 +1,4 @@
+import json
 from unittest import TestCase
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,8 +11,9 @@ from cli.components import StatusBubble
 from cli.run import QuasipilotApp
 from cli.utilities.display import content_to_plaintext
 from core.live_steering import LiveSteeringController
-from core.session.events import RuntimeSnapshot
+from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
+from core.utilities.workspace import workspace_config_path
 
 
 class DisplayUtilityTests(TestCase):
@@ -301,38 +303,234 @@ class RuntimeBarTests(TestCase):
 
 
 class RuntimeConfigTests(TestCase):
-    def test_configure_python_interpreter_updates_app_state(self) -> None:
-        app = QuasipilotApp()
-
-        app.configure_python_interpreter("~/venv/bin/python")
-
-        self.assertEqual(app._python_interpreter, Path("~/venv/bin/python").expanduser().resolve())
-
-    def test_load_session_restores_python_interpreter_from_latest_runtime_artifact(self) -> None:
+    def test_app_init_creates_local_workspace_with_runtime_context(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            manager = SessionManager(session_id="s1", root=root)
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                QuasipilotApp()
+
+            config = json.loads(workspace_config_path(root).read_text(encoding="utf-8"))
+            self.assertEqual(config["session_id"], None)
+            self.assertEqual(config["session_title"], None)
+            self.assertEqual(config["session_date"], None)
+            self.assertEqual(config["model"], "gemini-3.1-flash-lite")
+            self.assertIn("cwd", config["runtime"])
+            self.assertNotIn("python_interpreter", config)
+
+    def test_configure_python_interpreter_updates_app_state_and_local_workspace(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            interpreter = root / ".venv/bin/python"
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app.configure_python_interpreter(interpreter)
+
+            self.assertEqual(app._python_interpreter, interpreter.resolve())
+            config = json.loads(workspace_config_path(root).read_text(encoding="utf-8"))
+            self.assertEqual(config["session_date"], None)
+            self.assertEqual(config["runtime"]["python_interpreter"], str(interpreter.resolve()))
+            self.assertEqual(config["model"], "gemini-3.1-flash-lite")
+            self.assertNotIn("python_interpreter", config)
+
+    def test_app_uses_local_workspace_python_interpreter(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = workspace_config_path(root)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            interpreter = (root / ".venv/bin/python").resolve()
+            config_path.write_text('{\n  "runtime": {\n    "python_interpreter": "%s"\n  }\n}\n' % interpreter, encoding="utf-8")
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+
+            self.assertEqual(app._python_interpreter, interpreter)
+
+    def test_app_falls_back_to_global_workspace_python_interpreter(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            interpreter = (home / ".venv/bin/python").resolve()
+            global_config = home / ".quasipilot/workspace.json"
+            global_config.parent.mkdir(parents=True, exist_ok=True)
+            global_config.write_text('{\n  "runtime": {\n    "python_interpreter": "%s"\n  }\n}\n' % interpreter, encoding="utf-8")
+
+            with patch("cli.run.Path.cwd", return_value=root), patch("core.utilities.workspace.Path.home", return_value=home):
+                app = QuasipilotApp()
+
+            self.assertEqual(app._python_interpreter, interpreter)
+
+    def test_local_workspace_python_interpreter_wins_over_global_fallback(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            local_interpreter = (root / ".venv/bin/python").resolve()
+            global_interpreter = (home / ".venv/bin/python").resolve()
+
+            local_config = workspace_config_path(root)
+            local_config.parent.mkdir(parents=True, exist_ok=True)
+            local_config.write_text(
+                '{\n  "runtime": {\n    "python_interpreter": "%s"\n  }\n}\n' % local_interpreter,
+                encoding="utf-8",
+            )
+
+            global_config = home / ".quasipilot/workspace.json"
+            global_config.parent.mkdir(parents=True, exist_ok=True)
+            global_config.write_text(
+                '{\n  "runtime": {\n    "python_interpreter": "%s"\n  }\n}\n' % global_interpreter,
+                encoding="utf-8",
+            )
+
+            with patch("cli.run.Path.cwd", return_value=root), patch("core.utilities.workspace.Path.home", return_value=home):
+                app = QuasipilotApp()
+
+            self.assertEqual(app._python_interpreter, local_interpreter)
+
+    def test_load_session_keeps_workspace_python_interpreter_precedence(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            sessions_root = root / "sessions"
+            interpreter = (root / ".venv/bin/python").resolve()
+            config_path = workspace_config_path(root)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text('{\n  "runtime": {\n    "python_interpreter": "%s"\n  }\n}\n' % interpreter, encoding="utf-8")
+
+            manager = SessionManager(session_id="s1", root=sessions_root)
             manager.record_runtime(
                 RuntimeSnapshot(
                     cwd=str(root),
                     git_branch="main",
                     git_dirty=False,
-                    python_interpreter=str((root / ".venv/bin/python").resolve()),
+                    python_interpreter=str((root / ".other/bin/python").resolve()),
                 ),
                 turn=1,
             )
 
-            app = QuasipilotApp()
-            app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
-            app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
-            app._clear_chat = lambda: None  # type: ignore[method-assign]
-            app._render_history = lambda: None  # type: ignore[method-assign]
-            app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
+                app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
+                app._clear_chat = lambda: None  # type: ignore[method-assign]
+                app._render_history = lambda: None  # type: ignore[method-assign]
+                app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
 
-            with patch("cli.run.SessionManager", side_effect=lambda session_id: SessionManager(session_id=session_id, root=root)):
-                app.load_session("s1")
+                with patch(
+                    "cli.run.SessionManager",
+                    side_effect=lambda session_id: SessionManager(session_id=session_id, root=sessions_root),
+                ):
+                    app.load_session("s1")
 
-            self.assertEqual(app._python_interpreter, (root / ".venv/bin/python").resolve())
+            self.assertEqual(app._python_interpreter, interpreter)
+
+    def test_new_session_creates_local_workspace_with_active_context(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
+                app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
+                app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+                app._pending_session_title = "Investigate harness behavior"
+
+                manager = app._ensure_session()
+
+            config = json.loads(workspace_config_path(root).read_text(encoding="utf-8"))
+            self.assertEqual(manager.session_id, app.session_id)
+            self.assertEqual(config["session_id"], app.session_id)
+            self.assertEqual(config["session_title"], "Investigate harness behavior")
+            self.assertEqual(config["session_date"], "2026-07-23")
+            self.assertEqual(config["model"], "gemini-3.1-flash-lite")
+            self.assertIn("cwd", config["runtime"])
+
+    def test_load_session_updates_local_workspace_active_context_from_history(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            sessions_root = root / "sessions"
+            manager = SessionManager(session_id="s1", root=sessions_root)
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "first prompt"},
+                        timestamp="2026-07-19T12:00:00+00:00",
+                    ),
+                    SessionEvent(
+                        type=EventType.ASSISTANT,
+                        turn=1,
+                        payload={"role": "assistant", "content": "done"},
+                        timestamp="2026-07-19T12:01:00+00:00",
+                    ),
+                ]
+            )
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
+                app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
+                app._clear_chat = lambda: None  # type: ignore[method-assign]
+                app._render_history = lambda: None  # type: ignore[method-assign]
+                app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+
+                with patch(
+                    "cli.run.SessionManager",
+                    side_effect=lambda session_id: SessionManager(session_id=session_id, root=sessions_root),
+                ):
+                    app.load_session("s1")
+
+            config = json.loads(workspace_config_path(root).read_text(encoding="utf-8"))
+            self.assertEqual(config["session_id"], "s1")
+            self.assertEqual(config["session_title"], "first prompt")
+            self.assertEqual(config["session_date"], "2026-07-19")
+            self.assertEqual(config["model"], "gemini-3.1-flash-lite")
+
+    def test_startup_restores_session_from_workspace_when_defined(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            sessions_root = root / "sessions"
+            config_path = workspace_config_path(root)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text('{\n  "session_id": "s1"\n}\n', encoding="utf-8")
+
+            manager = SessionManager(session_id="s1", root=sessions_root)
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "restored prompt"},
+                        timestamp="2026-07-18T10:00:00+00:00",
+                    ),
+                    SessionEvent(
+                        type=EventType.ASSISTANT,
+                        turn=1,
+                        payload={"role": "assistant", "content": "done"},
+                        timestamp="2026-07-18T10:01:00+00:00",
+                    ),
+                ]
+            )
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
+                app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
+                app._clear_chat = lambda: None  # type: ignore[method-assign]
+                app._render_history = lambda: None  # type: ignore[method-assign]
+                app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+
+                with patch(
+                    "cli.run.SessionManager",
+                    side_effect=lambda session_id: SessionManager(session_id=session_id, root=sessions_root),
+                ):
+                    app._restore_startup_session()
+
+            config = json.loads(workspace_config_path(root).read_text(encoding="utf-8"))
+            self.assertEqual(app.session_id, "s1")
+            self.assertEqual(config["session_id"], "s1")
+            self.assertEqual(config["session_title"], "restored prompt")
+            self.assertEqual(config["session_date"], "2026-07-18")
 
 
 class StreamingTests(TestCase):
