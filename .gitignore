@@ -11,3 +11,4 @@ build/
 eval_results/*
 .logs/
 .relay/
+.quasipilot/
