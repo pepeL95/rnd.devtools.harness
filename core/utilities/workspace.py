@@ -29,6 +29,18 @@ def load_session_id(cwd: str | Path | None = None) -> str | None:
     return str(raw) if raw else None
 
 
+def load_model_name(cwd: str | Path | None = None, session_id: str | None = None) -> str | None:
+    config = _read_config(workspace_config_path(cwd))
+    if session_id:
+        session_models = config.get("session_models")
+        if isinstance(session_models, dict):
+            raw = session_models.get(session_id)
+            if raw:
+                return str(raw)
+    raw = config.get("model")
+    return str(raw) if raw else None
+
+
 def load_python_interpreter(cwd: str | Path | None = None) -> Path | None:
     local_value = _load_python_interpreter_from_path(workspace_config_path(cwd))
     if local_value is not None:
@@ -64,6 +76,15 @@ def save_runtime_context(
     config["session_date"] = session_date
     config["model"] = model_name
     config["runtime"] = asdict(runtime)
+    _write_config(config_path, config)
+
+
+def save_session_model(model_name: str, *, session_id: str, cwd: str | Path | None = None) -> None:
+    config_path = workspace_config_path(cwd)
+    config = _read_config(config_path)
+    session_models = dict(config.get("session_models") or {})
+    session_models[session_id] = model_name
+    config["session_models"] = session_models
     _write_config(config_path, config)
 
 

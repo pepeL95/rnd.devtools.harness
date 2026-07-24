@@ -318,6 +318,18 @@ class RuntimeConfigTests(TestCase):
             self.assertIn("cwd", config["runtime"])
             self.assertNotIn("python_interpreter", config)
 
+    def test_app_init_uses_workspace_model_when_defined(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = workspace_config_path(root)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text('{\n  "model": "gemini-2.5-pro"\n}\n', encoding="utf-8")
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+
+            self.assertEqual(app._model.model, "gemini-2.5-pro")
+
     def test_configure_python_interpreter_updates_app_state_and_local_workspace(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -333,6 +345,36 @@ class RuntimeConfigTests(TestCase):
             self.assertEqual(config["runtime"]["python_interpreter"], str(interpreter.resolve()))
             self.assertEqual(config["model"], "gemini-3.1-flash-lite")
             self.assertNotIn("python_interpreter", config)
+
+    def test_configure_model_updates_workspace_and_active_app_state(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+                app.configure_model("gemini-2.5-pro")
+
+            config = json.loads(workspace_config_path(root).read_text(encoding="utf-8"))
+            self.assertEqual(app._model.model, "gemini-2.5-pro")
+            self.assertEqual(config["model"], "gemini-2.5-pro")
+
+    def test_configure_model_links_model_to_active_session(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
+                app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
+                app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+                app._pending_session_title = "Investigate harness behavior"
+                manager = app._ensure_session()
+                app.configure_model("gemini-2.5-pro")
+
+            config = json.loads(workspace_config_path(root).read_text(encoding="utf-8"))
+            self.assertEqual(config["model"], "gemini-2.5-pro")
+            self.assertEqual(config["session_models"][manager.session_id], "gemini-2.5-pro")
 
     def test_app_uses_local_workspace_python_interpreter(self) -> None:
         with TemporaryDirectory() as directory:
@@ -423,6 +465,45 @@ class RuntimeConfigTests(TestCase):
 
             self.assertEqual(app._python_interpreter, interpreter)
 
+    def test_load_session_uses_session_specific_model_when_defined(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            sessions_root = root / "sessions"
+            config_path = workspace_config_path(root)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(
+                '{\n  "model": "gemini-3.1-flash-lite",\n  "session_models": {\n    "s1": "gemini-2.5-pro"\n  }\n}\n',
+                encoding="utf-8",
+            )
+
+            manager = SessionManager(session_id="s1", root=sessions_root)
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "first prompt"},
+                        timestamp="2026-07-19T12:00:00+00:00",
+                    ),
+                ]
+            )
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
+                app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
+                app._clear_chat = lambda: None  # type: ignore[method-assign]
+                app._render_history = lambda: None  # type: ignore[method-assign]
+                app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+
+                with patch(
+                    "cli.run.SessionManager",
+                    side_effect=lambda session_id: SessionManager(session_id=session_id, root=sessions_root),
+                ):
+                    app.load_session("s1")
+
+            self.assertEqual(app._model.model, "gemini-2.5-pro")
+
     def test_new_session_creates_local_workspace_with_active_context(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -440,7 +521,7 @@ class RuntimeConfigTests(TestCase):
             self.assertEqual(manager.session_id, app.session_id)
             self.assertEqual(config["session_id"], app.session_id)
             self.assertEqual(config["session_title"], "Investigate harness behavior")
-            self.assertEqual(config["session_date"], "2026-07-23")
+            self.assertEqual(config["session_date"], "2026-07-24")
             self.assertEqual(config["model"], "gemini-3.1-flash-lite")
             self.assertIn("cwd", config["runtime"])
 
@@ -492,7 +573,10 @@ class RuntimeConfigTests(TestCase):
             sessions_root = root / "sessions"
             config_path = workspace_config_path(root)
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            config_path.write_text('{\n  "session_id": "s1"\n}\n', encoding="utf-8")
+            config_path.write_text(
+                '{\n  "session_id": "s1",\n  "session_models": {\n    "s1": "gemini-2.5-pro"\n  }\n}\n',
+                encoding="utf-8",
+            )
 
             manager = SessionManager(session_id="s1", root=sessions_root)
             manager.append(
@@ -528,6 +612,7 @@ class RuntimeConfigTests(TestCase):
 
             config = json.loads(workspace_config_path(root).read_text(encoding="utf-8"))
             self.assertEqual(app.session_id, "s1")
+            self.assertEqual(app._model.model, "gemini-2.5-pro")
             self.assertEqual(config["session_id"], "s1")
             self.assertEqual(config["session_title"], "restored prompt")
             self.assertEqual(config["session_date"], "2026-07-18")

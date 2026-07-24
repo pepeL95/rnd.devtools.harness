@@ -35,9 +35,17 @@ from core.session.events import EventType
 from core.session.events import RuntimeSnapshot
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
-from core.utilities.defaults import get_default_driver_model, get_model_name
+from core.utilities.defaults import DEFAULT_DRIVER_MODEL_NAME, create_driver_model, get_default_driver_model, get_model_name
 from core.utilities.git import git_branch, git_dirty
-from core.utilities.workspace import ensure_local_workspace, load_python_interpreter, load_session_id, save_python_interpreter, save_runtime_context
+from core.utilities.workspace import (
+    ensure_local_workspace,
+    load_model_name,
+    load_python_interpreter,
+    load_session_id,
+    save_python_interpreter,
+    save_runtime_context,
+    save_session_model,
+)
 
 class AgentStream(Message):
     """Worker thread event for live tool/reason updates."""
@@ -102,7 +110,8 @@ class QuasipilotApp(App[None]):
         self._cwd = Path.cwd()
         ensure_local_workspace(self._cwd)
         self._startup_session_id = load_session_id(self._cwd)
-        self._model = get_default_driver_model()
+        startup_model_name = load_model_name(self._cwd, self._startup_session_id)
+        self._model = create_driver_model(startup_model_name) if startup_model_name else get_default_driver_model()
         self._python_interpreter: Path | None = load_python_interpreter(self._cwd)
         self.session_id: str | None = None
         self._manager: SessionManager | None = None
@@ -146,6 +155,7 @@ class QuasipilotApp(App[None]):
         self.session_id = None
         self._manager = None
         self._agent = None
+        self._model = get_default_driver_model()
         self._python_interpreter = load_python_interpreter(self._cwd)
         self._live_steering = LiveSteeringController()
         self._cancel_event = Event()
@@ -162,6 +172,8 @@ class QuasipilotApp(App[None]):
     def load_session(self, session_id: str) -> None:
         self.session_id = session_id
         self._startup_session_id = None
+        model_name = load_model_name(self._cwd, session_id) or DEFAULT_DRIVER_MODEL_NAME
+        self._model = create_driver_model(model_name)
         self._live_steering = LiveSteeringController()
         self._cancellation_pending = False
         self._tool_streams = {}
@@ -243,6 +255,15 @@ class QuasipilotApp(App[None]):
         if self._manager is not None:
             self._agent = self._build_agent(self.session_id)
 
+    def configure_model(self, model_name: str) -> None:
+        self._model = create_driver_model(model_name)
+        if self.session_id:
+            save_session_model(model_name, session_id=self.session_id, cwd=self._cwd)
+        self._persist_workspace_context()
+        if self._manager is not None:
+            self._agent = self._build_agent(self.session_id)
+        self._sync_compaction_ui()
+
     def _runtime_snapshot(self) -> RuntimeSnapshot:
         return RuntimeSnapshot(
             cwd=str(self._cwd),
@@ -264,6 +285,8 @@ class QuasipilotApp(App[None]):
         return None
 
     def _persist_workspace_context(self) -> None:
+        if self.session_id:
+            save_session_model(get_model_name(self._model), session_id=self.session_id, cwd=self._cwd)
         save_runtime_context(
             session_id=self.session_id,
             session_title=self._active_session_title(),
@@ -369,7 +392,7 @@ class QuasipilotApp(App[None]):
     def _sync_compaction_ui(self) -> None:
         status = "compacting session" if self._compaction_active else None
         curated_path = str(self._manager.curated_path) if self._manager is not None else None
-        self.query_one(RuntimeBar).update_runtime(curated_path=curated_path, status=status)
+        self.query_one(RuntimeBar).update_runtime(model=get_model_name(self._model), curated_path=curated_path, status=status)
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         text = event.value.strip()
