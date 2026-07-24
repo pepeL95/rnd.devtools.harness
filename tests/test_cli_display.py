@@ -511,6 +511,25 @@ class RuntimeConfigTests(TestCase):
             self.assertEqual(config["session_date"], "2026-07-19")
             self.assertEqual(config["model"], "gemini-3.1-flash-lite")
 
+    def test_new_session_creates_blank_session_without_deleting_previous_one(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            with patch("cli.run.Path.cwd", return_value=root):
+                app = QuasipilotApp()
+                app._build_compaction_coordinator = lambda manager: None  # type: ignore[method-assign]
+                app._build_agent = lambda session_id: object()  # type: ignore[method-assign]
+                app._clear_chat = lambda: None  # type: ignore[method-assign]
+                app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+
+                first = app._ensure_session().session_id
+                app.new_session()
+                second = app.session_id
+
+            self.assertIsNotNone(second)
+            self.assertNotEqual(first, second)
+            self.assertTrue((root / ".quasipilot" / "workspace.json").exists())
+
     def test_startup_restores_session_from_workspace_when_defined(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

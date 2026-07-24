@@ -5,6 +5,7 @@ from cli.slash_commands.compact import CompactCommand
 from cli.slash_commands.copy import CopyCommand
 from cli.slash_commands.clear import ClearCommand
 from cli.slash_commands.exit import ExitCommand
+from cli.slash_commands.new import NewCommand
 from cli.slash_commands.pop import PopCommand
 from cli.slash_commands.python import PythonCommand
 from cli.slash_commands.sessions import SessionsCommand
@@ -15,7 +16,7 @@ class SlashCommandRegistry:
 
     def __init__(self) -> None:
         self._commands: dict[str, SlashCommand] = {}
-        for command in (SessionsCommand(), PythonCommand(), CompactCommand(), ClearCommand(), PopCommand(), ExitCommand(), CopyCommand()):
+        for command in (SessionsCommand(), NewCommand(), PythonCommand(), CompactCommand(), ClearCommand(), PopCommand(), ExitCommand(), CopyCommand()):
             self._commands[command.name] = command
 
     @staticmethod

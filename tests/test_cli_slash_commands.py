@@ -39,6 +39,15 @@ class SlashCommandRegistryTests(TestCase):
         self.assertFalse(should_exit)
         app.trigger_manual_compaction.assert_called_once()
 
+    def test_new_dispatches_new_session_creation(self) -> None:
+        registry = SlashCommandRegistry()
+        app = MagicMock()
+
+        should_exit = registry.dispatch(app, "/new")
+
+        self.assertFalse(should_exit)
+        app.new_session.assert_called_once()
+
     def test_python_dispatches_runtime_reconfiguration(self) -> None:
         registry = SlashCommandRegistry()
         app = MagicMock()

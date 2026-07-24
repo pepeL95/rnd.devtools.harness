@@ -169,6 +169,10 @@ class QuasipilotApp(App[None]):
         self._clear_chat()
         self._sync_compaction_ui()
 
+    def new_session(self) -> None:
+        self.reset_session()
+        self._ensure_session()
+
     def load_session(self, session_id: str) -> None:
         self.session_id = session_id
         self._startup_session_id = None
