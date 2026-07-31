@@ -14,7 +14,7 @@ from core.utilities.messages import (
     message_tool_calls,
     normalize_message_content,
 )
-from core.session.events import EventType, RuntimeSnapshot, SessionEvent
+from core.session.events import EventType, RuntimeSnapshot, SessionEvent, SessionMetadata
 from core.session.io import (
     append_events,
     read_events,
@@ -109,6 +109,41 @@ class SessionManager:
             )
         return None
 
+    def record_session_metadata(self, metadata: SessionMetadata) -> SessionEvent:
+        event = SessionEvent(
+            type=EventType.META,
+            turn=0,
+            payload={
+                "kind": "session_config",
+                "model": metadata.model,
+                "python_interpreter": metadata.python_interpreter,
+            },
+        )
+        self.append([event], curated=False)
+        return event
+
+    def latest_session_metadata(self) -> SessionMetadata | None:
+        for event in reversed(self.read_dump()):
+            if event.type != EventType.META or event.payload.get("kind") != "session_config":
+                continue
+            return SessionMetadata(
+                session_id=self.session_id,
+                model=_optional_str(event.payload.get("model")),
+                python_interpreter=_optional_str(event.payload.get("python_interpreter")),
+            )
+        return None
+
+    def metadata(self) -> SessionMetadata:
+        persisted = self.latest_session_metadata()
+        return SessionMetadata(
+            session_id=self.session_id,
+            title=self._title(),
+            date=self._date(),
+            model=persisted.model if persisted is not None else None,
+            python_interpreter=persisted.python_interpreter if persisted is not None else None,
+            runtime=self.latest_runtime_snapshot(),
+        )
+
     def events_from_messages(self, messages: Iterable[Any], turn: int | None = None) -> list[SessionEvent]:
         turn_number = turn or self.next_turn()
         events: list[SessionEvent] = []
@@ -185,6 +220,27 @@ class SessionManager:
 
     def read_display_history(self) -> list[SessionEvent]:
         return display_history_events(self.read_dump())
+
+    def _title(self) -> str | None:
+        for event in self.read_display_history():
+            if event.type != EventType.USER:
+                continue
+            return _compact_text(str(event.payload.get("content") or ""))
+        return None
+
+    def _date(self) -> str | None:
+        for event in self.read_dump():
+            if event.turn <= 0:
+                continue
+            return event.timestamp[:10]
+        return None
+
+
+def _compact_text(text: str, limit: int = 72) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 1] + "…"
 
 
 def _reconstruct_agent_messages(events: list[SessionEvent]) -> list[BaseMessage]:

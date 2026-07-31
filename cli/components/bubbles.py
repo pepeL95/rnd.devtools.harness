@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from textual.widgets import Static
+from textual.widgets import Markdown, Static
 
 
 class UserBubble(Static):
@@ -22,8 +22,8 @@ class UserBubble(Static):
         self.add_class("user-bubble")
 
 
-class AIBubble(Static):
-    """Assistant message bubble."""
+class AIBubble(Markdown):
+    """Rendered assistant message bubble."""
 
     DEFAULT_CSS = """
     AIBubble {
@@ -35,7 +35,7 @@ class AIBubble(Static):
     """
 
     def __init__(self, text: str) -> None:
-        super().__init__(text, markup=False)
+        super().__init__(text)
         self.add_class("ai-bubble")
 
 

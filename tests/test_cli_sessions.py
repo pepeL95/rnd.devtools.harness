@@ -4,8 +4,10 @@ from unittest import TestCase
 import os
 
 from core.session.events import EventType, SessionEvent
+from cli.components.model_picker import ModelPickerScreen
 from core.session.io import append_events, session_paths
 from cli.components.session_picker import SessionPickerScreen, _item_dom_id, _session_id_from_dom_id
+from cli.utilities.models import ModelSummary
 from cli.utilities.messages import format_tool_call, format_tool_input, message_text
 from cli.utilities.sessions import SessionSummary, clear_session_files, list_sessions
 
@@ -135,6 +137,23 @@ class SessionPickerIdTests(TestCase):
 
         self.assertEqual(len(items), 3)
         self.assertEqual(items[1].id, "session-divider")
+
+
+class ModelPickerTests(TestCase):
+    def test_model_picker_marks_current_model(self) -> None:
+        screen = ModelPickerScreen(
+            [
+                ModelSummary("gemini-3.1-flash-lite", "Default", is_current=True),
+                ModelSummary("gemini-2.5-pro", "Capable", is_current=False),
+            ]
+        )
+
+        items = screen._items()
+
+        first_label = str(items[0]._pending_children[0].render())
+        second_label = str(items[1]._pending_children[0].render())
+        self.assertTrue(first_label.startswith("* gemini-3.1-flash-lite"))
+        self.assertTrue(second_label.startswith("  gemini-2.5-pro"))
 
 
 class CliMessageUtilityTests(TestCase):

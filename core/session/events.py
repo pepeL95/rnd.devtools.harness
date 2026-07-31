@@ -48,6 +48,16 @@ class RuntimeSnapshot:
 
 
 @dataclass(frozen=True)
+class SessionMetadata:
+    session_id: str
+    title: str | None = None
+    date: str | None = None
+    model: str | None = None
+    python_interpreter: str | None = None
+    runtime: RuntimeSnapshot | None = None
+
+
+@dataclass(frozen=True)
 class SessionEvent:
     type: EventType
     turn: int

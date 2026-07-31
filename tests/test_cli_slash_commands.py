@@ -48,6 +48,16 @@ class SlashCommandRegistryTests(TestCase):
         self.assertFalse(should_exit)
         app.new_session.assert_called_once()
 
+    def test_models_dispatches_model_picker(self) -> None:
+        registry = SlashCommandRegistry()
+        app = MagicMock()
+        app.load_models.return_value = [MagicMock(name="gemini-3.1-flash-lite")]
+
+        should_exit = registry.dispatch(app, "/models")
+
+        self.assertFalse(should_exit)
+        app.push_screen.assert_called_once()
+
     def test_python_dispatches_runtime_reconfiguration(self) -> None:
         registry = SlashCommandRegistry()
         app = MagicMock()

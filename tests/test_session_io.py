@@ -4,7 +4,7 @@ from unittest import TestCase
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from core.session.events import EventType, RuntimeSnapshot, SessionEvent
+from core.session.events import EventType, RuntimeSnapshot, SessionEvent, SessionMetadata
 from core.session.manager import SessionManager
 
 
@@ -461,6 +461,17 @@ class SessionIOTests(TestCase):
             self.assertEqual(snapshot.git_branch, "feature")
             self.assertIs(snapshot.git_dirty, True)
             self.assertEqual(snapshot.python_interpreter, "/tmp/two/.venv/bin/python")
+
+    def test_latest_session_metadata_returns_latest_persisted_session_fields(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.record_session_metadata(SessionMetadata(session_id="s1", model="gemini-3.1-flash-lite"))
+            manager.record_session_metadata(SessionMetadata(session_id="s1", model="gemini-2.5-pro"))
+
+            metadata = manager.latest_session_metadata()
+
+            assert metadata is not None
+            self.assertEqual(metadata.model, "gemini-2.5-pro")
 
     def test_pop_turn_removes_latest_turn_from_both_streams(self) -> None:
         with TemporaryDirectory() as directory:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date, datetime
 from pathlib import Path
 from threading import Event
 
@@ -9,7 +8,6 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Static
 
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from cli.components import (
@@ -26,24 +24,20 @@ from cli.components import (
 )
 from cli.slash_commands.registry import SlashCommandRegistry
 from cli.utilities.display import content_to_plaintext
+from cli.utilities.models import ModelSummary, default_models
 from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.live_steering import CancellationInterrupt, LiveSteeringController, LiveSteeringInterrupt
-from core.session.events import EventType
-from core.session.events import RuntimeSnapshot
+from core.session.events import EventType, RuntimeSnapshot, SessionMetadata
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.utilities.defaults import create_driver_model, get_default_driver_model, get_model_name
 from core.utilities.git import git_branch, git_dirty
 from cli.utilities.workspace import (
-    ensure_workspace,
-    load_model_name,
-    load_python_interpreter,
-    load_session_id,
-    save_python_interpreter,
-    save_runtime_context,
+    WorkspaceState,
+    WorkspaceStore,
 )
 
 class AgentStream(Message):
@@ -107,11 +101,12 @@ class QuasipilotApp(App[None]):
     def __init__(self) -> None:
         super().__init__(ansi_color=True)
         self._cwd = Path.cwd()
-        ensure_workspace(self._cwd)
-        self._startup_session_id = load_session_id(self._cwd)
-        startup_model_name = load_model_name(self._cwd)
-        self._model = create_driver_model(startup_model_name) if startup_model_name else get_default_driver_model()
-        self._python_interpreter: Path | None = load_python_interpreter(self._cwd)
+        self._workspace = WorkspaceStore(self._cwd)
+        self._workspace.ensure()
+        self._startup_session_id = self._workspace.load().session_id
+        startup_metadata = self._load_session_metadata(self._startup_session_id)
+        self._model = self._resolve_session_model(startup_metadata)
+        self._python_interpreter: Path | None = self._resolve_session_python_interpreter(startup_metadata)
         self.session_id: str | None = None
         self._manager: SessionManager | None = None
         self._agent = None
@@ -125,10 +120,8 @@ class QuasipilotApp(App[None]):
         self._cancel_event = Event()
         self._cancellation_pending = False
         self._tool_streams: dict[str, ToolStream] = {}
-        self._pending_session_title: str | None = None
-        self._session_date: str | None = None
         if self._startup_session_id is None:
-            self._persist_workspace_context()
+            self._persist_workspace_reference()
 
     @property
     def manager(self) -> SessionManager | None:
@@ -154,18 +147,15 @@ class QuasipilotApp(App[None]):
         self.session_id = None
         self._manager = None
         self._agent = None
-        model_name = load_model_name(self._cwd)
-        self._model = create_driver_model(model_name) if model_name else get_default_driver_model()
-        self._python_interpreter = load_python_interpreter(self._cwd)
+        self._model = get_default_driver_model()
+        self._python_interpreter = None
         self._live_steering = LiveSteeringController()
         self._cancel_event = Event()
         self._cancellation_pending = False
         self._tool_streams = {}
-        self._pending_session_title = None
-        self._session_date = None
         self._compaction_coordinator = None
         self._compaction_active = False
-        self._persist_workspace_context()
+        self._persist_workspace_reference()
         self._clear_chat()
         self._sync_compaction_ui()
 
@@ -176,18 +166,16 @@ class QuasipilotApp(App[None]):
     def load_session(self, session_id: str) -> None:
         self.session_id = session_id
         self._startup_session_id = None
-        model_name = load_model_name(self._cwd)
-        self._model = create_driver_model(model_name) if model_name else get_default_driver_model()
         self._live_steering = LiveSteeringController()
         self._cancellation_pending = False
         self._tool_streams = {}
         self._manager = SessionManager(session_id=session_id)
-        self._python_interpreter = load_python_interpreter(self._cwd)
+        metadata = self._manager.metadata()
+        self._model = self._resolve_session_model(metadata)
+        self._python_interpreter = self._resolve_session_python_interpreter(metadata)
         self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
         self._agent = self._build_agent(session_id)
-        self._pending_session_title = None
-        self._session_date = self._loaded_session_date(self._manager)
-        self._persist_workspace_context()
+        self._persist_workspace_reference()
         self._clear_chat()
         self._render_history()
         self._sync_compaction_ui()
@@ -196,11 +184,11 @@ class QuasipilotApp(App[None]):
         if self._manager is None:
             self._manager = SessionManager()
             self.session_id = self._manager.session_id
-            ensure_workspace(self._cwd)
+            self._workspace.ensure()
+            self._persist_session_metadata()
             self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
             self._agent = self._build_agent(self.session_id)
-            self._session_date = date.today().isoformat()
-            self._persist_workspace_context()
+            self._persist_workspace_reference()
             self._sync_compaction_ui()
         return self._manager
 
@@ -254,17 +242,25 @@ class QuasipilotApp(App[None]):
         )
 
     def configure_python_interpreter(self, path: str | Path | None) -> None:
-        self._python_interpreter = save_python_interpreter(path, self._cwd) if path else None
-        self._persist_workspace_context()
+        self._python_interpreter = Path(path).expanduser().resolve() if path else None
+        self._persist_session_metadata()
         if self._manager is not None:
             self._agent = self._build_agent(self.session_id)
 
     def configure_model(self, model_name: str) -> None:
         self._model = create_driver_model(model_name)
-        self._persist_workspace_context()
+        self._persist_session_metadata()
         if self._manager is not None:
             self._agent = self._build_agent(self.session_id)
         self._sync_compaction_ui()
+
+    def load_models(self) -> list[ModelSummary]:
+        """Return the models displayed by the /models picker.
+
+        Override this in environment-specific app subclasses when model
+        discovery or labeling needs to be customized.
+        """
+        return default_models(current_model=get_model_name(self._model))
 
     def _runtime_snapshot(self) -> RuntimeSnapshot:
         return RuntimeSnapshot(
@@ -274,26 +270,18 @@ class QuasipilotApp(App[None]):
             python_interpreter=str(self._python_interpreter) if self._python_interpreter else None,
         )
 
-    def _active_session_title(self) -> str | None:
-        if self._pending_session_title:
-            return self._pending_session_title
-        if self._manager is None:
-            return None
-        for event in self._manager.read_display_history():
-            if event.type != EventType.USER:
-                continue
-            text = " ".join(content_to_plaintext(event.payload.get("content", "")).split())
-            return text[:71] + "…" if len(text) > 72 else text
-        return None
+    def _persist_workspace_reference(self) -> None:
+        self._workspace.write(WorkspaceState(session_id=self.session_id))
 
-    def _persist_workspace_context(self) -> None:
-        save_runtime_context(
-            session_id=self.session_id,
-            session_title=self._active_session_title(),
-            session_date=self._session_date,
-            model_name=get_model_name(self._model),
-            runtime=self._runtime_snapshot(),
-            cwd=self._cwd,
+    def _persist_session_metadata(self) -> None:
+        if self._manager is None:
+            return
+        self._manager.record_session_metadata(
+            SessionMetadata(
+                session_id=self._manager.session_id,
+                model=get_model_name(self._model),
+                python_interpreter=str(self._python_interpreter) if self._python_interpreter else None,
+            )
         )
 
     def _restore_startup_session(self) -> None:
@@ -301,15 +289,18 @@ class QuasipilotApp(App[None]):
             return
         self.load_session(self._startup_session_id)
 
-    @staticmethod
-    def _loaded_session_date(manager: SessionManager) -> str | None:
-        events = manager.read_dump()
-        if not events:
+    def _load_session_metadata(self, session_id: str | None) -> SessionMetadata | None:
+        if not session_id:
             return None
-        try:
-            return datetime.fromisoformat(events[0].timestamp).date().isoformat()
-        except ValueError:
-            return None
+        manager = SessionManager(session_id=session_id)
+        return manager.metadata()
+
+    def _resolve_session_model(self, metadata: SessionMetadata | None):
+        model_name = metadata.model if metadata is not None else None
+        return create_driver_model(model_name) if model_name else get_default_driver_model()
+
+    def _resolve_session_python_interpreter(self, metadata: SessionMetadata | None) -> Path | None:
+        return _resolved_interpreter(metadata)
 
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
         return CompactionCoordinator(
@@ -421,9 +412,6 @@ class QuasipilotApp(App[None]):
         self._start_agent_turn(text)
 
     def _start_agent_turn(self, text: str) -> None:
-        if self._manager is None and self.session_id is None:
-            compact = " ".join(text.split())
-            self._pending_session_title = compact[:71] + "…" if len(compact) > 72 else compact
         self._mount_chat(UserBubble(text))
         self._agent_active = True
         self._cancellation_pending = False
@@ -515,8 +503,7 @@ class QuasipilotApp(App[None]):
             # resume without injecting a second HumanMessage into agent state.
             self._resume_interrupted_turn(next_steering)
             return
-        self._pending_session_title = None
-        self._persist_workspace_context()
+        self._persist_workspace_reference()
         self._agent_active = False
         self._hide_spinner()
         self._set_busy(False)
@@ -529,3 +516,14 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _resolved_interpreter(metadata: SessionMetadata | None) -> Path | None:
+    if metadata is None:
+        return None
+    interpreter = metadata.runtime.python_interpreter if metadata.runtime is not None else None
+    if not interpreter:
+        interpreter = metadata.python_interpreter
+    if not interpreter:
+        return None
+    return Path(interpreter).expanduser().resolve()
