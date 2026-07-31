@@ -39,26 +39,7 @@ fi
 echo "Activating environment '$ENV_NAME'"
 conda activate "$ENV_NAME"
 
-echo "Upgrading packaging tools (pip, setuptools, wheel)"
-python -m pip install --upgrade pip setuptools wheel build
-
-# Install the project and CLI entrypoint. Prefer editable install to ease development.
-if [ -f "pyproject.toml" ]; then
-  echo "Installing project from local source (including optional 'dev' extras)"
-  python -m pip install -e ".[dev]"
-else
-  echo "pyproject.toml not found; installing core runtime and CLI packages manually"
-  python -m pip install \
-    "chromadb>=1.0" \
-    "deepagents>=0.6.12" \
-    "langchain>=1.3.11,<2" \
-    "langchain-google-genai>=4.2.5" \
-    "langgraph>=1.2.5" \
-    "pydantic>=2.0" \
-    "python-dotenv>=1.0" \
-    "textual>=6.0" \
-    "tiktoken>=0.12"
-fi
+"$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/sync-env.sh" "$ENV_NAME"
 
 echo
 echo "Done. To start using the harness and CLI:"

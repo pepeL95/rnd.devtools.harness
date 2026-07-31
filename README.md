@@ -13,16 +13,16 @@ conda activate quasipilot-harness
 python -m pytest
 ```
 
-To upgrade the installed harness package and refresh dependencies in the
-developer environment:
+To synchronize an existing developer environment with the exact package
+versions validated by the team:
 
 ```bash
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate quasipilot-harness
-python -m pip install --upgrade pip setuptools wheel build
-python -m pip install -e ".[dev]"
-python -m pytest
+./sync-env.sh
 ```
+
+The script activates `quasipilot-harness`, installs the editable project and
+pinned agent stack, validates dependencies, and runs the test suite. Pass a
+different environment name when needed: `./sync-env.sh my-environment`.
 
 If you want a completely fresh environment, remove and recreate it:
 
