@@ -98,7 +98,7 @@ class SessionDumpMiddleware(AgentMiddleware):
         turn = self._active_turn or self.manager.next_turn()
         unseen_events: list[SessionEvent] = []
         for message in messages or []:
-            if _is_restored_memory_message(message):
+            if _is_nonpersisted_restored_message(message):
                 continue
             for event in self.manager.events_from_messages([message], turn=turn):
                 key = self._event_key(event)
@@ -201,9 +201,13 @@ class SessionDumpMiddleware(AgentMiddleware):
         cwd_str = context.get("cwd") if isinstance(context, dict) else getattr(context, "cwd", None)
         return Path(cwd_str).expanduser().resolve() if cwd_str else str(Path.cwd().expanduser().resolve())
 
-def _is_restored_memory_message(message: Any) -> bool:
+def _is_nonpersisted_restored_message(message: Any) -> bool:
     additional_kwargs = getattr(message, "additional_kwargs", None) or {}
-    return additional_kwargs.get("session_kind") in {"memory_restore", "trajectory_memory"}
+    return additional_kwargs.get("session_kind") in {
+        "memory_restore",
+        "trajectory_memory",
+        "transcript_repair",
+    }
 
 
 def _tool_result_messages(result: Any) -> list[Any]:

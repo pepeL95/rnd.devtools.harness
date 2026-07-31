@@ -21,6 +21,7 @@ from core.session.io import (
     replace_events,
     session_paths,
 )
+from core.session.restore import normalize_tool_transcript
 from core.session.turns import agent_history_events, display_history_events, next_turn
 
 
@@ -341,7 +342,7 @@ def _reconstruct_agent_messages(events: list[SessionEvent]) -> list[BaseMessage]
             )
 
     flush_pending_tool_calls()
-    return messages
+    return normalize_tool_transcript(messages)
 
 
 def _message_additional_kwargs(event: SessionEvent) -> dict[str, Any]:

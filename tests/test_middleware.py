@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from unittest import TestCase
 
+from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.messages import AIMessage
@@ -170,9 +171,35 @@ class MiddlewareTests(TestCase):
         self.assertIn("make_file", str(response.content))
         self.assertIn("Use `make_file` only for new files at new paths", str(response.content))
         self.assertIn("Do not use `make_file` as an overwrite tool", str(response.content))
-        self.assertIn("use `execute` with `rg --files`", str(response.content))
+        self.assertIn("Use `execute` with `rg --files`", str(response.content))
         self.assertIn("`rg -n --no-heading --color never`", str(response.content))
         self.assertNotIn("Filesystem Tools `ls`", str(response.content))
+
+    def test_harness_filesystem_middleware_delegates_model_request_handling(self) -> None:
+        self.assertIs(HarnessFilesystemMiddleware.wrap_model_call, FilesystemMiddleware.wrap_model_call)
+        self.assertIs(HarnessFilesystemMiddleware.awrap_model_call, FilesystemMiddleware.awrap_model_call)
+
+    def test_harness_filesystem_middleware_filters_unsupported_execute_tool(self) -> None:
+        middleware = HarnessFilesystemMiddleware()
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[], tools=middleware.tools)
+
+        visible_tools = middleware.wrap_model_call(request, lambda updated: updated.tools)
+
+        self.assertEqual([tool.name for tool in visible_tools], ["read_file", "make_file", "edit_file"])
+
+    def test_harness_filesystem_middleware_preserves_configuration_overrides(self) -> None:
+        middleware = HarnessFilesystemMiddleware(
+            system_prompt="Custom filesystem policy.",
+            custom_tool_descriptions={"write_file": "Custom creation policy."},
+        )
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[], tools=middleware.tools)
+
+        response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
+        make_file_tool = next(tool for tool in middleware.tools if tool.name == MAKE_FILE_TOOL_NAME)
+
+        self.assertIn("Custom filesystem policy.", str(response.content))
+        self.assertNotIn("Filesystem Conventions", str(response.content))
+        self.assertEqual(make_file_tool.description, "Custom creation policy.")
 
     def test_runtime_middleware_injects_python_interpreter_when_configured(self) -> None:
         with TemporaryDirectory() as directory:

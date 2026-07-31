@@ -246,6 +246,61 @@ class SessionIOTests(TestCase):
             self.assertEqual(messages[3].content, "change direction")
             self.assertIsInstance(messages[4], AIMessage)
 
+    def test_load_curated_messages_terminates_every_interrupted_parallel_tool_call(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "inspect both"}),
+                    SessionEvent(
+                        type=EventType.TOOL,
+                        turn=1,
+                        payload={"role": "assistant", "name": "read_file", "args": {"path": "/a"}, "tool_call_id": "call-a", "index": 0},
+                    ),
+                    SessionEvent(
+                        type=EventType.TOOL,
+                        turn=1,
+                        payload={"role": "assistant", "name": "read_file", "args": {"path": "/b"}, "tool_call_id": "call-b", "index": 1},
+                    ),
+                    SessionEvent(
+                        type=EventType.TOOL_OUTPUT,
+                        turn=1,
+                        payload={"role": "tool", "content": "interrupted", "tool_call_id": "call-a"},
+                    ),
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "change direction", "kind": "live_steering_interrupt"},
+                    ),
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            self.assertEqual([call["id"] for call in messages[1].tool_calls], ["call-a", "call-b"])
+            self.assertEqual([message.tool_call_id for message in messages[2:4]], ["call-a", "call-b"])
+            self.assertEqual(messages[3].additional_kwargs.get("session_kind"), "transcript_repair")
+            self.assertIsInstance(messages[4], HumanMessage)
+
+    def test_load_curated_messages_discards_orphaned_tool_output(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.TOOL_OUTPUT,
+                        turn=1,
+                        payload={"role": "tool", "content": "stale", "tool_call_id": "orphan"},
+                    ),
+                    SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "continue"}),
+                ]
+            )
+
+            messages = manager.load_curated_messages()
+
+            self.assertEqual(len(messages), 1)
+            self.assertIsInstance(messages[0], HumanMessage)
+
     def test_load_curated_messages_marks_memory_restore_messages(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))
