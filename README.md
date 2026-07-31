@@ -23,6 +23,13 @@ versions validated by the team:
 The script activates `quasipilot-harness`, installs the editable project and
 pinned agent stack, validates dependencies, and runs the test suite. Pass a
 different environment name when needed: `./sync-env.sh my-environment`.
+Git preserves the executable permission, but if it was stripped when copying or
+extracting the repository, restore it before running the script:
+
+```bash
+chmod +x sync-env.sh
+./sync-env.sh
+```
 
 If you want a completely fresh environment, remove and recreate it:
 
