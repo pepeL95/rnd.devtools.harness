@@ -52,8 +52,23 @@ class MiddlewareTests(TestCase):
 
         response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
 
-        self.assertIn("Use the `reasoning` tool very often", str(response.content))
-        self.assertIn("Your reasoning eagerness has been set to **Highest**", str(response.content))
+        self.assertIn("Reasoning mode: HIGH", str(response.content))
+        self.assertIn("required durable internal working memory", str(response.content))
+        self.assertIn("reasoning -> action -> reasoning", str(response.content))
+        self.assertIn("immediately before the final answer", str(response.content))
+        self.assertNotIn("provider", str(response.content).lower())
+        self.assertNotIn("hidden thinking", str(response.content).lower())
+
+    def test_reasoning_modes_have_distinct_operating_contracts(self) -> None:
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+        low = ReasoningMiddleware(eagerness="low").wrap_model_call(request, lambda updated: updated.system_message)
+        medium = ReasoningMiddleware(eagerness="medium").wrap_model_call(request, lambda updated: updated.system_message)
+
+        self.assertIn("important pivots", str(low.content))
+        self.assertNotIn("before beginning substantive work", str(low.content))
+        self.assertIn("before beginning substantive work", str(medium.content))
+        self.assertIn("after a meaningful batch of evidence", str(medium.content))
 
     def test_reasoning_middleware_rejects_invalid_eagerness(self) -> None:
         with self.assertRaises(ValueError):
@@ -80,10 +95,9 @@ class MiddlewareTests(TestCase):
 
         result = reasoning_tool.invoke({"reasoning": "Need to inspect the middleware order before retrying."})
 
-        self.assertEqual(
-            result,
-            "Reasoning recorded: Need to inspect the middleware order before retrying.",
-        )
+        self.assertEqual(result, "Reasoning checkpoint recorded.")
+        reasoning_schema = reasoning_tool.args_schema.model_json_schema()["properties"]["reasoning"]
+        self.assertIn("first-person state update", reasoning_schema["description"])
 
     def test_reasoning_middleware_requests_synthesis_after_long_read_file_output(self) -> None:
         middleware = ReasoningMiddleware()
