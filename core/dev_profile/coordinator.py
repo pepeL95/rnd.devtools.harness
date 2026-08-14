@@ -63,7 +63,7 @@ class DevProfileCoordinator:
         try:
             before_revision = self.store.read().revision
             agent = self.agent_factory(events, self.store, model=self.model)
-            instruction = "Review the completed session and evolve DEVPROFILE.md when durable evidence warrants it."
+            instruction = "Review the completed session and update DEVPROFILE.md with every explicit reusable user preference."
             if focus:
                 instruction += f" The developer asked you to focus on: {focus}"
             agent.invoke({"messages": [{"role": "user", "content": instruction}]})

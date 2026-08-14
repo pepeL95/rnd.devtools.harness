@@ -66,14 +66,17 @@ class DevProfileTests(TestCase):
 
             rejected = json.loads(
                 tools["update_devprofile"].invoke(
-                    {"content": "Use the named Conda environment.", "expected_revision": None}
+                    {
+                        "content": "# Developer Preferences\n\n## Environment\n\nUse the named Conda environment.",
+                        "expected_revision": None,
+                    }
                 )
             )
 
             created = json.loads(
                 tools["update_devprofile"].invoke(
                     {
-                        "content": "Use the named Conda environment.",
+                        "content": "# Developer Preferences\n\n## Environment\n\nUse the named Conda environment.",
                         "expected_revision": None,
                         "evidence": [{"turn": 1, "quote": "Use the named Conda environment."}],
                     }
@@ -82,7 +85,7 @@ class DevProfileTests(TestCase):
             conflict = json.loads(
                 tools["update_devprofile"].invoke(
                     {
-                        "content": "Stale replacement.",
+                        "content": "# Developer Preferences\n\n## Environment\n\nStale replacement.",
                         "expected_revision": None,
                         "evidence": [{"turn": 1, "quote": "Use the named Conda environment."}],
                     }
@@ -107,6 +110,27 @@ class DevProfileTests(TestCase):
             self.assertEqual(result["status"], "updated")
             self.assertEqual(store.read().content, EMPTY_DEV_PROFILE)
 
+    def test_update_tool_rejects_content_without_heading_hierarchy(self) -> None:
+        with TemporaryDirectory() as directory:
+            events = (
+                SessionEvent(type=EventType.USER, turn=1, payload={"content": "Prefer focused tests."}),
+            )
+            store = DevProfileStore(directory)
+            tools = {tool.name: tool for tool in create_dev_profile_tools(events, store)}
+
+            result = json.loads(
+                tools["update_devprofile"].invoke(
+                    {
+                        "content": "Prefer focused tests.",
+                        "expected_revision": None,
+                        "evidence": [{"turn": 1, "quote": "Prefer focused tests."}],
+                    }
+                )
+            )
+
+            self.assertEqual(result["status"], "rejected")
+            self.assertIn("GitHub-flavored Markdown", result["message"])
+
     def test_update_tool_rejects_assistant_evidence(self) -> None:
         with TemporaryDirectory() as directory:
             events = (
@@ -118,7 +142,7 @@ class DevProfileTests(TestCase):
             result = json.loads(
                 tools["update_devprofile"].invoke(
                     {
-                        "content": "Prefer focused tests.",
+                        "content": "# Developer Preferences\n\n## Testing\n\nPrefer focused tests.",
                         "expected_revision": None,
                         "evidence": [{"turn": 1, "quote": "Prefer focused tests."}],
                     }
@@ -144,7 +168,11 @@ class DevProfileTests(TestCase):
                 "read_devprofile",
                 "update_devprofile",
             ])
-            self.assertIn("free-form Markdown", kwargs["system_prompt"])
+            self.assertIn("Heading names and section organization are your choice", kwargs["system_prompt"])
+            self.assertIn("commit messages must always be rich", kwargs["system_prompt"])
+            self.assertIn("One explicit statement is sufficient", kwargs["system_prompt"])
+            self.assertIn("GitHub-flavored Markdown", kwargs["system_prompt"])
+            self.assertIn("ATX headings and subheadings", kwargs["system_prompt"])
 
     def test_middleware_keeps_profile_stable_for_entire_agent_run(self) -> None:
         with TemporaryDirectory() as directory:

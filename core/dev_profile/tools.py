@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from typing import Any
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel, Field
 from core.dev_profile.store import DevProfileConflictError, DevProfileStore
 from core.session.events import EventType, SessionEvent
 
-EMPTY_DEV_PROFILE = "No dev preferences learned yet."
+EMPTY_DEV_PROFILE = "# Developer Preferences\n\n## Status\n\nNo dev preferences learned yet."
 
 
 class InspectSessionSchema(BaseModel):
@@ -126,6 +127,13 @@ def create_dev_profile_tools(
         """Create or atomically replace DEVPROFILE.md after verifying its revision."""
 
         references = evidence or []
+        if not _has_heading_hierarchy(content):
+            return json.dumps(
+                {
+                    "status": "rejected",
+                    "message": "DEVPROFILE.md must use GitHub-flavored Markdown with an ATX heading and subheading.",
+                }
+            )
         if content.strip() != EMPTY_DEV_PROFILE:
             if not references:
                 return json.dumps(
@@ -192,7 +200,7 @@ def create_dev_profile_tools(
         StructuredTool.from_function(
             func=update_devprofile,
             name="update_devprofile",
-            description=f"Create or atomically replace free-form DEVPROFILE.md. Substantive content requires exact user quotes; when no supported preference exists, write exactly: {EMPTY_DEV_PROFILE}",
+            description=f"Create or atomically replace DEVPROFILE.md as GitHub-flavored Markdown with descriptive ATX headings and subheadings. The heading names and document structure are flexible. Substantive content requires exact user quotes; when no supported preference exists, write exactly: {EMPTY_DEV_PROFILE}",
             args_schema=UpdateDevProfileSchema,
             infer_schema=False,
         ),
@@ -226,6 +234,12 @@ def _valid_user_evidence(reference: DevProfileEvidence, by_turn: dict[int, list[
         quote in str(event.payload.get("content") or "")
         for event in by_turn.get(reference.turn, [])
         if event.type == EventType.USER
+    )
+
+
+def _has_heading_hierarchy(content: str) -> bool:
+    return bool(re.search(r"^# [^#\n].+$", content, re.MULTILINE)) and bool(
+        re.search(r"^## [^#\n].+$", content, re.MULTILINE)
     )
 
 
