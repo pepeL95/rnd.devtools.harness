@@ -29,6 +29,7 @@ from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
+from core.dev_profile.coordinator import DevProfileCoordinator
 from core.live_steering import CancellationInterrupt, LiveSteeringController, LiveSteeringInterrupt
 from core.session.events import EventType, RuntimeSnapshot, SessionMetadata
 from core.session.manager import SessionManager
@@ -116,6 +117,8 @@ class QuasipilotApp(App[None]):
         self._spinner: WorkingSpinner | None = None
         self._compaction_coordinator: CompactionCoordinator | None = None
         self._compaction_active = False
+        self._dev_profile_coordinator: DevProfileCoordinator | None = None
+        self._dev_profile_active = False
         self._live_steering = LiveSteeringController()
         self._cancel_event = Event()
         self._cancellation_pending = False
@@ -155,6 +158,8 @@ class QuasipilotApp(App[None]):
         self._tool_streams = {}
         self._compaction_coordinator = None
         self._compaction_active = False
+        self._dev_profile_coordinator = None
+        self._dev_profile_active = False
         self._persist_workspace_reference()
         self._clear_chat()
         self._sync_compaction_ui()
@@ -174,6 +179,7 @@ class QuasipilotApp(App[None]):
         self._model = self._resolve_session_model(metadata)
         self._python_interpreter = self._resolve_session_python_interpreter(metadata)
         self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
+        self._dev_profile_coordinator = self._build_dev_profile_coordinator(self._manager)
         self._agent = self._build_agent(session_id)
         self._persist_workspace_reference()
         self._clear_chat()
@@ -187,6 +193,7 @@ class QuasipilotApp(App[None]):
             self._workspace.ensure()
             self._persist_session_metadata()
             self._compaction_coordinator = self._build_compaction_coordinator(self._manager)
+            self._dev_profile_coordinator = self._build_dev_profile_coordinator(self._manager)
             self._agent = self._build_agent(self.session_id)
             self._persist_workspace_reference()
             self._sync_compaction_ui()
@@ -310,6 +317,13 @@ class QuasipilotApp(App[None]):
             telemetry_store=TelemetryStore(telemetry_session_path(manager.session_id)),
         )
 
+    def _build_dev_profile_coordinator(self, manager: SessionManager) -> DevProfileCoordinator:
+        return DevProfileCoordinator(
+            manager,
+            self._cwd,
+            on_event=self._post_dev_profile_event,
+        )
+
     def _set_busy(self, busy: bool, *, disable_input: bool = True) -> None:
         self._busy = busy
         chat_input = self.query_one(ChatInput)
@@ -380,8 +394,44 @@ class QuasipilotApp(App[None]):
         elif status != "started":
             self.notify_warning("session compaction was not needed")
 
+    def _post_dev_profile_event(self, phase: str, payload: dict) -> None:
+        self.call_from_thread(self._handle_dev_profile_event, phase, payload)
+
+    def _handle_dev_profile_event(self, phase: str, payload: dict) -> None:
+        if phase == "start":
+            self._dev_profile_active = True
+            self._sync_compaction_ui()
+            self.notify("developer profile update started", timeout=2, markup=False)
+        elif phase == "end":
+            self._dev_profile_active = False
+            self._sync_compaction_ui()
+            status = "updated" if payload.get("changed") else "unchanged"
+            self.notify(f"developer profile {status}", timeout=3, markup=False)
+        elif phase == "error":
+            self._dev_profile_active = False
+            self._sync_compaction_ui()
+            self.notify_warning(f"developer profile update failed: {payload.get('error', 'unknown error')}")
+
+    def trigger_dev_profile_update(self, focus: str = "") -> None:
+        if self._manager is None or self._dev_profile_coordinator is None:
+            self.notify_warning("no active session to profile")
+            return
+        status = self._dev_profile_coordinator.request_update(focus)
+        if status == "running":
+            self.notify_warning("developer profile update already running")
+        elif status != "started":
+            self.notify_warning("no completed session turns to profile")
+        else:
+            self._dev_profile_active = True
+            self._sync_compaction_ui()
+
     def _sync_compaction_ui(self) -> None:
-        status = "compacting session" if self._compaction_active else None
+        statuses = []
+        if self._compaction_active:
+            statuses.append("compacting session")
+        if self._dev_profile_active:
+            statuses.append("evolving developer profile")
+        status = " · ".join(statuses) or None
         curated_path = str(self._manager.curated_path) if self._manager is not None else None
         self.query_one(RuntimeBar).update_runtime(model=get_model_name(self._model), curated_path=curated_path, status=status)
 
@@ -389,6 +439,16 @@ class QuasipilotApp(App[None]):
         text = event.value.strip()
         event.input.load_text("")
         if not text:
+            return
+
+        if self._commands.is_slash(text):
+            if self._busy or self._compaction_active or self._dev_profile_active:
+                self.notify_warning("wait for the active operation to finish")
+            elif self._commands.is_known_command(text):
+                self._commands.dispatch(self, text)
+            else:
+                name = self._commands.slash_name(text) or "?"
+                self.notify_warning(f"unknown command: /{name}")
             return
 
         if self._busy:
@@ -399,14 +459,6 @@ class QuasipilotApp(App[None]):
                 self.notify("steering queued", timeout=2, markup=False)
             else:
                 self.notify_warning("wait for the active operation to finish")
-            return
-
-        if self._commands.is_slash(text):
-            if self._commands.is_known_command(text):
-                self._commands.dispatch(self, text)
-            else:
-                name = self._commands.slash_name(text) or "?"
-                self.notify_warning(f"unknown command: /{name}")
             return
 
         self._start_agent_turn(text)

@@ -89,6 +89,25 @@ class CompactionUiTests(TestCase):
         self.assertIsInstance(mounted[0], StatusBubble)
         self.assertEqual(notifications, ["session compaction finished"])
 
+    def test_dev_profile_event_does_not_mount_subagent_output(self) -> None:
+        app = QuasipilotApp()
+        mounted: list[object] = []
+        notifications: list[str] = []
+        app._mount_chat = mounted.append  # type: ignore[method-assign]
+        app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
+        app.notify = lambda message, **_: notifications.append(message)  # type: ignore[method-assign]
+
+        app._handle_dev_profile_event(
+            "end",
+            {
+                "changed": True,
+                "summary": "Internal subagent trajectory must not be rendered.",
+            },
+        )
+
+        self.assertEqual(mounted, [])
+        self.assertEqual(notifications, ["developer profile updated"])
+
 
 class ToolStreamTests(TestCase):
     def test_tool_stream_labels_ls_as_listed(self) -> None:
@@ -272,6 +291,34 @@ class ChatInputTests(TestCase):
 
         self.assertEqual(queued, ["change direction"])
         self.assertEqual(notifications, ["steering queued"])
+
+    def test_busy_agent_rejects_slash_command_instead_of_steering(self) -> None:
+        queued: list[str] = []
+        warnings: list[str] = []
+
+        app = QuasipilotApp()
+        app._busy = True
+        app._agent_active = True
+        app._live_steering.submit = queued.append  # type: ignore[method-assign]
+        app.notify_warning = warnings.append  # type: ignore[method-assign]
+
+        event = ChatInput.Submitted(type("StubInput", (), {"load_text": lambda self, _: None})(), "/devprofile")
+        app.on_chat_input_submitted(event)
+
+        self.assertEqual(queued, [])
+        self.assertEqual(warnings, ["wait for the active operation to finish"])
+
+    def test_detached_profile_job_blocks_other_slash_commands(self) -> None:
+        warnings: list[str] = []
+
+        app = QuasipilotApp()
+        app._dev_profile_active = True
+        app.notify_warning = warnings.append  # type: ignore[method-assign]
+
+        event = ChatInput.Submitted(type("StubInput", (), {"load_text": lambda self, _: None})(), "/new")
+        app.on_chat_input_submitted(event)
+
+        self.assertEqual(warnings, ["wait for the active operation to finish"])
 
     def test_interrupted_turn_restarts_from_restored_transcript(self) -> None:
         app = QuasipilotApp()

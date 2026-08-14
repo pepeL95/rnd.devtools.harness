@@ -13,6 +13,7 @@ from core.compaction.llms import (
 from core.trajectory.llms import (
     get_default_trajectory_compactor_model,
 )
+from core.dev_profile.llms import get_default_dev_profile_model
 from core.utilities.defaults import get_default_driver_model
 
 
@@ -106,6 +107,28 @@ class DriverAgentTests(TestCase):
             names = [type(item).__name__ for item in captured]
             self.assertLess(names.index("TrajectoryCompactionMiddleware"), names.index("SessionLoadMiddleware"))
 
+    def test_driver_agent_places_dev_profile_after_system_prompt(self) -> None:
+        with TemporaryDirectory() as directory:
+            captured: list[object] = []
+
+            class FakeFilesystemMiddleware:
+                def __init__(self, **_: object) -> None:
+                    pass
+
+            def fake_create_agent(*, model: object, tools: list[object], middleware: list[object]) -> object:
+                captured.extend(middleware)
+                return object()
+
+            with patch("langchain.agents.create_agent", side_effect=fake_create_agent), patch(
+                "agents.driver.agent.HarnessFilesystemMiddleware",
+                FakeFilesystemMiddleware,
+            ):
+                create_driver_agent(DriverAgentConfig(cwd=Path(directory), session_id="test-session"))
+
+            names = [type(item).__name__ for item in captured]
+            self.assertLess(names.index("SystemPromptMiddleware"), names.index("DevProfileMiddleware"))
+            self.assertLess(names.index("DevProfileMiddleware"), names.index("SkillsMiddleware"))
+
     def test_default_driver_model_uses_reasoning_profile(self) -> None:
         model = get_default_driver_model()
 
@@ -120,6 +143,7 @@ class DriverAgentTests(TestCase):
             get_default_compactor_model,
             get_default_critic_model,
             get_default_trajectory_compactor_model,
+            get_default_dev_profile_model,
         ):
             model = factory()
             self.assertEqual(model.model, "gemini-3.1-flash-lite")

@@ -14,6 +14,7 @@ from core.compaction.policy import CompactionPolicy
 from core.live_steering import LiveSteeringController
 from core.middleware.cancellation import CancellationMiddleware
 from core.middleware.compaction import CompactionMiddleware
+from core.middleware.dev_profile import DevProfileMiddleware
 from core.middleware.filesystem import HarnessFilesystemMiddleware
 from core.middleware.live_steering import LiveSteeringMiddleware
 from core.middleware.reasoning import ReasoningEagerness, ReasoningMiddleware, reasoning_tool
@@ -88,6 +89,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
         SessionLoadMiddleware(manager, session_dump=session_dump),
         SystemPromptMiddleware(cwd=cwd),
+        DevProfileMiddleware(cwd=cwd),
         SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         HarnessFilesystemMiddleware(backend=backend),

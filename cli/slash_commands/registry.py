@@ -3,6 +3,7 @@ from __future__ import annotations
 from cli.slash_commands.base import SlashCommand
 from cli.slash_commands.compact import CompactCommand
 from cli.slash_commands.copy import CopyCommand
+from cli.slash_commands.devprofile import DevProfileCommand
 from cli.slash_commands.clear import ClearCommand
 from cli.slash_commands.exit import ExitCommand
 from cli.slash_commands.models import ModelsCommand
@@ -23,6 +24,7 @@ class SlashCommandRegistry:
             NewCommand(),
             PythonCommand(),
             CompactCommand(),
+            DevProfileCommand(),
             ClearCommand(),
             PopCommand(),
             ExitCommand(),

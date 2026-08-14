@@ -48,3 +48,11 @@ Run the CLI with:
 ```bash
 quasipilot
 ```
+
+Use `/devprofile` from an idle prompt to asynchronously evolve the workspace's
+free-form `.quasipilot/DEVPROFILE.md` from completed turns in the active session.
+An optional focus can guide the detached review, for example:
+
+```text
+/devprofile focus on testing and commit preferences
+```
