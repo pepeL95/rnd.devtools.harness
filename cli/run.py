@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 from threading import Event
 
 from textual import work
+from textual.actions import SkipAction
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
@@ -97,7 +100,11 @@ class QuasipilotApp(App[None]):
     }
     """
 
-    BINDINGS = [("ctrl+c", "quit", "Quit"), ("escape", "cancel_turn", "Cancel")]
+    BINDINGS = [
+        ("ctrl+z", "quit", "Quit"),
+        ("ctrl+c", "copy_selection", "Copy"),
+        ("escape", "cancel_turn", "Cancel"),
+    ]
 
     def __init__(self) -> None:
         super().__init__(ansi_color=True)
@@ -142,6 +149,15 @@ class QuasipilotApp(App[None]):
         self.query_one(ChatInput).focus()
         self._restore_startup_session()
         self._sync_compaction_ui()
+
+    def copy_to_clipboard(self, text: str) -> None:
+        super().copy_to_clipboard(text)
+        if sys.platform != "darwin":
+            return
+        try:
+            subprocess.run(["pbcopy"], input=text, text=True, check=True)
+        except (OSError, subprocess.SubprocessError):
+            return
 
     def notify_warning(self, message: str) -> None:
         self.notify(message, timeout=3, markup=False, severity="warning")
@@ -480,6 +496,12 @@ class QuasipilotApp(App[None]):
         self._set_busy(True, disable_input=False)
         self._show_spinner()
         self.run_turn(None)
+
+    def action_copy_selection(self) -> None:
+        try:
+            self.screen.action_copy_text()
+        except SkipAction:
+            return
 
     def action_cancel_turn(self) -> None:
         if self._agent_active and not self._cancellation_pending:

@@ -109,6 +109,18 @@ class CompactionUiTests(TestCase):
         self.assertEqual(notifications, ["developer profile updated"])
 
 
+class SelectionActionTests(TestCase):
+    def test_copy_selection_ignores_missing_selection(self) -> None:
+        from textual.actions import SkipAction
+        from unittest.mock import PropertyMock
+
+        app = QuasipilotApp()
+        screen = type("ScreenStub", (), {"action_copy_text": lambda self: (_ for _ in ()).throw(SkipAction())})()
+
+        with patch.object(QuasipilotApp, "screen", new_callable=PropertyMock, return_value=screen):
+            app.action_copy_selection()
+
+
 class ToolStreamTests(TestCase):
     def test_tool_stream_labels_ls_as_listed(self) -> None:
         rendered = ToolStream("execute", "ls -la")._build_content("execute", "ls -la", None)
