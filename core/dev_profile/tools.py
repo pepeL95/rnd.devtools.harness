@@ -134,6 +134,19 @@ def create_dev_profile_tools(
                     "message": "DEVPROFILE.md must use GitHub-flavored Markdown with an ATX heading and subheading.",
                 }
             )
+        current = store.read()
+        if (
+            content.strip() == EMPTY_DEV_PROFILE
+            and current.exists
+            and current.content.strip()
+            and current.content.strip() != EMPTY_DEV_PROFILE
+        ):
+            return json.dumps(
+                {
+                    "status": "rejected",
+                    "message": "A populated DEVPROFILE.md cannot be replaced with the empty-state document.",
+                }
+            )
         if content.strip() != EMPTY_DEV_PROFILE:
             if not references:
                 return json.dumps(
@@ -200,7 +213,7 @@ def create_dev_profile_tools(
         StructuredTool.from_function(
             func=update_devprofile,
             name="update_devprofile",
-            description=f"Create or atomically replace DEVPROFILE.md as GitHub-flavored Markdown with descriptive ATX headings and subheadings. The heading names and document structure are flexible. Substantive content requires exact user quotes; when no supported preference exists, write exactly: {EMPTY_DEV_PROFILE}",
+            description=f"Create or atomically replace the complete merged DEVPROFILE.md as GitHub-flavored Markdown with descriptive ATX headings and subheadings. Preserve existing instructions unless newer user evidence explicitly changes them. The heading names and document structure are flexible. Substantive content requires exact user quotes; when the file does not exist and no supported preference exists, write exactly: {EMPTY_DEV_PROFILE}",
             args_schema=UpdateDevProfileSchema,
             infer_schema=False,
         ),

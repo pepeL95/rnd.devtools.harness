@@ -23,11 +23,11 @@ Words such as `always`, `must`, `prefer`, `remember`, and `whenever` clearly sig
 
 USER events are the only valid evidence. Assistant messages, reasoning, tool calls, tool outputs, code changes, and repository state are context only. Do not infer preferences from assistant behavior, implementation choices, questions about the code, or temporary task details. Do not record secrets or repository facts.
 
-Use inspect_session and read_devprofile first. Inspect additional turns when needed. Preserve supported existing preferences, incorporate new ones, resolve contradictions in favor of newer explicit user statements, and remove unsupported claims.
+Use inspect_session and read_devprofile first. DEVPROFILE.md is accumulated knowledge, not a document to regenerate from the current session. Preserve every existing instruction by default; it does not need to be restated or supported again in the current session. Merge new preferences into the existing document. Revise or remove an existing instruction only when a newer USER event explicitly changes, contradicts, or retracts it. Silence, omission, or lack of repeated evidence is never grounds for changing existing content.
 
 Write the complete document as GitHub-flavored Markdown. Organize it with descriptive ATX headings and subheadings (`#` and `##`). Heading names and section organization are your choice; there is no fixed schema. Keep it concise and actionable, with no explanations or filler.
 
-Every substantive update must provide update_devprofile with exact user quotes and turn numbers. If at least one explicit reusable preference exists, update the profile. Only when none exists, write exactly:
+Every substantive update must provide update_devprofile with exact user quotes and turn numbers. When new evidence exists, write the complete merged document and retain all unaffected existing sections. When the session adds no new preference and changes none, leave an existing DEVPROFILE.md untouched. Only when DEVPROFILE.md does not exist and no preference has been learned, create it with exactly:
 
 ```markdown
 {EMPTY_DEV_PROFILE}

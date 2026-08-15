@@ -110,6 +110,25 @@ class DevProfileTests(TestCase):
             self.assertEqual(result["status"], "updated")
             self.assertEqual(store.read().content, EMPTY_DEV_PROFILE)
 
+    def test_update_tool_does_not_replace_populated_profile_with_empty_state(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = DevProfileStore(directory)
+            current = store.update(
+                "# Developer Preferences\n\n## Commits\n\nWrite rich commit messages.",
+                expected_revision=None,
+            )
+            tools = {tool.name: tool for tool in create_dev_profile_tools((), store)}
+
+            result = json.loads(
+                tools["update_devprofile"].invoke(
+                    {"content": EMPTY_DEV_PROFILE, "expected_revision": current.revision}
+                )
+            )
+
+            self.assertEqual(result["status"], "rejected")
+            self.assertIn("cannot be replaced", result["message"])
+            self.assertEqual(store.read().content, current.content)
+
     def test_update_tool_rejects_content_without_heading_hierarchy(self) -> None:
         with TemporaryDirectory() as directory:
             events = (
@@ -173,6 +192,8 @@ class DevProfileTests(TestCase):
             self.assertIn("One explicit statement is sufficient", kwargs["system_prompt"])
             self.assertIn("GitHub-flavored Markdown", kwargs["system_prompt"])
             self.assertIn("ATX headings and subheadings", kwargs["system_prompt"])
+            self.assertIn("accumulated knowledge, not a document to regenerate", kwargs["system_prompt"])
+            self.assertIn("Silence, omission, or lack of repeated evidence is never grounds", kwargs["system_prompt"])
 
     def test_middleware_keeps_profile_stable_for_entire_agent_run(self) -> None:
         with TemporaryDirectory() as directory:
