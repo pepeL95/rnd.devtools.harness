@@ -37,6 +37,11 @@ class DevProfileTests(TestCase):
             events = [
                 SessionEvent(type=EventType.USER, turn=1, payload={"content": "Always run the full suite."}),
                 SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"content": "I will."}),
+                SessionEvent(
+                    type=EventType.USER,
+                    turn=1,
+                    payload={"content": "The tool failed.", "kind": "harness_context"},
+                ),
                 SessionEvent(type=EventType.TURN_END, turn=1, payload={}),
                 SessionEvent(type=EventType.USER, turn=2, payload={"content": "This turn is still active."}),
             ]
@@ -46,14 +51,18 @@ class DevProfileTests(TestCase):
             overview = json.loads(tools["inspect_session"].invoke({"start_turn": 1, "limit": 20}))
             search = json.loads(tools["search_session"].invoke({"query": "full suite", "limit": 20}))
             assistant_search = json.loads(tools["search_session"].invoke({"query": "I will", "limit": 20}))
+            context_search = json.loads(tools["search_session"].invoke({"query": "tool failed", "limit": 20}))
             turn = json.loads(tools["read_session_turns"].invoke({"turns": [1]}))["1"]
 
             self.assertEqual([item["turn"] for item in overview["turns"]], [1])
             self.assertEqual(overview["turns"][0]["user_messages"], ["Always run the full suite."])
             self.assertEqual(len(search["matches"]), 1)
             self.assertEqual(assistant_search["matches"], [])
+            self.assertEqual(context_search["matches"], [])
             self.assertTrue(turn[0]["preference_evidence"])
             self.assertFalse(turn[1]["preference_evidence"])
+            self.assertFalse(turn[2]["preference_evidence"])
+            self.assertNotIn("tool failed", str(overview))
             self.assertNotIn("still active", str(overview))
 
     def test_update_tool_requires_valid_user_evidence_and_handles_conflict(self) -> None:

@@ -481,7 +481,39 @@ class MiddlewareTests(TestCase):
             dump = manager.read_dump()
             self.assertTrue(any(event.type == EventType.TOOL and event.payload["name"] == "read_file" for event in dump))
             self.assertTrue(any(event.type == EventType.META and event.payload.get("kind") == "tool_error" for event in dump))
+            context = [event for event in dump if event.payload.get("kind") == "harness_context"]
+            self.assertEqual(len(context), 1)
+            self.assertEqual(context[0].payload.get("source"), "tool_error")
+            self.assertIn("`read_file` tool failed with RuntimeError: tool failed", context[0].payload["content"])
+            restored = manager.load_curated_messages()
+            self.assertTrue(
+                any(
+                    message.additional_kwargs.get("session_kind") == "harness_context"
+                    and "Reassess the failure" in str(message.content)
+                    for message in restored
+                )
+            )
             self.assertTrue(any(event.type == EventType.TURN_END and event.payload.get("status") == "error" for event in dump))
+
+    def test_session_dump_restores_model_failure_as_harness_context(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            middleware = SessionDumpMiddleware(manager)
+
+            middleware.before_agent({"messages": []}, runtime=None)
+            with self.assertRaises(RuntimeError):
+                middleware.wrap_model_call(
+                    FakeModelRequest(system_message=None, messages=[]),  # type: ignore[arg-type]
+                    lambda _: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
+                )
+
+            context = [
+                event for event in manager.read_curated()
+                if event.payload.get("kind") == "harness_context"
+            ]
+            self.assertEqual(len(context), 1)
+            self.assertEqual(context[0].payload.get("source"), "model_error")
+            self.assertIn("a model call failed with RuntimeError: provider unavailable", context[0].payload["content"])
 
     def test_session_dump_records_live_steering_interrupt(self) -> None:
         with TemporaryDirectory() as directory:

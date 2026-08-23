@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from core.dev_profile.store import DevProfileConflictError, DevProfileStore
 from core.session.events import EventType, SessionEvent
+from core.session.turns import is_user_authored_event
 
 EMPTY_DEV_PROFILE = "# Developer Preferences\n\n## Status\n\nNo dev preferences learned yet."
 
@@ -66,7 +67,7 @@ def create_dev_profile_tools(
             items.append(
                 {
                     "turn": turn,
-                    "user_messages": _event_contents(turn_events, EventType.USER),
+                    "user_messages": _user_event_contents(turn_events),
                     "event_counts": dict(sorted(counts.items())),
                 }
             )
@@ -95,7 +96,7 @@ def create_dev_profile_tools(
         needle = query.casefold()
         matches: list[dict[str, Any]] = []
         for event in events:
-            if event.type != EventType.USER:
+            if not is_user_authored_event(event):
                 continue
             serialized = json.dumps(event.payload, ensure_ascii=False)
             if needle not in serialized.casefold():
@@ -225,17 +226,17 @@ def completed_dump_snapshot(events: list[SessionEvent]) -> tuple[SessionEvent, .
     return tuple(event for event in events if event.turn in completed_turns and event.turn > 0)
 
 
-def _event_contents(events: list[SessionEvent], event_type: EventType) -> list[str]:
+def _user_event_contents(events: list[SessionEvent]) -> list[str]:
     return [
         " ".join(str(event.payload.get("content") or "").split())[:300]
         for event in events
-        if event.type == event_type and str(event.payload.get("content") or "").strip()
+        if is_user_authored_event(event) and str(event.payload.get("content") or "").strip()
     ]
 
 
 def _event_with_evidence_role(event: SessionEvent) -> dict[str, Any]:
     serialized = event.to_json_dict()
-    serialized["preference_evidence"] = event.type == EventType.USER
+    serialized["preference_evidence"] = is_user_authored_event(event)
     return serialized
 
 
@@ -246,7 +247,7 @@ def _valid_user_evidence(reference: DevProfileEvidence, by_turn: dict[int, list[
     return any(
         quote in str(event.payload.get("content") or "")
         for event in by_turn.get(reference.turn, [])
-        if event.type == EventType.USER
+        if is_user_authored_event(event)
     )
 
 

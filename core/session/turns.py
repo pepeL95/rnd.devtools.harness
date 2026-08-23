@@ -4,7 +4,9 @@ from collections.abc import Iterable
 
 from core.session.events import EventType, SessionEvent
 
-HIDDEN_HISTORY_KINDS = {"memory_restore", "trajectory_memory"}
+HARNESS_CONTEXT_KIND = "harness_context"
+NON_USER_AUTHORED_KINDS = {"memory_restore", "trajectory_memory", HARNESS_CONTEXT_KIND}
+HIDDEN_HISTORY_KINDS = NON_USER_AUTHORED_KINDS
 
 
 def next_turn(events: Iterable[SessionEvent]) -> int:
@@ -27,6 +29,10 @@ def agent_history_events(events: Iterable[SessionEvent]) -> list[SessionEvent]:
         EventType.REASONING,
     }
     return [event for event in events if event.type in allowed]
+
+
+def is_user_authored_event(event: SessionEvent) -> bool:
+    return event.type == EventType.USER and event.payload.get("kind") not in NON_USER_AUTHORED_KINDS
 
 
 def display_history_events(events: Iterable[SessionEvent]) -> list[SessionEvent]:

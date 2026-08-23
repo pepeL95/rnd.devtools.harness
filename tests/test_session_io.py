@@ -375,6 +375,25 @@ class SessionIOTests(TestCase):
 
             self.assertEqual([event.payload["content"] for event in history], ["real user", "real assistant"])
 
+    def test_read_display_history_hides_harness_context(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            manager.append(
+                [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "failure context", "kind": "harness_context"},
+                    ),
+                    SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "real user"}),
+                ],
+                curated=False,
+            )
+
+            history = manager.read_display_history()
+
+            self.assertEqual([event.payload["content"] for event in history], ["real user"])
+
     def test_events_from_messages_emits_reasoning_events_for_assistant_messages(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from core.compaction.token_counter import TokenCounter
 from core.session.events import EventType, SessionEvent
+from core.session.turns import is_user_authored_event
 from core.trajectory.models import TrajectoryCompactionResult, TurnTrajectorySynthesis
 from core.trajectory.policy import TrajectoryCompactionPolicy
 from core.trajectory.prompts import SYNTHESIS_PROMPT
@@ -193,7 +194,7 @@ def _rewrite_events(
 
 def _turn_user_message(events: list[SessionEvent]) -> str:
     for event in events:
-        if event.type == EventType.USER and event.payload.get("kind") not in SYNTHETIC_KINDS:
+        if is_user_authored_event(event):
             return str(event.payload.get("content", "")).strip()
     return ""
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from cli.utilities.display import content_to_plaintext
 from core.session.events import EventType
 from core.session.io import default_session_root, read_events, session_paths
+from core.session.turns import is_user_authored_event
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,7 @@ class SessionSummary:
 
 def _first_user_preview(events: list) -> str:
     for event in events:
-        if event.type == EventType.USER:
+        if is_user_authored_event(event):
             text = content_to_plaintext(event.payload.get("content", ""))
             return _truncate(text)
     return ""

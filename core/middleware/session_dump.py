@@ -10,6 +10,7 @@ from langgraph.types import Command
 from core.live_steering import CancellationInterrupt, LiveSteeringInterrupt, format_cancellation_introspection, format_steering_introspection
 from core.session.events import EventType, RuntimeSnapshot, SessionEvent
 from core.session.manager import SessionManager
+from core.session.turns import HARNESS_CONTEXT_KIND
 from core.utilities.git import git_branch, git_dirty
 
 class SessionDumpMiddleware(AgentMiddleware):
@@ -135,6 +136,16 @@ class SessionDumpMiddleware(AgentMiddleware):
         self.manager.append(
             [
                 SessionEvent(type=EventType.META, turn=turn, payload={"kind": kind, **payload}),
+                SessionEvent(
+                    type=EventType.USER,
+                    turn=turn,
+                    payload={
+                        "role": "user",
+                        "kind": HARNESS_CONTEXT_KIND,
+                        "source": kind,
+                        "content": _failure_context(kind, payload),
+                    },
+                ),
                 SessionEvent(type=EventType.TURN_END, turn=turn, payload={"status": "error"}),
             ]
         )
@@ -207,6 +218,7 @@ def _is_nonpersisted_restored_message(message: Any) -> bool:
         "memory_restore",
         "trajectory_memory",
         "transcript_repair",
+        HARNESS_CONTEXT_KIND,
     }
 
 
@@ -225,6 +237,25 @@ def _tool_result_messages(result: Any) -> list[Any]:
 
 def _is_message_like(value: Any) -> bool:
     return hasattr(value, "content") or hasattr(value, "tool_call_id")
+
+
+def _failure_context(kind: str, payload: dict[str, Any]) -> str:
+    error_type = str(payload.get("error_type") or "error")
+    error = " ".join(str(payload.get("error") or "unknown failure").split())
+    if len(error) > 500:
+        error = error[:499] + "…"
+    if kind == "tool_error":
+        subject = f"the `{payload.get('tool_name') or 'unknown'}` tool"
+    else:
+        subject = "a model call"
+    return "\n".join(
+        [
+            "[HARNESS CONTEXT]",
+            f"The previous attempt ended because {subject} failed with {error_type}: {error}",
+            "Reassess the failure before retrying or choosing another approach.",
+            "[END HARNESS CONTEXT]",
+        ]
+    )
 
 
 def _termination_events(

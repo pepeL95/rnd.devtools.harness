@@ -91,6 +91,11 @@ class CliSessionUtilityTests(TestCase):
             append_events(
                 dump,
                 [
+                    SessionEvent(
+                        type=EventType.USER,
+                        turn=1,
+                        payload={"role": "user", "content": "failure context", "kind": "harness_context"},
+                    ),
                     SessionEvent(type=EventType.USER, turn=1, payload={"role": "user", "content": "first prompt"}),
                     SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"role": "assistant", "content": "reply"}),
                     SessionEvent(type=EventType.USER, turn=2, payload={"role": "user", "content": "latest prompt"}),
