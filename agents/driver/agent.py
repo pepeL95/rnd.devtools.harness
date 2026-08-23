@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event
@@ -60,7 +61,11 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     cwd = config.cwd.expanduser().resolve()
     manager = config.session_manager or SessionManager(session_id=config.session_id)
     telemetry_store = TelemetryStore(telemetry_session_path(manager.session_id))
-    backend = _local_shell_backend(LocalShellBackend, cwd)
+    backend = _local_shell_backend(
+        LocalShellBackend,
+        cwd,
+        python_interpreter=config.python_interpreter,
+    )
     session_compaction_coordinator = config.session_compaction_coordinator or CompactionCoordinator(
         manager,
         Compactor(policy=CompactionPolicy()),
@@ -104,12 +109,23 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     )
 
 
-def _local_shell_backend(backend_cls: type[Any], cwd: Path) -> Any:
+def _local_shell_backend(
+    backend_cls: type[Any],
+    cwd: Path,
+    *,
+    python_interpreter: Path | None = None,
+) -> Any:
     kwargs: dict[str, Any] = {
         "root_dir": str(cwd),
         "inherit_env": True,
     }
     parameters = inspect.signature(backend_cls).parameters
+    if python_interpreter is not None and "env" in parameters:
+        interpreter_bin = str(python_interpreter.expanduser().resolve().parent)
+        inherited_path = os.environ.get("PATH", "")
+        kwargs["env"] = {
+            "PATH": os.pathsep.join(part for part in (interpreter_bin, inherited_path) if part),
+        }
     if "virtual_env" in parameters:
         kwargs["virtual_env"] = False
     if "virtual_mode" in parameters:

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -31,6 +32,13 @@ class BackendWithoutVirtualEnv:
         self.inherit_env = inherit_env
 
 
+class BackendWithEnv:
+    def __init__(self, root_dir: str, inherit_env: bool, env: dict[str, str]) -> None:
+        self.root_dir = root_dir
+        self.inherit_env = inherit_env
+        self.env = env
+
+
 class DriverAgentTests(TestCase):
     def test_local_shell_backend_passes_virtual_env_when_supported(self) -> None:
         with TemporaryDirectory() as directory:
@@ -49,6 +57,21 @@ class DriverAgentTests(TestCase):
 
             self.assertEqual(backend.root_dir, str(path))
             self.assertIs(backend.inherit_env, True)
+
+    def test_local_shell_backend_prioritizes_configured_python_environment(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory)
+            interpreter = path / ".venv/bin/python"
+
+            backend = _local_shell_backend(
+                BackendWithEnv,
+                path,
+                python_interpreter=interpreter,
+            )
+
+            path_entries = backend.env["PATH"].split(os.pathsep)
+            self.assertEqual(path_entries[0], str(interpreter.parent.resolve()))
+            self.assertEqual(os.pathsep.join(path_entries[1:]), os.environ.get("PATH", ""))
 
     def test_driver_agent_builds_with_telemetry_middleware(self) -> None:
         with TemporaryDirectory() as directory:

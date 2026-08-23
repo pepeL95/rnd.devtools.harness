@@ -29,6 +29,7 @@ class FakeModelRequest:
     system_message: SystemMessage | None
     messages: list[Any]
     tools: list[Any] | None = None
+    model: Any = None
     state: dict[str, Any] | None = None
     runtime: Any = None
 
