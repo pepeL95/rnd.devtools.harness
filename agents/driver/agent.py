@@ -13,6 +13,9 @@ from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.live_steering import LiveSteeringController
+from core.hooks.config import load_hooks
+from core.hooks.dispatcher import HookDispatcher
+from core.middleware.hooks import HooksMiddleware
 from core.middleware.cancellation import CancellationMiddleware
 from core.middleware.compaction import CompactionMiddleware
 from core.middleware.dev_profile import DevProfileMiddleware
@@ -79,6 +82,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     )
     live_steering_controller = config.live_steering_controller or LiveSteeringController()
     session_dump = SessionDumpMiddleware(manager, python_interpreter=config.python_interpreter)
+    hooks = load_hooks(cwd)
     middleware = [
         # Middleware order is load-bearing. LangChain runs before_* hooks
         # first-to-last, after_* hooks last-to-first, and wrap hooks as nested
@@ -99,6 +103,9 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         HarnessFilesystemMiddleware(backend=backend),
         session_dump,
+        # Completion hooks can return to the model before SessionDump closes
+        # the logical turn and the outer compaction hooks run.
+        *([HooksMiddleware(HookDispatcher(hooks, manager, cwd, config.python_interpreter), session_dump)] if hooks else []),
         LiveSteeringMiddleware(live_steering_controller),
         *([CancellationMiddleware(config.cancel_event)] if config.cancel_event is not None else []),
     ]

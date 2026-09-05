@@ -27,6 +27,10 @@ class SessionDumpMiddleware(AgentMiddleware):
         self._prime_seen_events()
 
     @property
+    def active_turn(self) -> int | None:
+        return self._active_turn
+
+    @property
     def is_interrupted(self) -> bool:
         """True when the last turn was interrupted and the agent is re-entering."""
         return self._interrupted

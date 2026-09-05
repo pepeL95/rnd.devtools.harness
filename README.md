@@ -56,3 +56,7 @@ An optional focus can guide the detached review, for example:
 ```text
 /devprofile focus on testing and commit preferences
 ```
+
+Configure steering and executable hooks in global or workspace
+`.quasipilot/.hooks/hooks.toml`. See the [hooks v1 reference](core/hooks/docs/v1.md)
+for triggers, matching, and completion-checklist examples.
