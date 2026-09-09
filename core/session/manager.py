@@ -349,7 +349,12 @@ def _message_additional_kwargs(event: SessionEvent) -> dict[str, Any]:
     kind = event.payload.get("kind")
     if not kind:
         return {}
-    return {"session_kind": kind}
+    extras = {"session_kind": kind}
+    if event.payload.get("source") == "hook":
+        for key in ("hook_id", "trigger", "tool_call_ids"):
+            if key in event.payload:
+                extras[key] = event.payload[key]
+    return extras
 
 
 def _optional_str(value: Any) -> str | None:

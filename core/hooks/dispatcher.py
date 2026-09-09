@@ -79,7 +79,8 @@ class HookDispatcher:
                         messages.append(HumanMessage(
                             content=f"[HARNESS CONTEXT: {config.id} / {trigger}]\n{content}\n[END HARNESS CONTEXT]",
                             additional_kwargs={"session_kind": HARNESS_CONTEXT_KIND,
-                                               "hook_id": config.id, "trigger": trigger},
+                                               "hook_id": config.id, "trigger": trigger,
+                                               "tool_call_ids": [data["tool"]["id"]] if data.get("tool", {}).get("id") else []},
                         ))
                 else:
                     result = run_code(hook.path, event, self.cwd, self.env)
@@ -94,6 +95,7 @@ class HookDispatcher:
                 "role": "user", "kind": HARNESS_CONTEXT_KIND, "source": "hook",
                 "hook_id": message.additional_kwargs["hook_id"],
                 "trigger": message.additional_kwargs["trigger"], "content": message.content,
+                "tool_call_ids": message.additional_kwargs.get("tool_call_ids", []),
             }) for message in messages
         ])
 

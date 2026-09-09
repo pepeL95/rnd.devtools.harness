@@ -44,6 +44,7 @@ class HooksMiddleware(AgentMiddleware):
     def _drain(self) -> list[HumanMessage]:
         with self._lock:
             messages, self._pending = self._pending, []
+            messages = _group_steering(messages)
             self.dispatcher.persist(messages)
             return messages
 
@@ -136,3 +137,27 @@ def _failure(exc: Exception) -> dict[str, str]:
         "interrupted" if isinstance(exc, LiveSteeringInterrupt) else "error"
     )
     return {"status": status, "error_type": type(exc).__name__, "error": str(exc)}
+
+
+def _group_steering(messages: list[HumanMessage]) -> list[HumanMessage]:
+    """Deliver each pending hook once, retaining all originating tool calls.
+
+    Draining at a model boundary scopes tool/command grouping to its batch;
+    model and turn hooks retain their existing lifecycle/recursion frequency.
+    """
+    grouped: dict[str, HumanMessage] = {}
+    for message in messages:
+        key = message.additional_kwargs["hook_id"]
+        if key not in grouped:
+            grouped[key] = message.model_copy(deep=True)
+        else:
+            calls = grouped[key].additional_kwargs.setdefault("tool_call_ids", [])
+            for call_id in message.additional_kwargs.get("tool_call_ids", []):
+                if call_id not in calls:
+                    calls.append(call_id)
+    for message in grouped.values():
+        calls = message.additional_kwargs.get("tool_call_ids", [])
+        if calls:
+            header, separator, body = str(message.content).partition("\n")
+            message.content = f"{header}\nTriggered by tool calls: {', '.join(calls)}\n{body}" if separator else str(message.content)
+    return list(grouped.values())

@@ -156,10 +156,16 @@ def test_tool_and_command_notes_follow_results_and_match_prefix(tmp_path):
     messages = model.seen[1]
     results = [i for i, m in enumerate(messages) if isinstance(m, ToolMessage)]
     notes = [i for i, m in enumerate(messages) if m.additional_kwargs.get("session_kind") == "harness_context"]
-    assert len(results) == 2 and len(notes) == 6
+    assert len(results) == 2 and len(notes) == 4
     assert min(notes) > max(results)
+    for index in notes:
+        note = messages[index]
+        expected = {"call-1", "call-2"} if note.additional_kwargs["trigger"].endswith(".tool") else {"call-1"}
+        assert set(note.additional_kwargs["tool_call_ids"]) == expected
+        assert all(call_id in note.content for call_id in expected)
     restored = manager.load_curated_messages()
     assert len([m for m in restored if isinstance(m, ToolMessage)]) == 2
+    assert [m.additional_kwargs for m in restored if m.additional_kwargs.get("hook_id")] == [messages[i].additional_kwargs for i in notes]
     events = manager.read_dump()
     assert len([e for e in events if e.payload.get("status") == "skipped"]) == 1
     assert len([e for e in events if e.payload.get("trigger") == "before.command" and e.type == EventType.USER]) == 1
@@ -180,6 +186,40 @@ file="audit.py"
     assert result.payload["stdout"].strip() == "after.turn 1 1"
     assert result.payload["status"] == "success"
     assert not any(e.payload.get("kind") == "hook_result" for e in manager.read_curated())
+
+
+def test_all_steering_triggers_keep_lifecycle_frequency_across_batches(tmp_path):
+    from collections import Counter
+
+    def execute(command: str) -> str:
+        """Execute a test command."""
+        return "ok"
+
+    triggers = [f"{phase}.{scope}" for scope in ("turn", "model", "tool", "command") for phase in ("before", "after")]
+    manifest = "".join(
+        f'[[hooks]]\nid="{trigger}"\ntype="steering"\ntrigger="{trigger}"\nfile="note.md"\n'
+        for trigger in triggers
+    )
+    manifest += '[[hooks]]\nid="audit"\ntype="code"\ntrigger="after.tool"\nfile="audit.py"\n'
+    responses = [AIMessage(content="", tool_calls=[
+        {"name": "execute", "args": {"command": "git status"}, "id": f"batch-{batch}-call-{call}"}
+        for call in (1, 2)
+    ]) for batch in (1, 2)] + [AIMessage(content="candidate"), AIMessage(content="final")]
+    agent, manager, model, _ = build(tmp_path, manifest, {
+        "steering/note.md": "guidance", "code/audit.py": "#!/bin/sh\nexit 0\n",
+    }, responses, [execute])
+    with patch("core.hooks.dispatcher.run_code", return_value={"status": "success"}) as run:
+        agent.invoke({"messages": [HumanMessage(content="work")]})
+    assert run.call_count == 4
+    notes = [e for e in manager.read_curated() if e.payload.get("source") == "hook"]
+    counts = Counter(e.payload["trigger"] for e in notes)
+    assert counts == {trigger: (1 if trigger.endswith(".turn") else 4 if trigger.endswith(".model") else 2) for trigger in triggers}
+    for trigger in triggers:
+        if trigger.endswith((".tool", ".command")):
+            matches = [e for e in notes if e.payload["trigger"] == trigger]
+            for batch, note in enumerate(matches, 1):
+                assert set(note.payload["tool_call_ids"]) == {f"batch-{batch}-call-1", f"batch-{batch}-call-2"}
+    assert len(model.seen) == 4
 
 
 def test_code_hook_timeout_does_not_abort_agent(tmp_path):
