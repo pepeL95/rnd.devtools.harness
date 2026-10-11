@@ -25,14 +25,14 @@ cd "$REPO_ROOT"
 python -m pip install --upgrade pip setuptools wheel build
 python -m pip install --upgrade \
   -e ".[dev]" \
-  "deepagents==0.7.8" \
-  "langchain==1.3.16" \
-  "langchain-core==1.6.0" \
-  "langchain-google-genai==4.3.5" \
-  "langgraph==1.2.11" \
+  "deepagents==0.7.23" \
+  "langchain==1.4.4" \
+  "langchain-core==1.6.9" \
+  "langchain-google-genai==4.4.1" \
+  "langgraph==1.2.14" \
   "langgraph-checkpoint==4.1.1" \
   "langgraph-prebuilt==1.1.0" \
-  "langgraph-sdk==0.4.2"
+  "langgraph-sdk==0.4.6"
 
 python -m pip check
 python -m pytest -q

@@ -129,6 +129,7 @@ class DriverAgentTests(TestCase):
 
             names = [type(item).__name__ for item in captured]
             self.assertLess(names.index("TrajectoryCompactionMiddleware"), names.index("SessionLoadMiddleware"))
+            self.assertEqual(names[-1], "UnsupportedContentMiddleware")
 
     def test_driver_agent_places_dev_profile_after_system_prompt(self) -> None:
         with TemporaryDirectory() as directory:

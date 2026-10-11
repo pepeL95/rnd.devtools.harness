@@ -59,6 +59,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     """
 
     from deepagents.backends import LocalShellBackend
+    from deepagents.middleware.unsupported_content import UnsupportedContentMiddleware
     from langchain.agents import create_agent
 
     cwd = config.cwd.expanduser().resolve()
@@ -108,6 +109,8 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         *([HooksMiddleware(HookDispatcher(hooks, manager, cwd, config.python_interpreter), session_dump)] if hooks else []),
         LiveSteeringMiddleware(live_steering_controller),
         *([CancellationMiddleware(config.cancel_event)] if config.cancel_event is not None else []),
+        # create_agent does not install DeepAgents' multimodal compatibility filter.
+        UnsupportedContentMiddleware(),
     ]
     return create_agent(
         model=config.model,

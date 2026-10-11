@@ -23,6 +23,12 @@ versions validated by the team:
 The script activates `quasipilot-harness`, installs the editable project and
 pinned agent stack, validates dependencies, and runs the test suite. Pass a
 different environment name when needed: `./sync-env.sh my-environment`.
+
+The validated stack is DeepAgents 0.7.23, LangChain 1.4.4, LangGraph 1.2.14,
+and the Google GenAI adapter 4.4.1. When upgrading it, update the minimum
+versions in `pyproject.toml` and exact pins in `sync-env.sh` together, then
+run the synchronization script in `quasipilot-harness`.
+
 Git preserves the executable permission, but if it was stripped when copying or
 extracting the repository, restore it before running the script:
 
@@ -60,3 +66,8 @@ An optional focus can guide the detached review, for example:
 Configure steering and executable hooks in global or workspace
 `.quasipilot/.hooks/hooks.toml`. See the [hooks v1 reference](core/hooks/docs/v1.md)
 for triggers, matching, and completion-checklist examples.
+
+The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
+`execute`. `make_file` creates files with initial contents and refuses existing
+paths; discovery and search use shell commands through `execute`. Skills retain
+the harness's explicit `read_skill` activation.
