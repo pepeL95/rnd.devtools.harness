@@ -16,6 +16,7 @@ from core.live_steering import LiveSteeringController
 from core.hooks.config import load_hooks
 from core.hooks.dispatcher import HookDispatcher
 from core.middleware.hooks import HooksMiddleware
+from core.middleware.agents_md import AgentsMdMiddleware
 from core.middleware.cancellation import CancellationMiddleware
 from core.middleware.compaction import CompactionMiddleware
 from core.middleware.dev_profile import DevProfileMiddleware
@@ -99,6 +100,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
         SessionLoadMiddleware(manager, session_dump=session_dump),
         SystemPromptMiddleware(cwd=cwd),
+        AgentsMdMiddleware(cwd=cwd),
         DevProfileMiddleware(cwd=cwd),
         SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),

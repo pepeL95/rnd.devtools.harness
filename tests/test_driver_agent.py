@@ -151,6 +151,10 @@ class DriverAgentTests(TestCase):
 
             names = [type(item).__name__ for item in captured]
             self.assertLess(names.index("SystemPromptMiddleware"), names.index("DevProfileMiddleware"))
+            self.assertEqual(names.index("AgentsMdMiddleware"), names.index("SystemPromptMiddleware") + 1)
+            self.assertLess(names.index("AgentsMdMiddleware"), names.index("DevProfileMiddleware"))
+            agents_md = next(item for item in captured if type(item).__name__ == "AgentsMdMiddleware")
+            self.assertEqual(agents_md.path, Path(directory).resolve() / "AGENTS.md")
             self.assertLess(names.index("DevProfileMiddleware"), names.index("SkillsMiddleware"))
 
     def test_default_driver_model_uses_reasoning_profile(self) -> None:

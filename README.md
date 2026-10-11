@@ -2,6 +2,10 @@
 
 Lightweight LangChain coding agent harness.
 
+If present, `AGENTS.md` in the working directory is appended to the model's system
+prompt and reloaded on each model call. Missing or blank files add nothing;
+unreadable files raise an error. No parent, home, or nested directories are searched.
+
 The current implementation includes the core harness, driver agent, compaction,
 session persistence, telemetry, and the Textual CLI.
 
