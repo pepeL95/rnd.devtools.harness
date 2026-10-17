@@ -45,19 +45,19 @@ The `reasoning` tool is your required durable internal working memory. Use it to
 For every substantive task, alternate between reasoning and action:
 1. Call `reasoning` as your first action to interpret the request and choose the first step.
 2. Perform one tool call or parallel tool-call batch.
-3. After every tool-call batch completes, call `reasoning` once to interpret all results before another tool call or the final answer. A single tool call counts as a batch, including read-only calls, empty results, and failures.
+3. After every tool-call batch completes, you MUST call `reasoning` once to analyze its results before another tool call or the final answer. This checkpoint is non-negotiable. A single tool call counts as a batch, including read-only calls, empty results, and failures.
 4. Repeat this reasoning -> action -> reasoning loop until the task is complete.
 5. The checkpoint immediately before the final answer records the outcome, verification, and any remaining risk; the checkpoint after the last batch can serve this purpose.
 
 Call `reasoning` separately, after all results in the batch arrive; do not batch it with other tools. A reasoning-only batch does not require another reasoning call. The checkpoint must inform the next model step.
 Also call `reasoning` immediately after errors, surprising results, ambiguous evidence, user steering, or any change of plan.
 
-Write compact, first-person, introspective prose. Capture current understanding, concrete evidence, uncertainty, the decision you made, and the next action. Preserve load-bearing details such as paths, symbols, commands, and errors. Avoid generic narration, repeated plans, and raw tool-output restatement.""",
+Write a high-signal first-person state update, usually 1-3 short bullets or sentences: concrete findings, what they imply for the task (including uncertainty or failure), and my next action or completion verdict. Analyze the results, not just the fact that tools ran. Preserve decisive paths, symbols, test counts, and errors; add detail only when needed to retain evidence. No narrative recap, repeated plans, raw output dumps, or filler.""",
 }
 
 TOOL_FAILURE_REASONING_REMINDER = """A tool just failed. Use the `reasoning` tool before moving forward so you explicitly assess the failure mechanism, what changed, and the next best move."""
 
-BATCH_REASONING_REMINDER = """The tool-call batch is complete. Call `reasoning` alone next to assess its results, errors, and next action before using another tool or answering."""
+BATCH_REASONING_REMINDER = """Required next call: `reasoning` alone. Analyze the completed batch in 1-3 short bullets or sentences: decisive evidence, task implications or failures, and next action. No recap or filler."""
 
 READ_FILE_REASONING_REMINDER = """You just received a long `read_file` result. Use the `reasoning` tool to synthesize what was actually relevant from that output, what constraints or discoveries matter, and what can be ignored. This is primarily to preserve signal for later compaction."""
 
@@ -65,7 +65,7 @@ LONG_READ_FILE_CHARS = 2000
 
 
 class ReasoningMiddleware(AgentMiddleware):
-    """Steer reasoning at pivots, or after every action batch at high eagerness."""
+    """Steer reasoning at pivots; require it after action batches at high eagerness."""
 
     def __init__(self, eagerness: ReasoningEagerness = "low") -> None:
         if eagerness not in REASONING_STEERING_PROMPTS:
@@ -80,7 +80,8 @@ class ReasoningMiddleware(AgentMiddleware):
     ) -> ModelResponse:
         prompt = REASONING_STEERING_PROMPTS[self.eagerness]
         reminder = self._pending_reminder
-        if self.eagerness == "high" and _completed_action_batch(request.messages):
+        requires_checkpoint = self.eagerness == "high" and _completed_action_batch(request.messages)
+        if requires_checkpoint:
             reminder = BATCH_REASONING_REMINDER
         if reminder:
             prompt = "\n\n".join([prompt, reminder])
@@ -88,6 +89,8 @@ class ReasoningMiddleware(AgentMiddleware):
         updated = request.override(
             system_message=system_message_with_appended_text(request.system_message, prompt)
         )
+        if requires_checkpoint:
+            updated = updated.override(tool_choice="reasoning")
         return handler(updated)
 
     def wrap_tool_call(self, request: Any, handler: Any) -> Any:
