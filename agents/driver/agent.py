@@ -12,6 +12,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
+from core.config import ReasoningEagerness, load_config
 from core.live_steering import LiveSteeringController
 from core.hooks.config import load_hooks
 from core.hooks.dispatcher import HookDispatcher
@@ -22,7 +23,7 @@ from core.middleware.compaction import CompactionMiddleware
 from core.middleware.dev_profile import DevProfileMiddleware
 from core.middleware.filesystem import HarnessFilesystemMiddleware
 from core.middleware.live_steering import LiveSteeringMiddleware
-from core.middleware.reasoning import ReasoningEagerness, ReasoningMiddleware, reasoning_tool
+from core.middleware.reasoning import ReasoningMiddleware, reasoning_tool
 from core.middleware.runtime import RuntimeContextMiddleware
 from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.session_load import SessionLoadMiddleware
@@ -44,7 +45,7 @@ class DriverAgentConfig:
     python_interpreter: Path | None = None
     session_id: str | None = None
     session_manager: SessionManager | None = None
-    reasoning_eagerness: ReasoningEagerness = "high"
+    reasoning_eagerness: ReasoningEagerness | None = None
     on_compaction_event: Callable[[str, dict[str, Any]], None] | None = None
     session_compaction_coordinator: CompactionCoordinator | None = None
     trajectory_compaction_coordinator: TrajectoryCompactionCoordinator | None = None
@@ -64,6 +65,10 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     from langchain.agents import create_agent
 
     cwd = config.cwd.expanduser().resolve()
+    settings = load_config(cwd)
+    reasoning_eagerness = (
+        settings.reasoning.eagerness if config.reasoning_eagerness is None else config.reasoning_eagerness
+    )
     manager = config.session_manager or SessionManager(session_id=config.session_id)
     telemetry_store = TelemetryStore(telemetry_session_path(manager.session_id))
     backend = _local_shell_backend(
@@ -95,7 +100,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         # reconstructed for the next model invocation.
         # Source: https://docs.langchain.com/oss/python/langchain/middleware/custom
         TelemetryMiddleware(telemetry_store),
-        ReasoningMiddleware(eagerness=config.reasoning_eagerness),
+        ReasoningMiddleware(eagerness=reasoning_eagerness),
         CompactionMiddleware(session_compaction_coordinator),
         TrajectoryCompactionMiddleware(trajectory_compaction_coordinator),
         SessionLoadMiddleware(manager, session_dump=session_dump),
