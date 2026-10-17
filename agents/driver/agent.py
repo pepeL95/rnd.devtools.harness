@@ -29,12 +29,16 @@ from core.middleware.session_load import SessionLoadMiddleware
 from core.middleware.skills import SkillsMiddleware, create_read_skill_tool
 from core.middleware.system_prompt import SystemPromptMiddleware
 from core.middleware.trajectory import TrajectoryCompactionMiddleware
+from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.middleware.telemetry import TelemetryMiddleware
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.trajectory.compactor import TrajectoryCompactor
 from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 from core.trajectory.policy import TrajectoryCompactionPolicy
+from core.trajectory_bank.store import TrajectoryBank
+from core.trajectory_bank.retrieval import BankRetrieval
+from core.trajectory_bank.policy import load_policy
 from core.utilities.defaults import get_default_driver_model
 
 @dataclass(frozen=True)
@@ -50,6 +54,7 @@ class DriverAgentConfig:
     trajectory_compaction_coordinator: TrajectoryCompactionCoordinator | None = None
     live_steering_controller: LiveSteeringController | None = None
     cancel_event: Event | None = None
+    trajectory_bank_enabled: bool | None = None
 
 
 def create_driver_agent(config: DriverAgentConfig) -> Any:
@@ -66,6 +71,15 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     cwd = config.cwd.expanduser().resolve()
     manager = config.session_manager or SessionManager(session_id=config.session_id)
     telemetry_store = TelemetryStore(telemetry_session_path(manager.session_id))
+    trajectory_bank = TrajectoryBank(cwd)
+    coordinator_bank = None
+    if config.session_compaction_coordinator is not None:
+        coordinator_bank = getattr(config.session_compaction_coordinator.compactor, "trajectory_bank", None)
+        trajectory_bank = coordinator_bank or trajectory_bank
+    bank_policy = load_policy(trajectory_bank.root)
+    bank_enabled = bank_policy.enabled if config.trajectory_bank_enabled is None else config.trajectory_bank_enabled
+    if not bank_enabled and coordinator_bank is not None:
+        raise ValueError("Trajectory bank is disabled, but the supplied compaction coordinator still archives to it")
     backend = _local_shell_backend(
         LocalShellBackend,
         cwd,
@@ -73,7 +87,8 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     )
     session_compaction_coordinator = config.session_compaction_coordinator or CompactionCoordinator(
         manager,
-        Compactor(policy=CompactionPolicy()),
+        Compactor(policy=CompactionPolicy(), trajectory_bank=trajectory_bank if bank_enabled else None,
+                  session_manager=manager if bank_enabled else None),
         on_compaction_event=config.on_compaction_event,
         telemetry_store=telemetry_store,
     )
@@ -106,6 +121,8 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         HarnessFilesystemMiddleware(backend=backend),
         session_dump,
+        *([TrajectoryBankMiddleware(BankRetrieval(trajectory_bank, manager, policy=bank_policy, telemetry=telemetry_store))]
+          if bank_enabled else []),
         # Completion hooks can return to the model before SessionDump closes
         # the logical turn and the outer compaction hooks run.
         *([HooksMiddleware(HookDispatcher(hooks, manager, cwd, config.python_interpreter), session_dump)] if hooks else []),
