@@ -91,14 +91,15 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     )
     session_compaction_coordinator = config.session_compaction_coordinator or CompactionCoordinator(
         manager,
-        Compactor(policy=CompactionPolicy(), trajectory_bank=trajectory_bank if bank_enabled else None,
+        Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump()),
+                  trajectory_bank=trajectory_bank if bank_enabled else None,
                   session_manager=manager if bank_enabled else None),
         on_compaction_event=config.on_compaction_event,
         telemetry_store=telemetry_store,
     )
     trajectory_compaction_coordinator = config.trajectory_compaction_coordinator or TrajectoryCompactionCoordinator(
         manager,
-        TrajectoryCompactor(policy=TrajectoryCompactionPolicy()),
+        TrajectoryCompactor(policy=TrajectoryCompactionPolicy(**settings.compaction.trajectory.model_dump())),
         telemetry_store=telemetry_store,
     )
     live_steering_controller = config.live_steering_controller or LiveSteeringController()

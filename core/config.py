@@ -18,10 +18,32 @@ class ReasoningConfig(BaseModel):
     eagerness: ReasoningEagerness = "high"
 
 
+class SessionCompactionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    trigger_tokens: int = Field(default=80_000, gt=0, strict=True)
+    keep_last_turns: int = Field(default=2, ge=0, strict=True)
+    max_critic_loops: int = Field(default=1, ge=0, strict=True)
+
+
+class TrajectoryCompactionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    trigger_every_turns: int = Field(default=1, gt=0, strict=True)
+
+
+class CompactionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session: SessionCompactionConfig = Field(default_factory=SessionCompactionConfig)
+    trajectory: TrajectoryCompactionConfig = Field(default_factory=TrajectoryCompactionConfig)
+
+
 class HarnessConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
+    compaction: CompactionConfig = Field(default_factory=CompactionConfig)
 
 
 def ensure_config(cwd: Path) -> Path:
@@ -29,9 +51,17 @@ def ensure_config(cwd: Path) -> Path:
     path = workspace_directory(cwd) / "config.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     defaults = HarnessConfig()
+    session = defaults.compaction.session
+    trajectory = defaults.compaction.trajectory
     try:
         with path.open("x", encoding="utf-8") as handle:
-            handle.write(f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n')
+            handle.write(
+                f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n\n'
+                f"[compaction.session]\ntrigger_tokens = {session.trigger_tokens}\n"
+                f"keep_last_turns = {session.keep_last_turns}\n"
+                f"max_critic_loops = {session.max_critic_loops}\n\n"
+                f"[compaction.trajectory]\ntrigger_every_turns = {trajectory.trigger_every_turns}\n"
+            )
     except FileExistsError:
         pass
     return path

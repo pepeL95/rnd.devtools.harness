@@ -32,7 +32,7 @@ from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
-from core.config import ensure_config
+from core.config import ensure_config, load_config
 from core.trajectory_bank.store import TrajectoryBank
 from core.trajectory_bank.policy import load_policy
 from core.dev_profile.coordinator import DevProfileCoordinator
@@ -333,11 +333,13 @@ class QuasipilotApp(App[None]):
         return _resolved_interpreter(metadata)
 
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
+        settings = load_config(self._cwd)
         bank = self._trajectory_bank
         enabled = load_policy(bank.root).enabled
         return CompactionCoordinator(
             manager,
-            Compactor(policy=CompactionPolicy(), trajectory_bank=bank if enabled else None,
+            Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump()),
+                      trajectory_bank=bank if enabled else None,
                       session_manager=manager if enabled else None),
             on_compaction_event=self._post_compaction_event,
             telemetry_store=TelemetryStore(telemetry_session_path(manager.session_id)),
