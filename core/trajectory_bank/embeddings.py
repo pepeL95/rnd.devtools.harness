@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+from langchain_core.embeddings import Embeddings
 
-class LocalEmbeddings:
-    """Explicit local model; pool token windows rather than truncate long memories."""
 
-    identity = "onnx-all-MiniLM-L6-v2:913d7300:mean-220-token-windows:v1"
+class LocalEmbeddings(Embeddings):
+    """Lazy local model; pool token windows rather than truncate long memories."""
 
     def __init__(self) -> None:
         self._model = None
         self._tokenizer = None
 
-    def __call__(self, texts: list[str]) -> list[list[float]]:
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_documents([text])[0]
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
         import numpy as np
         from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
         from tokenizers import Tokenizer

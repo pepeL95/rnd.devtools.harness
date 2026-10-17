@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import RLock
-from typing import Any
 
-from core.trajectory_bank.embeddings import LocalEmbeddings
+from langchain_core.embeddings import Embeddings
+
+from core.trajectory_bank import defaults
 from core.trajectory_bank.models import Hit, TrajectoryRecord
 from core.utilities.workspace import workspace_directory
 
@@ -12,9 +13,17 @@ from core.utilities.workspace import workspace_directory
 class TrajectoryBank:
     """Lazy embedded Chroma store. No server or embedding download at startup."""
 
-    def __init__(self, cwd: Path, *, embedder: Any = None) -> None:
+    def __init__(self, cwd: Path, *, embedder: Embeddings | None = None,
+                 embedding_identity: str | None = None) -> None:
         self.root = workspace_directory(cwd) / ".trajectorybank"
-        self.embedder = embedder or LocalEmbeddings()
+        if (embedder is None) != (embedding_identity is None):
+            raise ValueError("Supply embedder and embedding_identity together")
+        self.embedder = embedder if embedder is not None else defaults.get_default_embedding_model()
+        self.embedding_identity = embedding_identity if embedding_identity is not None else defaults.DEFAULT_EMBEDDING_IDENTITY
+        if not isinstance(self.embedder, Embeddings):
+            raise TypeError("embedder must implement langchain_core.embeddings.Embeddings")
+        if not isinstance(self.embedding_identity, str) or not self.embedding_identity.strip():
+            raise ValueError("embedding_identity must be a nonempty compatibility identifier")
         self._collection = None
         self._lock = RLock()
 
@@ -36,10 +45,10 @@ class TrajectoryBank:
         client = chromadb.PersistentClient(path=str(self.root), settings=Settings(anonymized_telemetry=False))
         collection = client.get_or_create_collection(
             "turn-trajectories-v1", embedding_function=None,
-            metadata={"schema_version": 1, "embedding_identity": self.embedder.identity},
+            metadata={"schema_version": 1, "embedding_identity": self.embedding_identity},
             configuration={"hnsw": {"space": "cosine"}},
         )
-        if (collection.metadata.get("embedding_identity") != self.embedder.identity
+        if (collection.metadata.get("embedding_identity") != self.embedding_identity
                 or collection.metadata.get("schema_version") != 1):
             raise ValueError("Trajectory bank embedding configuration differs; explicit reindexing is required")
         self._collection = collection
@@ -67,7 +76,7 @@ class TrajectoryBank:
                 collection.upsert(
                     ids=[record.id for record in batch], documents=[record.document for record in batch],
                     metadatas=[record.metadata for record in batch],
-                    embeddings=self.embedder([record.document for record in batch]),
+                    embeddings=self.embedder.embed_documents([record.document for record in batch]),
                 )
             persisted = {record.id for record in self.get(ids=[record.id for record in records])}
             if persisted != {record.id for record in records}:
@@ -96,7 +105,7 @@ class TrajectoryBank:
                 return []
             kwargs = {"where": where} if where else {}
             result = collection.query(
-                query_embeddings=self.embedder([query]), n_results=min(limit, collection.count()),
+                query_embeddings=[self.embedder.embed_query(query)], n_results=min(limit, collection.count()),
                 include=["documents", "metadatas", "distances"], **kwargs,
             )
             hits = [Hit(TrajectoryRecord(id, doc, meta), 1.0 - distance) for id, doc, meta, distance in zip(

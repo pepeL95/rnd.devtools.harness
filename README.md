@@ -96,3 +96,7 @@ embedding model still downloads only on first embedding use.
 See [trajectory bank v1](core/trajectory_bank/docs/v1.md) for configuration,
 thresholds, provenance checks, and evaluation commands. It is enabled by default;
 set `enabled = false` in that bank's `config.toml` and restart to disable it.
+Developers can change the embedding default in
+[`core/trajectory_bank/defaults.py`](core/trajectory_bank/defaults.py), using any
+LangChain `Embeddings` implementation. Update its compatibility identity when
+changing models; existing vectors require an explicit reindex.

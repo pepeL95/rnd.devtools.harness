@@ -71,11 +71,10 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     cwd = config.cwd.expanduser().resolve()
     manager = config.session_manager or SessionManager(session_id=config.session_id)
     telemetry_store = TelemetryStore(telemetry_session_path(manager.session_id))
-    trajectory_bank = TrajectoryBank(cwd)
     coordinator_bank = None
     if config.session_compaction_coordinator is not None:
         coordinator_bank = getattr(config.session_compaction_coordinator.compactor, "trajectory_bank", None)
-        trajectory_bank = coordinator_bank or trajectory_bank
+    trajectory_bank = coordinator_bank if coordinator_bank is not None else TrajectoryBank(cwd)
     bank_policy = load_policy(trajectory_bank.root)
     bank_enabled = bank_policy.enabled if config.trajectory_bank_enabled is None else config.trajectory_bank_enabled
     if not bank_enabled and coordinator_bank is not None:

@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 from langchain.agents import create_agent
 from langchain.tools import ToolRuntime
+from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
@@ -25,13 +26,15 @@ from core.trajectory_bank.retrieval import BankRetrieval
 from core.trajectory_bank.store import TrajectoryBank
 
 
-class FakeEmbeddings:
-    identity = "test-keyword-v1"
+class FakeEmbeddings(Embeddings):
 
     def __init__(self):
         self.calls = 0
 
-    def __call__(self, texts):
+    def embed_query(self, text):
+        return self.embed_documents([text])[0]
+
+    def embed_documents(self, texts):
         self.calls += 1
         vectors = []
         for text in texts:
@@ -45,7 +48,7 @@ class FakeEmbeddings:
 
 @pytest.fixture
 def bank(tmp_path):
-    return TrajectoryBank(tmp_path, embedder=FakeEmbeddings())
+    return TrajectoryBank(tmp_path, embedder=FakeEmbeddings(), embedding_identity="test-keyword-v1")
 
 
 @pytest.fixture
@@ -76,13 +79,12 @@ def test_lazy_persistent_archive_and_embedding_identity(bank, manager, tmp_path)
     calls = bank.embedder.calls
     bank.archive([item])
     assert bank.embedder.calls == calls
-    reopened = TrajectoryBank(tmp_path, embedder=FakeEmbeddings())
+    reopened = TrajectoryBank(tmp_path, embedder=FakeEmbeddings(), embedding_identity="test-keyword-v1")
     assert reopened.get(ids=[item.id]) == [item]
     assert reopened.search("tabs", where={"session_id": manager.session_id}, limit=2)[0].similarity > 0.99
     wrong = FakeEmbeddings()
-    wrong.identity = "incompatible-model"
     with pytest.raises(ValueError, match="reindexing"):
-        TrajectoryBank(tmp_path, embedder=wrong).get()
+        TrajectoryBank(tmp_path, embedder=wrong, embedding_identity="incompatible-model").get()
 
 
 def test_initialization_is_idempotent_and_preserves_records(bank, manager, tmp_path):
@@ -91,7 +93,7 @@ def test_initialization_is_idempotent_and_preserves_records(bank, manager, tmp_p
     assert bank.embedder.calls == 0
     item = record(manager)
     bank.archive([item])
-    reopened = TrajectoryBank(tmp_path, embedder=FakeEmbeddings())
+    reopened = TrajectoryBank(tmp_path, embedder=FakeEmbeddings(), embedding_identity="test-keyword-v1")
     reopened.initialize()
     assert reopened.embedder.calls == 0
     assert reopened.get(ids=[item.id]) == [item]
@@ -475,7 +477,7 @@ def test_local_embeddings_include_text_beyond_first_window(monkeypatch):
             return np.array([[max(1, chunk.count("alpha")), chunk.count("beta")] for chunk in chunks], dtype=float)
 
     monkeypatch.setattr("chromadb.utils.embedding_functions.ONNXMiniLM_L6_V2", FakeONNX)
-    vector = LocalEmbeddings()(["alpha " * 500 + "beta " * 100])[0]
+    vector = LocalEmbeddings().embed_query("alpha " * 500 + "beta " * 100)
     assert vector[1] > 0.1
     assert np.linalg.norm(vector) == pytest.approx(1)
 
@@ -503,9 +505,69 @@ def test_child_directory_archive_initializes_parent_chroma_workspace(tmp_path, m
     (tmp_path / ".quasipilot").mkdir()
     child = tmp_path / "src"
     child.mkdir()
-    bank = TrajectoryBank(child, embedder=FakeEmbeddings())
+    bank = TrajectoryBank(child, embedder=FakeEmbeddings(), embedding_identity="test-keyword-v1")
     item = record(manager)
     bank.archive([item])
     assert (tmp_path / ".quasipilot/.trajectorybank/chroma.sqlite3").exists()
     assert not (child / ".quasipilot").exists()
-    assert TrajectoryBank(tmp_path, embedder=FakeEmbeddings()).get(ids=[item.id]) == [item]
+    assert TrajectoryBank(tmp_path, embedder=FakeEmbeddings(), embedding_identity="test-keyword-v1").get(ids=[item.id]) == [item]
+
+
+def test_standard_embeddings_use_separate_document_and_query_methods(tmp_path, manager):
+    class AsymmetricEmbeddings(Embeddings):
+        def __init__(self):
+            self.documents = []
+            self.queries = []
+
+        def embed_documents(self, texts):
+            self.documents.extend(texts)
+            return [[1.0, 0.0] if text == "first" else [0.0, 1.0] for text in texts]
+
+        def embed_query(self, text):
+            self.queries.append(text)
+            return [0.0, 1.0]
+
+    embeddings = AsymmetricEmbeddings()  # No harness-specific attributes required.
+    bank = TrajectoryBank(tmp_path, embedder=embeddings, embedding_identity="asymmetric-test-v1")
+    bank.initialize()
+    assert not embeddings.documents and not embeddings.queries
+    first = record(manager, "first")
+    second = record(manager, "second", turn=2)
+    bank.archive([first, second])
+    bank.archive([first, second])
+    assert embeddings.documents == ["first", "second"]
+    assert bank.search("first", where=None, limit=2)[0].record.id == second.id
+    assert embeddings.queries == ["first"]
+    assert bank.get(ids=[first.id]) == [first]
+    assert embeddings.queries == ["first"]
+
+
+@pytest.mark.parametrize("arguments", [{"embedder": FakeEmbeddings()}, {"embedding_identity": "id-only"},
+    {"embedder": FakeEmbeddings(), "embedding_identity": " "}])
+def test_custom_embeddings_require_an_explicit_nonempty_identity(tmp_path, arguments):
+    with pytest.raises(ValueError):
+        TrajectoryBank(tmp_path, **arguments)
+    assert not (tmp_path / ".quasipilot").exists()
+
+
+def test_embedding_identity_mismatch_fails_before_model_use(bank, manager, tmp_path):
+    bank.archive([record(manager)])
+    model = FakeEmbeddings()
+    replacement = TrajectoryBank(tmp_path, embedder=model, embedding_identity="changed-prompts-v2")
+    with pytest.raises(ValueError, match="reindexing"):
+        replacement.initialize()
+    assert model.calls == 0
+
+
+def test_local_model_implements_langchain_sync_and_async_interfaces():
+    from core.trajectory_bank.embeddings import LocalEmbeddings
+
+    embeddings = LocalEmbeddings()
+    assert isinstance(embeddings, Embeddings)
+    assert embeddings.embed_documents([]) == []
+    assert embeddings._model is None
+    with patch.object(embeddings, "embed_documents", return_value=[[0.5, 0.5]]) as documents:
+        assert embeddings.embed_query("query") == [0.5, 0.5]
+        documents.assert_called_once_with(["query"])
+        assert asyncio.run(embeddings.aembed_query("async query")) == [0.5, 0.5]
+        assert asyncio.run(embeddings.aembed_documents(["async document"])) == [[0.5, 0.5]]

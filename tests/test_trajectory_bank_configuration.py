@@ -11,6 +11,7 @@ from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore
 from core.trajectory_bank.store import TrajectoryBank
+from core.trajectory_bank import defaults
 from core.utilities.workspace import workspace_directory
 
 
@@ -82,7 +83,7 @@ def test_cli_compaction_reads_parent_workspace_setting(tmp_path, enabled):
 
 
 def test_cli_startup_initializes_by_default_without_embeddings(tmp_path):
-    with patch("core.trajectory_bank.embeddings.LocalEmbeddings.__call__", side_effect=AssertionError("must stay lazy")) as embed:
+    with patch("core.trajectory_bank.embeddings.LocalEmbeddings.embed_documents", side_effect=AssertionError("must stay lazy")) as embed:
         with patch("cli.run.Path.cwd", return_value=tmp_path):
             first = QuasipilotApp()
             second = QuasipilotApp()
@@ -104,6 +105,27 @@ def test_cli_reports_bank_initialization_failure(tmp_path):
     with patch("cli.run.Path.cwd", return_value=tmp_path), patch.object(TrajectoryBank, "initialize", side_effect=OSError("disk full")):
         with pytest.raises(OSError, match="disk full"):
             QuasipilotApp()
+
+
+def test_cli_and_driver_share_overridden_embedding_default(tmp_path):
+    from langchain_core.embeddings import DeterministicFakeEmbedding
+
+    model = DeterministicFakeEmbedding(size=3)
+    with patch.object(defaults, "get_default_embedding_model", return_value=model) as factory, \
+         patch.object(defaults, "DEFAULT_EMBEDDING_IDENTITY", "custom-default-v1"), \
+         patch("cli.run.Path.cwd", return_value=tmp_path):
+        app = QuasipilotApp()
+        manager = SessionManager(root=tmp_path / "sessions")
+        coordinator = app._build_compaction_coordinator(manager)
+        with patch("langchain.agents.create_agent") as create:
+            create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager,
+                                                  session_compaction_coordinator=coordinator))
+    recall = next(item for item in create.call_args.kwargs["middleware"] if isinstance(item, TrajectoryBankMiddleware))
+    assert coordinator.compactor.trajectory_bank is app._trajectory_bank
+    assert recall.retrieval.bank is app._trajectory_bank
+    assert app._trajectory_bank.embedder is model
+    assert app._trajectory_bank._collection.metadata["embedding_identity"] == "custom-default-v1"
+    factory.assert_called_once_with()
 
 
 def test_disabled_driver_rejects_injected_archival_coordinator(tmp_path):

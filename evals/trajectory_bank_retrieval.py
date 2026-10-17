@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.trajectory_bank.embeddings import LocalEmbeddings
+from core.trajectory_bank import defaults
 from core.trajectory_bank.policy import BankPolicy
 from evals.common import ensure_dir, timestamp_slug, write_json
 
@@ -57,11 +57,16 @@ def main() -> None:
     parser.add_argument("--live-compaction", action="store_true", help="Also exercise the configured LLM and real archive on synthetic turns")
     args = parser.parse_args()
     run_dir = ensure_dir(args.out_dir / timestamp_slug())
-    embed = LocalEmbeddings()
+    embed = defaults.get_default_embedding_model()
     policy = BankPolicy()
     names = list(DOCUMENTS)
-    documents = np.array(embed(list(DOCUMENTS.values())))
-    queries = np.array(embed([query for _, query in QUERIES]))
+    documents = np.array(embed.embed_documents(list(DOCUMENTS.values())), dtype=float)
+    queries = np.array([embed.embed_query(query) for _, query in QUERIES], dtype=float)
+    for vectors in (documents, queries):
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        if not np.isfinite(norms).all() or (norms == 0).any():
+            raise ValueError("Embedding model returned invalid vectors")
+        vectors /= norms
     rows = []
     false_positives = accepted = 0
     for (expected, query), scores in zip(QUERIES, queries @ documents.T, strict=True):
@@ -72,7 +77,7 @@ def main() -> None:
         rows.append({"query": query, "expected": expected, "best": ranked[0][0],
                      "similarity": round(float(ranked[0][1]), 4), "automatic": automatic,
                      "manual": [name for name, score in ranked if score >= policy.search_min_similarity][:policy.search_results]})
-    report = {"embedding": embed.identity, "policy": policy.model_dump(), "cases": len(rows),
+    report = {"embedding": defaults.DEFAULT_EMBEDDING_IDENTITY, "policy": policy.model_dump(), "cases": len(rows),
               "positive_cases": sum(expected is not None for expected, _ in QUERIES),
               "automatic_positive_cases": accepted, "automatic_false_positives": false_positives, "results": rows}
     if args.live_compaction:
