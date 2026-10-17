@@ -1,42 +1,29 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from core.middleware.turn_instructions import TurnInstructionsMiddleware
+from core.session.events import AGENTS_MD_KIND
+from core.session.manager import SessionManager
 
-from core.utilities.messages import system_message_with_appended_text
+if TYPE_CHECKING:
+    from core.middleware.session_dump import SessionDumpMiddleware
 
 
-class AgentsMdMiddleware(AgentMiddleware):
-    """Append only the workspace's AGENTS.md, reloading on each model call."""
+class AgentsMdMiddleware(TurnInstructionsMiddleware):
+    """Snapshot only the optional workspace AGENTS.md at turn boundaries."""
 
-    def __init__(self, cwd: str | Path) -> None:
+    def __init__(
+        self, cwd: str | Path, *, manager: SessionManager | None = None,
+        session_dump: SessionDumpMiddleware | None = None,
+    ) -> None:
         self.path = Path(cwd).expanduser().resolve() / "AGENTS.md"
+        super().__init__(kind=AGENTS_MD_KIND, loader=self._load_instruction, manager=manager, session_dump=session_dump)
 
-    def _prepare_request(self, request: ModelRequest) -> ModelRequest:
+    def _load_instruction(self) -> tuple[str, str]:
         try:
             content = self.path.read_text(encoding="utf-8")
         except FileNotFoundError:
-            return request
-        if not content.strip():
-            return request
-        return request.override(
-            system_message=system_message_with_appended_text(request.system_message, content)
-        )
-
-    def wrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse],
-    ) -> ModelResponse:
-        return handler(self._prepare_request(request))
-
-    async def awrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
-    ) -> ModelResponse:
-        updated = await asyncio.to_thread(self._prepare_request, request)
-        return await handler(updated)
+            content = ""
+        return content, str(self.path)

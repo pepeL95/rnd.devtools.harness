@@ -6,6 +6,18 @@ from enum import Enum
 from typing import Any
 from uuid import uuid4
 
+AGENTS_MD_KIND = "agents_md"
+SYSTEM_PROMPT_KIND = "system_prompt"
+PINNED_INSTRUCTION_KINDS = (SYSTEM_PROMPT_KIND, AGENTS_MD_KIND)
+
+
+def is_agents_md(event: SessionEvent) -> bool:
+    return event.type == EventType.SYSTEM and event.payload.get("kind") == AGENTS_MD_KIND
+
+
+def is_pinned_instruction(event: SessionEvent) -> bool:
+    return event.type == EventType.SYSTEM and event.payload.get("kind") in PINNED_INSTRUCTION_KINDS
+
 
 class EventType(str, Enum):
     TURN_BEGIN = "turn_begin"

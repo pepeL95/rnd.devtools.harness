@@ -2,8 +2,20 @@
 
 Lightweight LangChain coding agent harness.
 
+Harness instructions come from `.quasipilot/SYSTEM.md` in the working directory,
+falling back to `~/.quasipilot/SYSTEM.md`. The local file replaces the home file;
+if neither exists, the run fails. The selected content and source are snapshotted
+per turn and recorded as system events: both raw and curated sessions keep only
+the latest version, preserved through compaction. Instructions
+stay fixed during a turn, including live steering, without duplicate model context.
+
 If present, `AGENTS.md` in the working directory is appended to the model's system
-prompt and reloaded on each model call. Missing or blank files add nothing;
+prompt and refreshed at each new turn (not during a turn or live steering).
+Both session files retain only the latest system entry, unchanged through
+compaction. Removing or clearing the file replaces its entry with empty content
+and stops injection on the next turn. Instruction version history is the client's
+responsibility, not the harness's.
+Missing or blank files initially add nothing;
 unreadable files raise an error. No parent, home, or nested directories are searched.
 
 The current implementation includes the core harness, driver agent, compaction,

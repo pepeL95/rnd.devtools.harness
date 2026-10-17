@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import RLock
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -14,7 +15,7 @@ from core.utilities.messages import (
     message_tool_calls,
     normalize_message_content,
 )
-from core.session.events import EventType, RuntimeSnapshot, SessionEvent, SessionMetadata
+from core.session.events import PINNED_INSTRUCTION_KINDS, EventType, RuntimeSnapshot, SessionEvent, SessionMetadata, is_pinned_instruction
 from core.session.io import (
     append_events,
     read_events,
@@ -32,6 +33,7 @@ class SessionManager:
         self.session_id = session_id or uuid4().hex
         self.root = root
         self.dump_path, self.curated_path = session_paths(self.session_id, root)
+        self._write_lock = RLock()
 
     def read_dump(self) -> list[SessionEvent]:
         return read_events(self.dump_path)
@@ -43,9 +45,32 @@ class SessionManager:
         materialized = list(events)
         if not materialized:
             return
-        append_events(self.dump_path, materialized)
-        if curated:
-            append_events(self.curated_path, materialized)
+        with self._write_lock:
+            append_events(self.dump_path, materialized)
+            if curated:
+                append_events(self.curated_path, materialized)
+
+    def sync_system_instruction(self, content: str, *, kind: str, source: str, turn: int) -> None:
+        """Keep only the current instruction in both session files."""
+        if kind not in PINNED_INSTRUCTION_KINDS:
+            raise ValueError(f"Unknown instruction kind: {kind}")
+        payload = {"role": "system", "kind": kind, "source": source, "content": content}
+        with self._write_lock:
+            raw = self.read_dump()
+            instructions = {event.payload["kind"]: event for event in raw if is_pinned_instruction(event)}
+            latest = instructions.get(kind)
+            if (content or latest is not None) and (latest is None or latest.payload != payload):
+                instructions[kind] = SessionEvent(type=EventType.SYSTEM, turn=turn, payload=payload)
+            updated_raw = [
+                *(instructions[key] for key in PINNED_INSTRUCTION_KINDS if key in instructions),
+                *(event for event in raw if not is_pinned_instruction(event)),
+            ]
+            if updated_raw != raw:
+                replace_events(self.dump_path, updated_raw)
+            current = self.read_curated()
+            updated = self._pin_system_instructions(current)
+            if updated != current:
+                replace_events(self.curated_path, updated)
 
     def pop_turn(self) -> int | None:
         """Remove all events for the latest turn from both dump and curated streams.
@@ -63,7 +88,16 @@ class SessionManager:
         return latest
 
     def replace_curated(self, events: Iterable[SessionEvent]) -> None:
-        replace_events(self.curated_path, events)
+        with self._write_lock:
+            replace_events(self.curated_path, self._pin_system_instructions(events))
+
+    def _pin_system_instructions(self, events: Iterable[SessionEvent]) -> list[SessionEvent]:
+        # A stale background compaction must never restore an older instruction.
+        latest = {event.payload["kind"]: event for event in self.read_dump() if is_pinned_instruction(event)}
+        return [
+            *(latest[kind] for kind in PINNED_INSTRUCTION_KINDS if kind in latest),
+            *(event for event in events if not is_pinned_instruction(event)),
+        ]
 
     def apply_compaction_result(
         self,
@@ -71,11 +105,12 @@ class SessionManager:
         *,
         snapshot_latest_turn: int,
     ) -> list[SessionEvent]:
-        current = self.read_curated()
-        preserved = [event for event in current if event.turn > snapshot_latest_turn]
-        merged = [*list(compacted_events), *preserved]
-        replace_events(self.curated_path, merged)
-        return merged
+        with self._write_lock:
+            current = self.read_curated()
+            preserved = [event for event in current if event.turn > snapshot_latest_turn]
+            merged = self._pin_system_instructions([*list(compacted_events), *preserved])
+            replace_events(self.curated_path, merged)
+            return merged
 
     def next_turn(self) -> int:
         return next_turn(self.read_dump())

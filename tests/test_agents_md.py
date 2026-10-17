@@ -7,6 +7,9 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from core.middleware.agents_md import AgentsMdMiddleware
+from core.middleware.session_dump import SessionDumpMiddleware
+from core.session.events import EventType, SessionEvent, is_agents_md
+from core.session.manager import SessionManager
 
 
 @pytest.fixture(params=[False, True], ids=["sync", "async"])
@@ -16,7 +19,11 @@ def invoke(request):
             return updated
 
         if request.param:
+            asyncio.run(middleware.abefore_agent({}, None))
+            asyncio.run(middleware.abefore_model({}, None))
             return asyncio.run(middleware.awrap_model_call(model_request, handler))
+        middleware.before_agent({}, None)
+        middleware.before_model({}, None)
         return middleware.wrap_model_call(model_request, lambda updated: updated)
 
     return run
@@ -83,3 +90,125 @@ def test_read_errors_are_not_silenced(tmp_path, model_request, invoke, error):
     with patch("pathlib.Path.read_text", side_effect=error):
         with pytest.raises(type(error)):
             invoke(AgentsMdMiddleware(tmp_path), model_request)
+
+
+def test_turn_snapshot_is_fixed_until_next_turn(tmp_path, model_request):
+    path = tmp_path / "AGENTS.md"
+    path.write_text("first")
+    middleware = AgentsMdMiddleware(tmp_path)
+    middleware.before_agent({}, None)
+    path.write_text("second")
+    for _ in range(2):
+        result = middleware.wrap_model_call(model_request, lambda updated: updated)
+        assert result.system_message.content[-1]["text"] == "first"
+    middleware.before_agent({}, None)
+    result = middleware.wrap_model_call(model_request, lambda updated: updated)
+    assert result.system_message.content[-1]["text"] == "second"
+
+
+@pytest.mark.parametrize("use_async", [False, True])
+def test_latest_instruction_persists_without_extra_turns(tmp_path, use_async):
+    manager = SessionManager(root=tmp_path / "sessions")
+    dump = SessionDumpMiddleware(manager)
+    middleware = AgentsMdMiddleware(tmp_path, manager=manager, session_dump=dump)
+    path = tmp_path / "AGENTS.md"
+
+    def hook(name):
+        if use_async:
+            asyncio.run(getattr(middleware, "a" + name)({}, None))
+        else:
+            getattr(middleware, name)({}, None)
+
+    for index, content in enumerate(["first", "first", "second", None, "first"], start=1):
+        if content is None:
+            path.unlink()
+        else:
+            path.write_text(content)
+        hook("before_agent")
+        dump.before_agent({}, None)
+        assert dump.active_turn == index
+        hook("before_model")
+        hook("before_model")
+        dump.after_agent({}, None)
+        current = [event for event in manager.read_curated() if is_agents_md(event)]
+        assert len(current) == 1
+        assert current[0].payload["content"] == (content or "")
+        assert current[0].payload["role"] == "system"
+        assert [event for event in manager.read_dump() if is_agents_md(event)] == current
+
+    latest = [event for event in manager.read_dump() if is_agents_md(event)]
+    assert len(latest) == 1
+    assert latest[0].turn == 5
+    assert latest[0].payload["content"] == "first"
+    assert manager.read_display_history() == []
+    assert manager.load_curated_messages() == []  # Injected via system_message, not twice in conversation history.
+
+
+def test_steering_resume_keeps_same_snapshot(tmp_path, model_request):
+    manager = SessionManager(root=tmp_path / "sessions")
+    dump = SessionDumpMiddleware(manager)
+    middleware = AgentsMdMiddleware(tmp_path, manager=manager, session_dump=dump)
+    path = tmp_path / "AGENTS.md"
+    path.write_text("first")
+    middleware.before_agent({}, None)
+    dump.before_agent({}, None)
+    middleware.before_model({}, None)
+    dump._record_interrupt("live_steering_interrupt", {"steering": "change direction"})
+    path.write_text("second")
+    middleware.before_agent({}, None)
+    dump.before_agent({}, None)
+    middleware.before_model({}, None)
+    result = middleware.wrap_model_call(model_request, lambda updated: updated)
+    assert result.system_message.content[-1]["text"] == "first"
+    assert dump.active_turn == 1
+    assert len([event for event in manager.read_dump() if is_agents_md(event)]) == 1
+
+
+@pytest.mark.parametrize("latest", ["updated", ""])
+def test_compaction_pins_latest_revision_even_with_stale_snapshot(tmp_path, latest):
+    manager = SessionManager(root=tmp_path)
+    manager.sync_system_instruction("old", kind="agents_md", source="/AGENTS.md", turn=1)
+    stale = manager.read_curated()
+    manager.sync_system_instruction(latest, kind="agents_md", source="/AGENTS.md", turn=2)
+    user = SessionEvent(type=EventType.USER, turn=3, payload={"role": "user", "content": "keep me"})
+    manager.append([user])
+    raw = manager.read_dump()
+    for _ in range(2):
+        result = manager.apply_compaction_result(stale, snapshot_latest_turn=2)
+        assert result[0].type == EventType.SYSTEM
+        assert result[0].payload["content"] == latest
+        assert len([event for event in result if is_agents_md(event)]) == 1
+        assert user in result
+    manager.replace_curated(stale)
+    assert manager.read_curated()[0].payload["content"] == latest
+    assert manager.read_dump() == raw
+
+
+def test_resumed_session_does_not_duplicate_unchanged_instruction(tmp_path, model_request, invoke):
+    path = tmp_path / "AGENTS.md"
+    path.write_text("persisted")
+    manager = SessionManager(session_id="resume", root=tmp_path / "sessions")
+    manager.sync_system_instruction("persisted", kind="agents_md", source=str(path), turn=1)
+    resumed = SessionManager(session_id="resume", root=tmp_path / "sessions")
+    invoke(AgentsMdMiddleware(tmp_path, manager=resumed), model_request)
+    assert len(resumed.read_dump()) == 1
+    assert resumed.read_curated()[0].payload["content"] == "persisted"
+
+
+def test_real_graph_turn_persists_instruction_once(tmp_path):
+    from langchain.agents import create_agent
+
+    manager = SessionManager(root=tmp_path / "sessions")
+    dump = SessionDumpMiddleware(manager)
+    (tmp_path / "AGENTS.md").write_text("Use repository conventions.")
+    graph = create_agent(
+        FakeMessagesListChatModel(responses=[AIMessage(content="done")]),
+        middleware=[AgentsMdMiddleware(tmp_path, manager=manager, session_dump=dump), dump],
+    )
+    graph.invoke({"messages": [HumanMessage(content="hello")]})
+    for events in (manager.read_dump(), manager.read_curated()):
+        instructions = [event for event in events if is_agents_md(event)]
+        assert len(instructions) == 1
+        assert instructions[0].turn == 1
+        assert instructions[0].payload["content"] == "Use repository conventions."
+        assert [event.turn for event in events if event.type == EventType.TURN_BEGIN] == [1]

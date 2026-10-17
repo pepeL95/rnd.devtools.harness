@@ -1,59 +1,49 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from core.middleware.turn_instructions import TurnInstructionsMiddleware
+from core.session.events import SYSTEM_PROMPT_KIND
+from core.session.manager import SessionManager
 
-from core.utilities.messages import system_message_with_appended_text
+if TYPE_CHECKING:
+    from core.middleware.session_dump import SessionDumpMiddleware
 
 
-class SystemPromptMiddleware(AgentMiddleware):
-    """Append configured harness instructions to the model system message."""
+class SystemPromptMiddleware(TurnInstructionsMiddleware):
+    """Snapshot required harness instructions, preferring workspace over home."""
 
     def __init__(
         self,
         prompt: str | None = None,
         prompt_path: str | Path | None = None,
         cwd: str | Path | None = None,
+        *,
+        manager: SessionManager | None = None,
+        session_dump: SessionDumpMiddleware | None = None,
     ) -> None:
         self.prompt = prompt
-        self.prompt_path = Path(prompt_path).expanduser() if prompt_path else None
-        self.cwd = Path(cwd).expanduser().resolve() if cwd else None
+        self.prompt_path = Path(prompt_path).expanduser().resolve() if prompt_path else None
+        self.cwd = Path(cwd or Path.cwd()).expanduser().resolve()
+        super().__init__(kind=SYSTEM_PROMPT_KIND, loader=self._load_instruction, manager=manager, session_dump=session_dump)
 
-    def load_prompt(self, cwd: Path | None = None) -> str:
+    def _load_instruction(self, cwd: Path | None = None) -> tuple[str, str]:
         if self.prompt:
-            return self.prompt.strip()
-        
+            return self.prompt.strip(), "inline"
         if self.prompt_path:
-            return self.prompt_path.read_text(encoding="utf-8").strip()
-        
-        # Fallback to .quasipilot/SYSTEM.md
-        search_cwd = cwd or self.cwd or Path.cwd()
-        local_path = search_cwd / ".quasipilot" / "SYSTEM.md"
-        if local_path.exists():
-            return local_path.read_text(encoding="utf-8").strip()
-        
+            return self.prompt_path.read_text(encoding="utf-8").strip(), str(self.prompt_path)
+        local_path = (cwd or self.cwd) / ".quasipilot" / "SYSTEM.md"
         home_path = Path.home() / ".quasipilot" / "SYSTEM.md"
-        if home_path.exists():
-            return home_path.read_text(encoding="utf-8").strip()
-            
+        for path in (local_path, home_path):
+            try:
+                return path.read_text(encoding="utf-8").strip(), str(path)
+            except FileNotFoundError:
+                continue
         raise FileNotFoundError(
             "No system prompt found. Please provide a prompt, prompt_path, or ensure "
             ".quasipilot/SYSTEM.md exists in the current working or home directory."
         )
 
-    def wrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse],
-    ) -> ModelResponse:
-        prompt = self.load_prompt(cwd=self.cwd)
-        if not prompt:
-            return handler(request)
-        updated = request.override(
-            system_message=system_message_with_appended_text(request.system_message, prompt)
-        )
-        return handler(updated)
-
+    def load_prompt(self, cwd: Path | None = None) -> str:
+        return self._load_instruction(cwd)[0]

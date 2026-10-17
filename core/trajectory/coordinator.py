@@ -8,7 +8,7 @@ from time import perf_counter
 
 from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span
 from core.compaction.token_counter import TokenCounter
-from core.session.events import SessionEvent
+from core.session.events import SessionEvent, is_pinned_instruction
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.trajectory.compactor import TrajectoryCompactor
@@ -79,7 +79,7 @@ class TrajectoryCompactionCoordinator:
                 return "running"
             if self._pending is not None:
                 return "ready"
-            snapshot = self.manager.read_curated()
+            snapshot = [event for event in self.manager.read_curated() if not is_pinned_instruction(event)]
             payload = self._payload(snapshot, trigger="trajectory", reason="turn_interval")
             if not self.compactor.should_compact(snapshot):
                 self.telemetry.skip(payload)

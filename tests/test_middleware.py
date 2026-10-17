@@ -129,6 +129,7 @@ class MiddlewareTests(TestCase):
 
     def test_system_prompt_middleware_appends_prompt(self) -> None:
         middleware = SystemPromptMiddleware(prompt="Use concise answers.")
+        middleware.before_agent({}, None)
         request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
 
         response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
@@ -137,6 +138,7 @@ class MiddlewareTests(TestCase):
 
     def test_system_prompt_middleware_handles_missing_system_message(self) -> None:
         middleware = SystemPromptMiddleware(prompt="Use concise answers.")
+        middleware.before_agent({}, None)
         request = FakeModelRequest(system_message=None, messages=[])
 
         response = middleware.wrap_model_call(request, lambda updated: updated.system_message)

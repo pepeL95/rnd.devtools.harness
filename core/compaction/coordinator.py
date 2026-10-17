@@ -9,7 +9,7 @@ from typing import Any
 from core.compaction.compactor import Compactor
 from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span
 from core.compaction.token_counter import TokenCounter
-from core.session.events import SessionEvent
+from core.session.events import SessionEvent, is_pinned_instruction
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.utilities.defaults import get_model_name
@@ -58,7 +58,7 @@ class CompactionCoordinator:
             worker = self._worker
             if worker is not None and worker.is_alive():
                 return "running"
-            source_events = list(self.manager.read_curated())
+            source_events = [event for event in self.manager.read_curated() if not is_pinned_instruction(event)]
             latest_turn = max((event.turn for event in source_events), default=0)
             source_tokens = self.token_counter.count_events(source_events) if source_events else 0
             base_payload = {
