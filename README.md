@@ -88,6 +88,20 @@ The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
 paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
 
+Configure reasoning in the nearest workspace's `.quasipilot/config.toml`:
+
+```toml
+[reasoning]
+eagerness = "high" # low, medium, or high (default)
+```
+
+The CLI and Python driver read this optional file when building the agent.
+Restart the CLI after editing it. Workspace discovery checks cwd, then parents;
+it does not inherit home configuration or merge parent files. Missing settings
+default to `high`; invalid TOML, unknown keys, and invalid values raise an error.
+An explicit `DriverAgentConfig(reasoning_eagerness=...)` overrides the file.
+This controls the harness's `reasoning` tool, not the model's native thinking budget.
+
 At the highest reasoning setting (`high`), the next model request requires
 `reasoning` after every completed action-tool batch, including failures and single
 calls, using named tool choice (the model adapter must support it). Checkpoints

@@ -3,18 +3,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Annotated
 from typing import Any
-from typing import Literal
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import tool
 from pydantic import Field
 
+from core.config import ReasoningEagerness
 from core.live_steering import LiveSteeringInterrupt
 from core.utilities.messages import system_message_with_appended_text
 
-
-ReasoningEagerness = Literal["low", "medium", "high"]
 
 REASONING_STEERING_PROMPTS: dict[ReasoningEagerness, str] = {
     # LOW EAGERNESS
