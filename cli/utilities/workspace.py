@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.utilities.workspace import workspace_directory
+
 
 @dataclass(frozen=True)
 class WorkspaceState:
@@ -15,10 +17,11 @@ class WorkspaceStore:
 
     def __init__(self, cwd: str | Path | None = None) -> None:
         self._cwd = Path(cwd).expanduser().resolve() if cwd else Path.cwd().expanduser().resolve()
+        self._directory = workspace_directory(self._cwd)
 
     @property
     def path(self) -> Path:
-        return self._cwd / ".quasipilot" / "workspace.json"
+        return self._directory / "workspace.json"
 
     def ensure(self) -> Path:
         if not self.path.exists():

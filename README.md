@@ -124,4 +124,3 @@ calls, using named tool choice (the model adapter must support it). Checkpoints
 use first-person introspective prose as durable memory, favoring high-signal
 findings and concrete keywords without a fixed template or length quota.
 Reasoning-only batches restore normal tool choice; lower settings are unchanged.
-

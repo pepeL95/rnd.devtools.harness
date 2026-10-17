@@ -15,7 +15,6 @@ from core.session.manager import SessionManager
 from core.trajectory.compactor import TrajectoryCompactor
 from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 from core.trajectory.policy import TrajectoryCompactionPolicy
-from core.trajectory_bank.store import TrajectoryBank
 
 
 CUSTOM_CONFIG = """[compaction.session]
@@ -110,7 +109,7 @@ def test_cli_uses_parent_config_for_both_compaction_policies(tmp_path):
     configure(tmp_path)
     child = tmp_path / "src"
     child.mkdir()
-    with patch("cli.run.Path.cwd", return_value=child), patch.object(TrajectoryBank, "initialize"):
+    with patch("cli.run.Path.cwd", return_value=child):
         app = QuasipilotApp()
     manager = SessionManager(root=tmp_path / "sessions")
     app._manager = manager

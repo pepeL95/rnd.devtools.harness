@@ -26,7 +26,7 @@ def call(name, call_id):
 
 @pytest.mark.parametrize("mode", ["low", "medium", "high"])
 @pytest.mark.parametrize("status", ["success", "error"])
-@pytest.mark.parametrize("names", [["read_file"], ["execute", "read_file"], ["trajectory_bank"]])
+@pytest.mark.parametrize("names", [["read_file"], ["execute", "read_file"], ["read_skill"]])
 def test_only_high_mode_requires_reasoning_after_every_completed_batch(mode, status, names):
     calls = [call(name, str(index)) for index, name in enumerate(names)]
     messages = [

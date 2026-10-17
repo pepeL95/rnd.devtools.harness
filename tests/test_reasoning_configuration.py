@@ -8,7 +8,6 @@ from cli.run import QuasipilotApp
 from core.config import HarnessConfig, ensure_config, load_config
 from core.middleware.reasoning import ReasoningMiddleware
 from core.session.manager import SessionManager
-from core.trajectory_bank.store import TrajectoryBank
 
 
 def configure(root, content):
@@ -62,7 +61,7 @@ def test_cli_startup_initializes_config_once_in_nearest_workspace(tmp_path, pare
         (tmp_path / ".quasipilot").mkdir()
         cwd = tmp_path / "src"
         cwd.mkdir()
-    with patch("cli.run.Path.cwd", return_value=cwd), patch.object(TrajectoryBank, "initialize"):
+    with patch("cli.run.Path.cwd", return_value=cwd):
         QuasipilotApp()
         path = tmp_path / ".quasipilot/config.toml"
         assert load_config(cwd).reasoning.eagerness == "high"
@@ -146,7 +145,7 @@ def test_cli_builds_reasoning_from_parent_workspace_and_reloads_on_rebuild(tmp_p
     configure(tmp_path, '[reasoning]\neagerness = "low"')
     child = tmp_path / "src"
     child.mkdir()
-    with patch("cli.run.Path.cwd", return_value=child), patch.object(TrajectoryBank, "initialize"):
+    with patch("cli.run.Path.cwd", return_value=child):
         app = QuasipilotApp()
     app._manager = SessionManager(root=tmp_path / "sessions")
     with patch("langchain.agents.create_agent") as factory:

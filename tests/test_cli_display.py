@@ -404,7 +404,7 @@ class RuntimeBarTests(TestCase):
                 rendered = bar.render()
                 self.assertEqual(
                     str(rendered),
-                    "gemini-3.1-flash-lite  ·  /Users/pepelopez/Documents/Programming/rnd.devtools.harness  ·  /tmp/sessions/curated/abc.jsonl",
+                    f"gemini-3.1-flash-lite  ·  {Path.cwd()}  ·  /tmp/sessions/curated/abc.jsonl",
                 )
                 self.assertTrue(all(not span.style or "link " not in str(span.style) for span in rendered.spans))
 
