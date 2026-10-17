@@ -32,6 +32,7 @@ from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
+from core.config import ensure_config
 from core.dev_profile.coordinator import DevProfileCoordinator
 from core.live_steering import CancellationInterrupt, LiveSteeringController, LiveSteeringInterrupt
 from core.session.events import EventType, RuntimeSnapshot, SessionMetadata
@@ -111,6 +112,7 @@ class QuasipilotApp(App[None]):
         self._cwd = Path.cwd()
         self._workspace = WorkspaceStore(self._cwd)
         self._workspace.ensure()
+        ensure_config(self._cwd)
         self._startup_session_id = self._workspace.load().session_id
         startup_metadata = self._load_session_metadata(self._startup_session_id)
         self._model = self._resolve_session_model(startup_metadata)

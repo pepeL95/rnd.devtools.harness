@@ -4,7 +4,7 @@ import pytest
 
 from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from cli.run import QuasipilotApp
-from core.config import load_config
+from core.config import HarnessConfig, ensure_config, load_config
 from core.middleware.reasoning import ReasoningMiddleware
 from core.session.manager import SessionManager
 from core.trajectory_bank.store import TrajectoryBank
@@ -24,6 +24,55 @@ def test_missing_settings_default_to_high_without_writes(tmp_path, content):
         configure(tmp_path, content)
     assert load_config(tmp_path).reasoning.eagerness == "high"
     assert (tmp_path / ".quasipilot").exists() == (content is not None)
+
+
+def test_ensure_config_creates_defaults_in_new_workspace(tmp_path):
+    path = ensure_config(tmp_path)
+    assert path == tmp_path / ".quasipilot/config.toml"
+    assert path.read_text() == '[reasoning]\neagerness = "high"\n'
+    assert load_config(tmp_path) == HarnessConfig()
+
+
+@pytest.mark.parametrize("content", [
+    "",
+    "# Use defaults\n[reasoning]\n",
+    '# Keep my setting\n[reasoning]\neagerness = "low"\n',
+    '[reasoning]\neagerness = "medium"\n',
+    "invalid TOML [",
+])
+def test_ensure_config_preserves_existing_files_verbatim(tmp_path, content):
+    path = configure(tmp_path, content)
+    before = path.stat().st_mtime_ns
+    assert ensure_config(tmp_path) == path
+    assert path.read_text() == content
+    assert path.stat().st_mtime_ns == before
+
+
+def test_ensure_config_surfaces_write_failure(tmp_path):
+    with patch("pathlib.Path.open", side_effect=PermissionError("denied")):
+        with pytest.raises(PermissionError, match="denied"):
+            ensure_config(tmp_path)
+
+
+@pytest.mark.parametrize("parent_workspace", [False, True])
+def test_cli_startup_initializes_config_once_in_nearest_workspace(tmp_path, parent_workspace):
+    cwd = tmp_path
+    if parent_workspace:
+        (tmp_path / ".quasipilot").mkdir()
+        cwd = tmp_path / "src"
+        cwd.mkdir()
+    with patch("cli.run.Path.cwd", return_value=cwd), patch.object(TrajectoryBank, "initialize"):
+        QuasipilotApp()
+        path = tmp_path / ".quasipilot/config.toml"
+        assert load_config(cwd).reasoning.eagerness == "high"
+        assert path.is_file()
+        content = '# Keep local preference\n[reasoning]\neagerness = "low"\n'
+        path.write_text(content)
+        QuasipilotApp()
+    assert path.read_text() == content
+    assert load_config(cwd).reasoning.eagerness == "low"
+    if parent_workspace:
+        assert not (cwd / ".quasipilot").exists()
 
 
 @pytest.mark.parametrize("mode", [None, "low", "medium", "high"])

@@ -24,6 +24,19 @@ class HarnessConfig(BaseModel):
     reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
 
 
+def ensure_config(cwd: Path) -> Path:
+    """Create workspace defaults if absent, preserving existing files verbatim."""
+    path = workspace_directory(cwd) / "config.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    defaults = HarnessConfig()
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n')
+    except FileExistsError:
+        pass
+    return path
+
+
 def load_config(cwd: Path) -> HarnessConfig:
     """Read optional settings from the nearest workspace, without creating files."""
     path = workspace_directory(cwd) / "config.toml"
