@@ -76,8 +76,34 @@ def test_cli_compaction_reads_parent_workspace_setting(tmp_path, enabled):
     assert (coordinator.compactor.trajectory_bank is not None) == enabled
     if enabled:
         assert coordinator.compactor.trajectory_bank.root == directory
+        assert coordinator.compactor.trajectory_bank is app._trajectory_bank
     assert not (child / ".quasipilot").exists()
+    assert (directory / "chroma.sqlite3").exists() == enabled
+
+
+def test_cli_startup_initializes_by_default_without_embeddings(tmp_path):
+    with patch("core.trajectory_bank.embeddings.LocalEmbeddings.__call__", side_effect=AssertionError("must stay lazy")) as embed:
+        with patch("cli.run.Path.cwd", return_value=tmp_path):
+            first = QuasipilotApp()
+            second = QuasipilotApp()
+    assert first.manager is None and second.manager is None
+    assert (tmp_path / ".quasipilot/.trajectorybank/chroma.sqlite3").exists()
+    assert first._trajectory_bank._collection.id == second._trajectory_bank._collection.id
+    embed.assert_not_called()
+
+
+def test_disabled_cli_startup_does_not_open_chroma(tmp_path):
+    directory = configure(tmp_path, False)
+    with patch("cli.run.Path.cwd", return_value=tmp_path), patch.object(TrajectoryBank, "initialize") as initialize:
+        QuasipilotApp()
+    initialize.assert_not_called()
     assert not (directory / "chroma.sqlite3").exists()
+
+
+def test_cli_reports_bank_initialization_failure(tmp_path):
+    with patch("cli.run.Path.cwd", return_value=tmp_path), patch.object(TrajectoryBank, "initialize", side_effect=OSError("disk full")):
+        with pytest.raises(OSError, match="disk full"):
+            QuasipilotApp()
 
 
 def test_disabled_driver_rejects_injected_archival_coordinator(tmp_path):

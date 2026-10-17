@@ -85,6 +85,18 @@ def test_lazy_persistent_archive_and_embedding_identity(bank, manager, tmp_path)
         TrajectoryBank(tmp_path, embedder=wrong).get()
 
 
+def test_initialization_is_idempotent_and_preserves_records(bank, manager, tmp_path):
+    bank.initialize()
+    bank.initialize()
+    assert bank.embedder.calls == 0
+    item = record(manager)
+    bank.archive([item])
+    reopened = TrajectoryBank(tmp_path, embedder=FakeEmbeddings())
+    reopened.initialize()
+    assert reopened.embedder.calls == 0
+    assert reopened.get(ids=[item.id]) == [item]
+
+
 def test_threshold_scope_exact_references_and_deleted_sources(bank, manager, tmp_path):
     current = record(manager)
     other_manager = SessionManager(session_id="other-session", root=manager.root)

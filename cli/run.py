@@ -113,6 +113,9 @@ class QuasipilotApp(App[None]):
         self._cwd = Path.cwd()
         self._workspace = WorkspaceStore(self._cwd)
         self._workspace.ensure()
+        self._trajectory_bank = TrajectoryBank(self._cwd)
+        if load_policy(self._trajectory_bank.root).enabled:
+            self._trajectory_bank.initialize()
         self._startup_session_id = self._workspace.load().session_id
         startup_metadata = self._load_session_metadata(self._startup_session_id)
         self._model = self._resolve_session_model(startup_metadata)
@@ -328,7 +331,7 @@ class QuasipilotApp(App[None]):
         return _resolved_interpreter(metadata)
 
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
-        bank = TrajectoryBank(self._cwd)
+        bank = self._trajectory_bank
         enabled = load_policy(bank.root).enabled
         return CompactionCoordinator(
             manager,

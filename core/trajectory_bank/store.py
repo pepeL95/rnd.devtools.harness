@@ -18,6 +18,11 @@ class TrajectoryBank:
         self._collection = None
         self._lock = RLock()
 
+    def initialize(self) -> None:
+        """Create or reopen the local collection without loading embeddings."""
+        with self._lock:
+            self._open(create=True)
+
     def _open(self, *, create: bool = False):
         if self._collection is not None:
             if not (self.root / "chroma.sqlite3").exists():
