@@ -1,4 +1,5 @@
 from unittest.mock import patch
+import tomllib
 
 import pytest
 
@@ -29,7 +30,7 @@ def test_missing_settings_default_to_high_without_writes(tmp_path, content):
 def test_ensure_config_creates_defaults_in_new_workspace(tmp_path):
     path = ensure_config(tmp_path)
     assert path == tmp_path / ".quasipilot/config.toml"
-    assert path.read_text() == '[reasoning]\neagerness = "high"\n'
+    assert tomllib.loads(path.read_text()) == HarnessConfig().model_dump()
     assert load_config(tmp_path) == HarnessConfig()
 
 

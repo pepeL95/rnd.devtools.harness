@@ -88,11 +88,20 @@ The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
 paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
 
-Configure reasoning in the nearest workspace's `.quasipilot/config.toml`:
+Configure reasoning and compaction in the nearest workspace's `.quasipilot/config.toml`
+(defaults shown):
 
 ```toml
 [reasoning]
 eagerness = "high" # low, medium, or high (default)
+
+[compaction.session]
+trigger_tokens = 80000
+keep_last_turns = 2
+max_critic_loops = 1
+
+[compaction.trajectory]
+trigger_every_turns = 1
 ```
 
 CLI startup creates this file with defaults if it is missing, leaving existing
@@ -101,9 +110,13 @@ rewriting the file. The CLI and Python driver read settings when building the ag
 the Python driver does not create the file.
 Restart the CLI after editing it. Workspace discovery checks cwd, then parents;
 it does not inherit home configuration or merge parent files. Missing settings
-default to `high`; invalid TOML, unknown keys, and invalid values raise an error.
+use the defaults above; invalid TOML, unknown keys, and invalid values raise an error.
 An explicit `DriverAgentConfig(reasoning_eagerness=...)` overrides the file.
-This controls the harness's `reasoning` tool, not the model's native thinking budget.
+Reasoning eagerness controls the harness's tool, not the model's native thinking budget.
+Compaction thresholds must be positive integers; retained turns and critic loops
+may be zero. Explicitly supplied session or trajectory compaction coordinators
+retain their own policies. Larger trajectory intervals delay memory synthesis;
+the default preserves a trajectory after every completed turn.
 
 At the highest reasoning setting (`high`), the next model request requires
 `reasoning` after every completed action-tool batch, including failures and single
