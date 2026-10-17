@@ -33,6 +33,7 @@ from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.trajectory_bank.store import TrajectoryBank
+from core.trajectory_bank.policy import load_policy
 from core.dev_profile.coordinator import DevProfileCoordinator
 from core.live_steering import CancellationInterrupt, LiveSteeringController, LiveSteeringInterrupt
 from core.session.events import EventType, RuntimeSnapshot, SessionMetadata
@@ -327,9 +328,12 @@ class QuasipilotApp(App[None]):
         return _resolved_interpreter(metadata)
 
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
+        bank = TrajectoryBank(self._cwd)
+        enabled = load_policy(bank.root).enabled
         return CompactionCoordinator(
             manager,
-            Compactor(policy=CompactionPolicy(), trajectory_bank=TrajectoryBank(self._cwd), session_manager=manager),
+            Compactor(policy=CompactionPolicy(), trajectory_bank=bank if enabled else None,
+                      session_manager=manager if enabled else None),
             on_compaction_event=self._post_compaction_event,
             telemetry_store=TelemetryStore(telemetry_session_path(manager.session_id)),
         )

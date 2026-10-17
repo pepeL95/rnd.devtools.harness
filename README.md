@@ -89,8 +89,9 @@ paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
 
 Session compaction now preserves a detailed task map backed by the local
-`.quasipilot/.trajectorybank`. Original turn trajectories remain available through
+nearest `.quasipilot/.trajectorybank` (cwd, then parents). Original turn trajectories remain available through
 exact references, the `trajectory_bank` tool, and conservative post-reasoning
 recall. The local embedding model downloads on first use, not at CLI startup.
 See [trajectory bank v1](core/trajectory_bank/docs/v1.md) for configuration,
-thresholds, provenance checks, and evaluation commands.
+thresholds, provenance checks, and evaluation commands. It is enabled by default;
+set `enabled = false` in that bank's `config.toml` and restart to disable it.

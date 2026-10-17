@@ -466,3 +466,34 @@ def test_local_embeddings_include_text_beyond_first_window(monkeypatch):
     vector = LocalEmbeddings()(["alpha " * 500 + "beta " * 100])[0]
     assert vector[1] > 0.1
     assert np.linalg.norm(vector) == pytest.approx(1)
+
+
+def test_legacy_compaction_keeps_published_evidence_for_reenabling(bank, manager):
+    item = record(manager)
+    bank.archive([item])
+    add_turn(manager, 2, "tail")
+    model = FakeMessagesListChatModel(responses=[AIMessage(content="Legacy task memory")])
+    legacy = Compactor(policy=CompactionPolicy(keep_last_turns=1, task_extractor_model=model,
+                                              compactor_model=model, max_critic_loops=0))
+    with patch("core.compaction.compactor.quality_report", return_value=None):
+        result = legacy.compact(manager.read_curated())
+    assert result.events[0].payload["trajectory_manifest"] == {"arc-tabs": [item.id]}
+    manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
+    assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
+    add_turn(manager, 3, "new tail")
+    resumed = compactor(bank, manager, [arc([2])]).compact(manager.read_curated())
+    manager.apply_compaction_result(resumed.events, snapshot_latest_turn=3)
+    assert "Legacy task memory" in resumed.memory_document
+    assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
+
+
+def test_child_directory_archive_initializes_parent_chroma_workspace(tmp_path, manager):
+    (tmp_path / ".quasipilot").mkdir()
+    child = tmp_path / "src"
+    child.mkdir()
+    bank = TrajectoryBank(child, embedder=FakeEmbeddings())
+    item = record(manager)
+    bank.archive([item])
+    assert (tmp_path / ".quasipilot/.trajectorybank/chroma.sqlite3").exists()
+    assert not (child / ".quasipilot").exists()
+    assert TrajectoryBank(tmp_path, embedder=FakeEmbeddings()).get(ids=[item.id]) == [item]

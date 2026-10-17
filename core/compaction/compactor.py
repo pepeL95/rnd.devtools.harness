@@ -153,6 +153,11 @@ class Compactor:
             )
             revisions += 1
 
+        # Disabling new archival must not unpublish existing archived evidence.
+        manifest: dict[str, list[str]] = {}
+        for event in window.compacted:
+            for arc_id, record_ids in event.payload.get("trajectory_manifest", {}).items():
+                manifest[arc_id] = list(dict.fromkeys([*manifest.get(arc_id, []), *record_ids]))
         memory_event = SessionEvent(
             type=EventType.USER,
             turn=window.compacted[0].turn,
@@ -160,6 +165,7 @@ class Compactor:
                 "role": "user",
                 "content": memory_restore_message(memory_document),
                 "kind": "memory_restore",
+                **({"trajectory_manifest": manifest} if manifest else {}),
                 "compacted_event_count": len(window.compacted),
                 "retained_event_count": len(window.retained),
             },

@@ -6,13 +6,14 @@ from typing import Any
 
 from core.trajectory_bank.embeddings import LocalEmbeddings
 from core.trajectory_bank.models import Hit, TrajectoryRecord
+from core.utilities.workspace import workspace_directory
 
 
 class TrajectoryBank:
     """Lazy embedded Chroma store. No server or embedding download at startup."""
 
     def __init__(self, cwd: Path, *, embedder: Any = None) -> None:
-        self.root = cwd.expanduser().resolve() / ".quasipilot" / ".trajectorybank"
+        self.root = workspace_directory(cwd) / ".trajectorybank"
         self.embedder = embedder or LocalEmbeddings()
         self._collection = None
         self._lock = RLock()
