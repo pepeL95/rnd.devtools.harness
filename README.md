@@ -87,3 +87,9 @@ The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
 `execute`. `make_file` creates files with initial contents and refuses existing
 paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
+
+At the highest reasoning setting (`high`), the agent is steered to call
+`reasoning` separately after every completed tool-call batch, including failures
+and single calls. Reasoning-only batches do not trigger another checkpoint.
+This is prompt guidance, not a forced execution gate; lower settings are unchanged.
+
