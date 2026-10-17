@@ -88,6 +88,11 @@ The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
 paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
 
+At the highest reasoning setting (`high`), the agent is steered to call
+`reasoning` separately after every completed tool-call batch, including failures
+and single calls. Reasoning-only batches do not trigger another checkpoint.
+This is prompt guidance, not a forced execution gate; lower settings are unchanged.
+
 Session compaction now preserves a detailed task map backed by the local
 nearest `.quasipilot/.trajectorybank` (cwd, then parents). Original turn trajectories remain available through
 exact references, the `trajectory_bank` tool, and conservative post-reasoning
