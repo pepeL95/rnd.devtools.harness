@@ -9,7 +9,7 @@ from time import perf_counter
 from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span
 from core.compaction.token_counter import TokenCounter
 from core.session.events import SessionEvent, is_pinned_instruction
-from core.session.manager import SessionManager, StaleCompactionError
+from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.trajectory.compactor import TrajectoryCompactor
 from core.utilities.defaults import get_model_name
@@ -26,7 +26,6 @@ class PendingTrajectoryCompaction:
     model_names: dict[str, str]
     token_usage: dict[str, int]
     duration_ms: int
-    source_event_ids: list[str]
 
 
 class TrajectoryCompactionCoordinator:
@@ -104,7 +103,6 @@ class TrajectoryCompactionCoordinator:
             pending = PendingTrajectoryCompaction(
                 result_events=result.events,
                 snapshot_latest_turn=snapshot_latest_turn,
-                source_event_ids=[event.id for event in snapshot_events],
                 payload=payload,
                 compacted_event_count=result.compacted_event_count,
                 compacted_turn_count=len(result.compacted_turns),
@@ -153,18 +151,10 @@ class TrajectoryCompactionCoordinator:
         }
 
     def _apply_pending(self, pending: PendingTrajectoryCompaction) -> str:
-        try:
-            merged_events = self.manager.apply_compaction_result(
-                pending.result_events,
-                snapshot_latest_turn=pending.snapshot_latest_turn,
-                source_event_ids=pending.source_event_ids,
-            )
-        except StaleCompactionError:
-            self.telemetry.skip({**pending.payload, "reason": "stale_snapshot"})
-            with self._mutex:
-                self._pending = None
-                self._clear_pending()
-            return "stale"
+        merged_events = self.manager.apply_compaction_result(
+            pending.result_events,
+            snapshot_latest_turn=pending.snapshot_latest_turn,
+        )
         self.telemetry.end(
             {
                 **pending.payload,
@@ -197,7 +187,6 @@ class TrajectoryCompactionCoordinator:
                 {
                     "result_events": [event.to_json_dict() for event in pending.result_events],
                     "snapshot_latest_turn": pending.snapshot_latest_turn,
-                    "source_event_ids": pending.source_event_ids,
                     "payload": pending.payload,
                     "compacted_event_count": pending.compacted_event_count,
                     "compacted_turn_count": pending.compacted_turn_count,
@@ -216,14 +205,9 @@ class TrajectoryCompactionCoordinator:
             return None
         with self._pending_path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
-        if not isinstance(data.get("source_event_ids"), list):
-            # Pre-snapshot-guard results cannot safely replace a newer task map.
-            self._clear_pending()
-            return None
         return PendingTrajectoryCompaction(
             result_events=[SessionEvent.from_json_dict(item) for item in data["result_events"]],
             snapshot_latest_turn=int(data["snapshot_latest_turn"]),
-            source_event_ids=data["source_event_ids"],
             payload=dict(data["payload"]),
             compacted_event_count=int(data["compacted_event_count"]),
             compacted_turn_count=int(data["compacted_turn_count"]),

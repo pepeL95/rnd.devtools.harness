@@ -5,29 +5,11 @@ import time
 from rich.text import Text
 from textual.widgets import Static
 
-# Each sequence traces the letter's lower structure upward in one braille cell.
-_DRAW_SEQUENCES = (
-    ("p", ("⡀", "⡄", "⡆", "p")),
-    ("p", ("⡀", "⡄", "⡆", "p")),
-    ("a", ("⣀", "⣠", "⣶", "a")),
-)
-_HOLD_FRAMES = 4
-
-
-def _build_wordmark_frames() -> tuple[str, ...]:
-    completed = ""
-    frames: list[str] = []
-    for letter, strokes in _DRAW_SEQUENCES:
-        frames.extend((completed + stroke).ljust(3) for stroke in strokes)
-        completed += letter
-    return tuple(frames)
-
-
-_WORDMARK_FRAMES = _build_wordmark_frames()
+_WORDMARK = "ppa"
 
 
 class WorkingSpinner(Static):
-    """Draw a muted PPA wordmark from bottom to top, then restart."""
+    """Animated PPA wordmark with status and elapsed time."""
 
     DEFAULT_CSS = """
     WorkingSpinner {
@@ -53,7 +35,7 @@ class WorkingSpinner(Static):
             self._timer.stop()
 
     def _tick(self) -> None:
-        self._frame = (self._frame + 1) % (len(_WORDMARK_FRAMES) + _HOLD_FRAMES)
+        self._frame = (self._frame + 1) % len(_WORDMARK)
         self._refresh_label()
 
     def _refresh_label(self) -> None:
@@ -62,14 +44,11 @@ class WorkingSpinner(Static):
 
     def _build_label(self, elapsed: float) -> Text:
         label = Text()
-        label.append(self._wordmark(), style="dim")
+        for index, letter in enumerate(_WORDMARK):
+            style = "bold" if index == self._frame else "dim"
+            label.append(letter, style=style)
         label.append(f"  {self._status} · {elapsed:0.1f}s", style="dim")
         return label
-
-    def _wordmark(self) -> str:
-        if self._frame >= len(_WORDMARK_FRAMES):
-            return "ppa"
-        return _WORDMARK_FRAMES[self._frame]
 
     def set_status(self, status: str) -> None:
         self._status = status

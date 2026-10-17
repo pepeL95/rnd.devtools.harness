@@ -25,7 +25,6 @@ cd "$REPO_ROOT"
 python -m pip install --upgrade pip setuptools wheel build
 python -m pip install --upgrade \
   -e ".[dev]" \
-  "chromadb==1.5.9" \
   "deepagents==0.7.23" \
   "langchain==1.4.4" \
   "langchain-core==1.6.9" \

@@ -122,32 +122,22 @@ class SelectionActionTests(TestCase):
 
 
 class WorkingSpinnerTests(TestCase):
-    def test_spinner_starts_the_wordmark_with_a_bottom_dot(self) -> None:
+    def test_spinner_uses_staggered_ppa_wordmark(self) -> None:
         spinner = WorkingSpinner()
         rendered = spinner._build_label(0.0)
 
-        self.assertTrue(rendered.plain.startswith("⡀  "))
-        self.assertNotIn("\n", rendered.plain)
-        self.assertEqual(rendered.spans[0].style, "dim")
+        self.assertEqual(rendered.plain[:3], "ppa")
+        self.assertEqual(rendered.spans[0].style, "bold")
+        self.assertEqual(rendered.spans[1].style, "dim")
+        self.assertEqual(rendered.spans[2].style, "dim")
 
-    def test_spinner_keeps_completed_letters_while_drawing_the_next_one(self) -> None:
+    def test_spinner_advances_wordmark_one_letter_at_a_time(self) -> None:
         spinner = WorkingSpinner()
-        spinner._frame = 4
-        drawing_second_letter = spinner._build_label(0.0)
+        spinner.update = lambda content: None  # type: ignore[method-assign]
 
-        spinner._frame = 12
-        completed = spinner._build_label(0.0)
+        spinner._tick()
 
-        self.assertTrue(drawing_second_letter.plain.startswith("p⡀ "))
-        self.assertTrue(completed.plain.startswith("ppa"))
-
-    def test_spinner_uses_a_distinct_bowl_drawing_for_a(self) -> None:
-        spinner = WorkingSpinner()
-        spinner._frame = 8
-
-        rendered = spinner._build_label(0.0)
-
-        self.assertTrue(rendered.plain.startswith("pp⣀"))
+        self.assertEqual(spinner._frame, 1)
 
 
 class ToolStreamTests(TestCase):

@@ -123,7 +123,6 @@ class CompactionCoordinator:
             merged_events = self.manager.apply_compaction_result(
                 result.events,
                 snapshot_latest_turn=snapshot_latest_turn,
-                source_event_ids=[event.id for event in source_events],
             )
             duration_ms = int((perf_counter() - started) * 1000)
             end_payload = {
