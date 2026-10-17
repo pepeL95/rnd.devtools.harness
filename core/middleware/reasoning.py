@@ -52,12 +52,12 @@ For every substantive task, alternate between reasoning and action:
 Call `reasoning` separately, after all results in the batch arrive; do not batch it with other tools. A reasoning-only batch does not require another reasoning call. The checkpoint must inform the next model step.
 Also call `reasoning` immediately after errors, surprising results, ambiguous evidence, user steering, or any change of plan.
 
-Write a high-signal first-person state update, usually 1-3 short bullets or sentences: concrete findings, what they imply for the task (including uncertainty or failure), and my next action or completion verdict. Analyze the results, not just the fact that tools ran. Preserve decisive paths, symbols, test counts, and errors; add detail only when needed to retain evidence. No narrative recap, repeated plans, raw output dumps, or filler.""",
+Write first-person introspective prose, not bullet points or a fixed template. These reflections become durable memory: capture what I learned from the results, what it means for the task, any uncertainty, and how it informs my next action. Favor high-signal, keyword-rich findings grounded in concrete paths, symbols, commands, test outcomes, and errors. Aim for concision without losing useful evidence; let the findings determine the length rather than a quota. Analyze the results instead of merely narrating tool use or repeating plans.""",
 }
 
 TOOL_FAILURE_REASONING_REMINDER = """A tool just failed. Use the `reasoning` tool before moving forward so you explicitly assess the failure mechanism, what changed, and the next best move."""
 
-BATCH_REASONING_REMINDER = """Required next call: `reasoning` alone. Analyze the completed batch in 1-3 short bullets or sentences: decisive evidence, task implications or failures, and next action. No recap or filler."""
+BATCH_REASONING_REMINDER = """Required next call: `reasoning` alone. Reflect on the batch in first-person introspective prose: what I learned, what it means, and what I should do next. Favor high-signal findings and concrete keywords worth preserving in memory; use the detail the evidence warrants."""
 
 READ_FILE_REASONING_REMINDER = """You just received a long `read_file` result. Use the `reasoning` tool to synthesize what was actually relevant from that output, what constraints or discoveries matter, and what can be ignored. This is primarily to preserve signal for later compaction."""
 

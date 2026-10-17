@@ -116,10 +116,15 @@ def test_real_graph_gets_one_batch_reminder_then_clears_after_reasoning():
     assert bindings == [None, "reasoning", None]
 
 
-def test_high_mode_requires_concise_result_analysis():
+def test_high_mode_guides_memory_rich_prose_without_length_quotas():
     updated = ReasoningMiddleware(eagerness="high").wrap_model_call(Request([]), lambda value: value)
     prompt = updated.system_message.text
     assert "non-negotiable" in prompt
-    assert "1-3 short bullets or sentences" in prompt
-    assert "Analyze the results, not just the fact that tools ran" in prompt
-    assert "No narrative recap" in prompt
+    assert "first-person introspective prose" in prompt
+    assert "durable memory" in prompt
+    assert "keyword-rich findings" in prompt
+    assert "let the findings determine the length rather than a quota" in prompt
+    assert "not bullet points or a fixed template" in prompt
+    assert "first-person introspective prose" in BATCH_REASONING_REMINDER
+    assert "concrete keywords worth preserving in memory" in BATCH_REASONING_REMINDER
+    assert "1-3" not in prompt + BATCH_REASONING_REMINDER

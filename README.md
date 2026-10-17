@@ -91,7 +91,8 @@ the harness's explicit `read_skill` activation.
 At the highest reasoning setting (`high`), the next model request requires
 `reasoning` after every completed action-tool batch, including failures and single
 calls, using named tool choice (the model adapter must support it). Checkpoints
-target 1-3 short bullets or sentences: evidence, implications, and next action.
+use first-person introspective prose as durable memory, favoring high-signal
+findings and concrete keywords without a fixed template or length quota.
 Reasoning-only batches restore normal tool choice; lower settings are unchanged.
 
 Session compaction now preserves a detailed task map backed by the local
