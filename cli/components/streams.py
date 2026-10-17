@@ -75,6 +75,8 @@ class ToolStream(Static):
             return "Pondering"
         if name == "read_skill":
             return "Equipped"
+        if name == "trajectory_bank":
+            return "Recalled"
         return name
 
 

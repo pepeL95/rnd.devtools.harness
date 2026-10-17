@@ -32,6 +32,7 @@ from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
+from core.trajectory_bank.store import TrajectoryBank
 from core.dev_profile.coordinator import DevProfileCoordinator
 from core.live_steering import CancellationInterrupt, LiveSteeringController, LiveSteeringInterrupt
 from core.session.events import EventType, RuntimeSnapshot, SessionMetadata
@@ -328,7 +329,7 @@ class QuasipilotApp(App[None]):
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
         return CompactionCoordinator(
             manager,
-            Compactor(policy=CompactionPolicy()),
+            Compactor(policy=CompactionPolicy(), trajectory_bank=TrajectoryBank(self._cwd), session_manager=manager),
             on_compaction_event=self._post_compaction_event,
             telemetry_store=TelemetryStore(telemetry_session_path(manager.session_id)),
         )

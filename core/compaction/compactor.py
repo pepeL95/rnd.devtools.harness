@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -15,24 +15,39 @@ from core.compaction.window import split_compaction_window
 from core.session.events import EventType, SessionEvent
 from core.utilities.defaults import get_model_name
 
+if TYPE_CHECKING:
+    from core.session.manager import SessionManager
+    from core.trajectory_bank.store import TrajectoryBank
+
 
 class Compactor:
-    """Run the segmentation -> synthesis -> critic -> revision compaction loop."""
+    """Compact sessions using task arcs when a bank is supplied, or the legacy synthesis loop."""
 
     def __init__(
         self,
         policy: CompactionPolicy | None = None,
         token_counter: TokenCounter | None = None,
+        *,
+        trajectory_bank: TrajectoryBank | None = None,
+        session_manager: SessionManager | None = None,
     ) -> None:
         self.policy = policy or CompactionPolicy()
         self.policy.validate()
         self.token_counter = token_counter or TokenCounter()
+        if (trajectory_bank is None) != (session_manager is None):
+            raise ValueError("trajectory_bank and session_manager must be supplied together")
+        self.trajectory_bank = trajectory_bank
+        self.session_manager = session_manager
 
     def compact(
         self,
         events: list[SessionEvent],
         token_estimate: int | None = None,
     ) -> CompactionResult:
+        if self.trajectory_bank is not None:
+            from core.compaction.arcs import compact_arcs
+
+            return compact_arcs(self, events, token_estimate)
         usage = _TokenUsage()
         window = split_compaction_window(events, self.policy.keep_last_turns)
         if not window.should_compact:

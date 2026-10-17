@@ -362,6 +362,7 @@ file="check.md"
     manager = SessionManager(root=tmp_path / "sessions")
     model = ScriptedModel(responses=[AIMessage(content="candidate"), AIMessage(content="verified")])
     compaction = MagicMock()
+    compaction.compactor.trajectory_bank = None
     trajectory = MagicMock()
     with patch("pathlib.Path.home", return_value=tmp_path / "home"):
         agent = create_driver_agent(DriverAgentConfig(

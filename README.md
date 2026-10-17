@@ -41,7 +41,7 @@ pinned agent stack, validates dependencies, and runs the test suite. Pass a
 different environment name when needed: `./sync-env.sh my-environment`.
 
 The validated stack is DeepAgents 0.7.23, LangChain 1.4.4, LangGraph 1.2.14,
-and the Google GenAI adapter 4.4.1. When upgrading it, update the minimum
+ChromaDB 1.5.9, and the Google GenAI adapter 4.4.1. When upgrading it, update the minimum
 versions in `pyproject.toml` and exact pins in `sync-env.sh` together, then
 run the synchronization script in `quasipilot-harness`.
 
@@ -87,3 +87,10 @@ The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
 `execute`. `make_file` creates files with initial contents and refuses existing
 paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
+
+Session compaction now preserves a detailed task map backed by the local
+`.quasipilot/.trajectorybank`. Original turn trajectories remain available through
+exact references, the `trajectory_bank` tool, and conservative post-reasoning
+recall. The local embedding model downloads on first use, not at CLI startup.
+See [trajectory bank v1](core/trajectory_bank/docs/v1.md) for configuration,
+thresholds, provenance checks, and evaluation commands.

@@ -1,5 +1,21 @@
 # Evaluations
 
+## Trajectory Bank Retrieval
+
+Run the real local embedding model against positive and close-topic negative
+queries (first use downloads the model):
+
+```sh
+python evals/trajectory_bank_retrieval.py
+```
+
+Add `--live-compaction` to also exercise the configured compaction LLM, real
+Chroma archival, session publication, reopening, and exact retrieval on synthetic
+turns. This optional mode uses provider credentials and incurs model usage.
+Results go to `eval_results/trajectory_bank_retrieval/<timestamp>/metrics.json`;
+live runs also retain source/rewritten sessions, the bank, and `memory.md`.
+The small synthetic set is a smoke gate, not a production threshold calibration.
+
 ## Compaction Semantic Richness
 
 The compaction semantic-richness eval measures whether the compacted context

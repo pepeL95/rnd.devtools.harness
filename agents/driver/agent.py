@@ -29,12 +29,15 @@ from core.middleware.session_load import SessionLoadMiddleware
 from core.middleware.skills import SkillsMiddleware, create_read_skill_tool
 from core.middleware.system_prompt import SystemPromptMiddleware
 from core.middleware.trajectory import TrajectoryCompactionMiddleware
+from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.middleware.telemetry import TelemetryMiddleware
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.trajectory.compactor import TrajectoryCompactor
 from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 from core.trajectory.policy import TrajectoryCompactionPolicy
+from core.trajectory_bank.store import TrajectoryBank
+from core.trajectory_bank.retrieval import BankRetrieval
 from core.utilities.defaults import get_default_driver_model
 
 @dataclass(frozen=True)
@@ -66,6 +69,9 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     cwd = config.cwd.expanduser().resolve()
     manager = config.session_manager or SessionManager(session_id=config.session_id)
     telemetry_store = TelemetryStore(telemetry_session_path(manager.session_id))
+    trajectory_bank = TrajectoryBank(cwd)
+    if config.session_compaction_coordinator is not None:
+        trajectory_bank = getattr(config.session_compaction_coordinator.compactor, "trajectory_bank", None) or trajectory_bank
     backend = _local_shell_backend(
         LocalShellBackend,
         cwd,
@@ -73,7 +79,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     )
     session_compaction_coordinator = config.session_compaction_coordinator or CompactionCoordinator(
         manager,
-        Compactor(policy=CompactionPolicy()),
+        Compactor(policy=CompactionPolicy(), trajectory_bank=trajectory_bank, session_manager=manager),
         on_compaction_event=config.on_compaction_event,
         telemetry_store=telemetry_store,
     )
@@ -106,6 +112,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         HarnessFilesystemMiddleware(backend=backend),
         session_dump,
+        TrajectoryBankMiddleware(BankRetrieval(trajectory_bank, manager, telemetry=telemetry_store)),
         # Completion hooks can return to the model before SessionDump closes
         # the logical turn and the outer compaction hooks run.
         *([HooksMiddleware(HookDispatcher(hooks, manager, cwd, config.python_interpreter), session_dump)] if hooks else []),

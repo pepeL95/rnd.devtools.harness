@@ -16,6 +16,7 @@ __all__ = [
     "SkillsMiddleware",
     "SystemPromptMiddleware",
     "TrajectoryCompactionMiddleware",
+    "TrajectoryBankMiddleware",
 ]
 
 _EXPORTS = {
@@ -31,6 +32,7 @@ _EXPORTS = {
     "SkillsMiddleware": "core.middleware.skills",
     "SystemPromptMiddleware": "core.middleware.system_prompt",
     "TrajectoryCompactionMiddleware": "core.middleware.trajectory",
+    "TrajectoryBankMiddleware": "core.middleware.trajectory_bank",
 }
 
 
