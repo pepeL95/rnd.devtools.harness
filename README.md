@@ -88,8 +88,9 @@ The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
 paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
 
-At the highest reasoning setting (`high`), the agent is steered to call
-`reasoning` separately after every completed tool-call batch, including failures
-and single calls. Reasoning-only batches do not trigger another checkpoint.
-This is prompt guidance, not a forced execution gate; lower settings are unchanged.
+At the highest reasoning setting (`high`), the next model request requires
+`reasoning` after every completed action-tool batch, including failures and single
+calls, using named tool choice (the model adapter must support it). Checkpoints
+target 1-3 short bullets or sentences: evidence, implications, and next action.
+Reasoning-only batches restore normal tool choice; lower settings are unchanged.
 

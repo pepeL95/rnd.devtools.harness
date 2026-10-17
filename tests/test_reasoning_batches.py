@@ -14,6 +14,7 @@ from core.middleware.reasoning import BATCH_REASONING_REMINDER, ReasoningMiddlew
 class Request:
     messages: list
     system_message: SystemMessage | None = None
+    tool_choice: str | None = None
 
     def override(self, **changes):
         return replace(self, **changes)
@@ -26,18 +27,20 @@ def call(name, call_id):
 @pytest.mark.parametrize("mode", ["low", "medium", "high"])
 @pytest.mark.parametrize("status", ["success", "error"])
 @pytest.mark.parametrize("names", [["read_file"], ["execute", "read_file"], ["trajectory_bank"]])
-def test_only_high_mode_steers_after_every_completed_batch(mode, status, names):
+def test_only_high_mode_requires_reasoning_after_every_completed_batch(mode, status, names):
     calls = [call(name, str(index)) for index, name in enumerate(names)]
     messages = [
         AIMessage(content="", tool_calls=calls),
         *[ToolMessage(content="", status=status, tool_call_id=item["id"]) for item in reversed(calls)],
     ]
-    request = Request(messages=messages, system_message=SystemMessage(content="Base"))
+    request = Request(messages=messages, system_message=SystemMessage(content="Base"), tool_choice="auto")
     middleware = ReasoningMiddleware(eagerness=mode)
     updated = middleware.wrap_model_call(request, lambda value: value)
     assert updated.system_message.text.count(BATCH_REASONING_REMINDER) == int(mode == "high")
+    assert updated.tool_choice == ("reasoning" if mode == "high" else "auto")
     assert updated.messages == messages
     assert request.system_message.content == "Base"
+    assert request.tool_choice == "auto"
 
 
 @pytest.mark.parametrize("messages", [
@@ -52,6 +55,7 @@ def test_only_high_mode_steers_after_every_completed_batch(mode, status, names):
 def test_no_reminder_for_incomplete_reasoning_only_or_previous_batches(messages):
     updated = ReasoningMiddleware(eagerness="high").wrap_model_call(Request(messages), lambda value: value)
     assert BATCH_REASONING_REMINDER not in updated.system_message.text
+    assert updated.tool_choice is None
 
 
 def test_mixed_batch_requires_post_result_checkpoint_and_deduplicates_reminders():
@@ -65,6 +69,7 @@ def test_mixed_batch_requires_post_result_checkpoint_and_deduplicates_reminders(
     middleware.wrap_tool_call(type("ToolRequest", (), {"tool_call": calls[1]})(), lambda _: request.messages[-1])
     updated = middleware.wrap_model_call(request, lambda value: value)
     assert updated.system_message.text.count(BATCH_REASONING_REMINDER) == 1
+    assert updated.tool_choice == "reasoning"
     assert "long `read_file` result" not in updated.system_message.text
     checkpoint = [
         AIMessage(content="", tool_calls=[call("reasoning", "next")]),
@@ -72,11 +77,15 @@ def test_mixed_batch_requires_post_result_checkpoint_and_deduplicates_reminders(
     ]
     after = middleware.wrap_model_call(Request([*request.messages, *checkpoint]), lambda value: value)
     assert BATCH_REASONING_REMINDER not in after.system_message.text
+    assert after.tool_choice is None
 
 
 def test_real_graph_gets_one_batch_reminder_then_clears_after_reasoning():
+    bindings = []
+
     class Model(FakeMessagesListChatModel):
         def bind_tools(self, tools, **kwargs):
+            bindings.append(kwargs.get("tool_choice"))
             return self
 
     prompts = []
@@ -104,3 +113,13 @@ def test_real_graph_gets_one_batch_reminder_then_clears_after_reasoning():
     result = graph.invoke({"messages": [HumanMessage(content="Check both examples")]})
     assert result["messages"][-1].content == "done"
     assert [prompt.count(BATCH_REASONING_REMINDER) for prompt in prompts] == [0, 1, 0]
+    assert bindings == [None, "reasoning", None]
+
+
+def test_high_mode_requires_concise_result_analysis():
+    updated = ReasoningMiddleware(eagerness="high").wrap_model_call(Request([]), lambda value: value)
+    prompt = updated.system_message.text
+    assert "non-negotiable" in prompt
+    assert "1-3 short bullets or sentences" in prompt
+    assert "Analyze the results, not just the fact that tools ran" in prompt
+    assert "No narrative recap" in prompt
