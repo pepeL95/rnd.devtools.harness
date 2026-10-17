@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from cli.components import AIBubble, ChatInput
+from cli.components import AIBubble, ChatInput, WorkingSpinner
 from cli.components import ToolStream
 from cli.components import RuntimeBar
 from cli.components import StatusBubble
@@ -119,6 +119,25 @@ class SelectionActionTests(TestCase):
 
         with patch.object(QuasipilotApp, "screen", new_callable=PropertyMock, return_value=screen):
             app.action_copy_selection()
+
+
+class WorkingSpinnerTests(TestCase):
+    def test_spinner_uses_staggered_ppa_wordmark(self) -> None:
+        spinner = WorkingSpinner()
+        rendered = spinner._build_label(0.0)
+
+        self.assertEqual(rendered.plain[:3], "ppa")
+        self.assertEqual(rendered.spans[0].style, "bold")
+        self.assertEqual(rendered.spans[1].style, "dim")
+        self.assertEqual(rendered.spans[2].style, "dim")
+
+    def test_spinner_advances_wordmark_one_letter_at_a_time(self) -> None:
+        spinner = WorkingSpinner()
+        spinner.update = lambda content: None  # type: ignore[method-assign]
+
+        spinner._tick()
+
+        self.assertEqual(spinner._frame, 1)
 
 
 class ToolStreamTests(TestCase):
