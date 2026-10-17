@@ -32,6 +32,7 @@ from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
+from core.config import ensure_config
 from core.trajectory_bank.store import TrajectoryBank
 from core.trajectory_bank.policy import load_policy
 from core.dev_profile.coordinator import DevProfileCoordinator
@@ -113,6 +114,7 @@ class QuasipilotApp(App[None]):
         self._cwd = Path.cwd()
         self._workspace = WorkspaceStore(self._cwd)
         self._workspace.ensure()
+        ensure_config(self._cwd)
         self._trajectory_bank = TrajectoryBank(self._cwd)
         if load_policy(self._trajectory_bank.root).enabled:
             self._trajectory_bank.initialize()
