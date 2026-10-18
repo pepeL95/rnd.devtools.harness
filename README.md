@@ -113,9 +113,10 @@ automatic_tokens = 1200
 search_tokens = 3000
 ```
 
-CLI startup creates this file with defaults if it is missing, leaving existing
-files and comments untouched. Omitted settings use in-memory defaults without
-rewriting the file. The CLI and Python driver read settings when building the agent;
+CLI startup creates this file with defaults if it is missing, or appends entirely
+missing top-level sections. Existing sections, values, and comments are preserved;
+omitted keys within existing sections use in-memory defaults. Invalid files are
+reported without modification. The CLI and Python driver read settings when building the agent;
 the Python driver does not create the file.
 Restart the CLI after editing it. Workspace discovery checks cwd, then parents;
 it does not inherit home configuration or merge parent files. Missing settings

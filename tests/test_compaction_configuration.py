@@ -60,12 +60,13 @@ def test_config_defaults_match_existing_policy_defaults():
         assert all(defaults[key] == value for key, value in settings.model_dump().items())
 
 
-def test_existing_reasoning_only_config_uses_compaction_defaults_without_rewrite(tmp_path):
+def test_existing_reasoning_only_config_gains_compaction_defaults(tmp_path):
     path = configure(tmp_path, '# Preserve me\n[reasoning]\neagerness = "low"\n')
     original = path.read_bytes()
     ensure_config(tmp_path)
     assert load_config(tmp_path).compaction == HarnessConfig().compaction
-    assert path.read_bytes() == original
+    assert path.read_bytes().startswith(original)
+    assert "[compaction.session]" in path.read_text()
 
 
 def test_partial_compaction_config_preserves_unspecified_defaults(tmp_path):

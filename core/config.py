@@ -49,7 +49,7 @@ class HarnessConfig(BaseModel):
 
 
 def ensure_config(cwd: Path) -> Path:
-    """Create workspace defaults if absent, preserving existing files verbatim."""
+    """Create defaults or append missing top-level sections without rewriting settings."""
     path = workspace_directory(cwd) / "config.toml"
     _reject_legacy_bank_config(path.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,22 +57,33 @@ def ensure_config(cwd: Path) -> Path:
     session = defaults.compaction.session
     trajectory = defaults.compaction.trajectory
     bank = defaults.trajectory_bank
+    sections = {
+        "reasoning": f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n',
+        "compaction": (
+            f"[compaction.session]\ntrigger_tokens = {session.trigger_tokens}\n"
+            f"keep_last_turns = {session.keep_last_turns}\n"
+            f"max_critic_loops = {session.max_critic_loops}\n\n"
+            f"[compaction.trajectory]\ntrigger_every_turns = {trajectory.trigger_every_turns}\n"
+        ),
+        "trajectory_bank": (
+            f"[trajectory_bank]\nenabled = {str(bank.enabled).lower()}\n"
+            f"automatic_min_similarity = {bank.automatic_min_similarity}\n"
+            f"search_min_similarity = {bank.search_min_similarity}\n"
+            f"automatic_results = {bank.automatic_results}\nsearch_results = {bank.search_results}\n"
+            f"automatic_tokens = {bank.automatic_tokens}\nsearch_tokens = {bank.search_tokens}\n"
+        ),
+    }
     try:
         with path.open("x", encoding="utf-8") as handle:
-            handle.write(
-                f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n\n'
-                f"[compaction.session]\ntrigger_tokens = {session.trigger_tokens}\n"
-                f"keep_last_turns = {session.keep_last_turns}\n"
-                f"max_critic_loops = {session.max_critic_loops}\n\n"
-                f"[compaction.trajectory]\ntrigger_every_turns = {trajectory.trigger_every_turns}\n"
-                f"\n[trajectory_bank]\nenabled = {str(bank.enabled).lower()}\n"
-                f"automatic_min_similarity = {bank.automatic_min_similarity}\n"
-                f"search_min_similarity = {bank.search_min_similarity}\n"
-                f"automatic_results = {bank.automatic_results}\nsearch_results = {bank.search_results}\n"
-                f"automatic_tokens = {bank.automatic_tokens}\nsearch_tokens = {bank.search_tokens}\n"
-            )
+            handle.write("\n".join(sections.values()))
     except FileExistsError:
-        pass
+        # Validate before adding anything; malformed user settings must remain untouched.
+        load_config(cwd)
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        missing = [text for name, text in sections.items() if name not in document]
+        if missing:
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("\n\n" + "\n".join(missing))
     return path
 
 

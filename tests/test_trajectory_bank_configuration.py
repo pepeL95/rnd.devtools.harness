@@ -213,11 +213,28 @@ def test_legacy_bank_config_requires_explicit_migration_without_overwriting(tmp_
     assert legacy.read_text() == "enabled = false\n"
 
 
-def test_missing_bank_section_uses_defaults_without_rewriting(tmp_path):
+def test_missing_bank_section_is_appended_at_startup(tmp_path):
     path = tmp_path / ".quasipilot/config.toml"
     path.parent.mkdir()
     content = '# Retain comments\n[reasoning]\neagerness = "low"\n'
     path.write_text(content)
-    ensure_config(tmp_path)
+    with patch("cli.run.Path.cwd", return_value=tmp_path), patch.object(TrajectoryBank, "initialize"):
+        QuasipilotApp()
     assert load_config(tmp_path).trajectory_bank == BankPolicy()
-    assert path.read_text() == content
+    assert path.read_text().startswith(content)
+    assert "[trajectory_bank]" in path.read_text()
+
+
+def test_existing_bank_settings_survive_startup_backfill(tmp_path):
+    directory = configure(tmp_path, False)
+    path = directory.parent / "config.toml"
+    content = '# Custom recall\n[trajectory_bank]\nenabled = false\nsearch_results = 9\n'
+    path.write_text(content)
+    with patch("cli.run.Path.cwd", return_value=tmp_path), patch.object(TrajectoryBank, "initialize") as initialize:
+        QuasipilotApp()
+        after_first_start = path.read_bytes()
+        QuasipilotApp()
+    initialize.assert_not_called()
+    assert path.read_bytes() == after_first_start
+    assert path.read_text().startswith(content)
+    assert load_config(tmp_path).trajectory_bank.search_results == 9

@@ -39,14 +39,38 @@ def test_ensure_config_creates_defaults_in_new_workspace(tmp_path):
     "# Use defaults\n[reasoning]\n",
     '# Keep my setting\n[reasoning]\neagerness = "low"\n',
     '[reasoning]\neagerness = "medium"\n',
-    "invalid TOML [",
+    'reasoning = { eagerness = "low" }',
 ])
-def test_ensure_config_preserves_existing_files_verbatim(tmp_path, content):
+def test_ensure_config_appends_missing_sections_without_rewriting_existing_content(tmp_path, content):
     path = configure(tmp_path, content)
-    before = path.stat().st_mtime_ns
     assert ensure_config(tmp_path) == path
-    assert path.read_text() == content
+    assert path.read_text().startswith(content)
+    document = tomllib.loads(path.read_text())
+    assert set(document) == set(HarnessConfig().model_dump())
+    original = tomllib.loads(content)
+    for key, value in original.items():
+        assert document[key] == value
+    updated = path.read_bytes()
+    before = path.stat().st_mtime_ns
+    ensure_config(tmp_path)
+    assert path.read_bytes() == updated
     assert path.stat().st_mtime_ns == before
+
+
+@pytest.mark.parametrize("content", ["invalid TOML [", '[reasoning]\neagerness = "invalid"'])
+def test_ensure_config_does_not_modify_invalid_files(tmp_path, content):
+    path = configure(tmp_path, content)
+    with pytest.raises(ValueError, match="Invalid harness configuration"):
+        ensure_config(tmp_path)
+    assert path.read_text() == content
+
+
+def test_complete_partial_sections_remain_verbatim(tmp_path):
+    content = '# Keep omissions\n[reasoning]\n[compaction]\n[trajectory_bank]\nenabled = false\n'
+    path = configure(tmp_path, content)
+    ensure_config(tmp_path)
+    assert path.read_text() == content
+    assert load_config(tmp_path).trajectory_bank.enabled is False
 
 
 def test_ensure_config_surfaces_write_failure(tmp_path):
@@ -70,7 +94,8 @@ def test_cli_startup_initializes_config_once_in_nearest_workspace(tmp_path, pare
         content = '# Keep local preference\n[reasoning]\neagerness = "low"\n'
         path.write_text(content)
         QuasipilotApp()
-    assert path.read_text() == content
+    assert path.read_text().startswith(content)
+    assert tomllib.loads(path.read_text())["trajectory_bank"] == HarnessConfig().trajectory_bank.model_dump()
     assert load_config(cwd).reasoning.eagerness == "low"
     if parent_workspace:
         assert not (cwd / ".quasipilot").exists()
