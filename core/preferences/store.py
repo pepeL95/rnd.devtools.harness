@@ -8,29 +8,29 @@ from uuid import uuid4
 
 
 @dataclass(frozen=True)
-class DevProfileSnapshot:
+class PreferencesSnapshot:
     path: Path
     exists: bool
     content: str
     revision: str | None
 
 
-class DevProfileStore:
-    """Read and atomically update a workspace-local developer profile."""
+class PreferencesStore:
+    """Read and atomically update workspace-local preferences."""
 
     def __init__(self, cwd: str | Path) -> None:
-        self.path = Path(cwd).expanduser().resolve() / ".quasipilot" / "DEVPROFILE.md"
+        self.path = Path(cwd).expanduser().resolve() / ".quasipilot" / "PREFERENCES.md"
         self._lock = Lock()
 
-    def read(self) -> DevProfileSnapshot:
+    def read(self) -> PreferencesSnapshot:
         with self._lock:
             return self._read_unlocked()
 
-    def update(self, content: str, *, expected_revision: str | None) -> DevProfileSnapshot:
+    def update(self, content: str, *, expected_revision: str | None) -> PreferencesSnapshot:
         with self._lock:
             current = self._read_unlocked()
             if current.revision != expected_revision:
-                raise DevProfileConflictError(current.revision)
+                raise PreferencesConflictError(current.revision)
 
             self.path.parent.mkdir(parents=True, exist_ok=True)
             normalized = content.strip()
@@ -42,11 +42,18 @@ class DevProfileStore:
                 temp_path.unlink(missing_ok=True)
             return self._read_unlocked()
 
-    def _read_unlocked(self) -> DevProfileSnapshot:
-        if not self.path.is_file():
-            return DevProfileSnapshot(path=self.path, exists=False, content="", revision=None)
-        content = self.path.read_text(encoding="utf-8").strip()
-        return DevProfileSnapshot(
+    def _read_unlocked(self) -> PreferencesSnapshot:
+        try:
+            content = self.path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            legacy = self.path.with_name("DEVPROFILE.md")
+            if legacy.exists():
+                raise FileNotFoundError(
+                    f"DEVPROFILE.md has been renamed to PREFERENCES.md. Move {legacy} to {self.path} "
+                    "to preserve your existing preferences."
+                ) from None
+            return PreferencesSnapshot(path=self.path, exists=False, content="", revision=None)
+        return PreferencesSnapshot(
             path=self.path,
             exists=True,
             content=content,
@@ -54,10 +61,10 @@ class DevProfileStore:
         )
 
 
-class DevProfileConflictError(RuntimeError):
+class PreferencesConflictError(RuntimeError):
     def __init__(self, current_revision: str | None) -> None:
         self.current_revision = current_revision
-        super().__init__("DEVPROFILE.md changed after it was read; read it again before retrying.")
+        super().__init__("PREFERENCES.md changed after it was read; read it again before retrying.")
 
 
 def _revision(content: str) -> str:

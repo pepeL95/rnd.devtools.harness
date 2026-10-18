@@ -8,7 +8,8 @@ from uuid import uuid4
 
 AGENTS_MD_KIND = "agents_md"
 SYSTEM_PROMPT_KIND = "system_prompt"
-PINNED_INSTRUCTION_KINDS = (SYSTEM_PROMPT_KIND, AGENTS_MD_KIND)
+PREFERENCES_KIND = "preferences"
+PINNED_INSTRUCTION_KINDS = (SYSTEM_PROMPT_KIND, AGENTS_MD_KIND, PREFERENCES_KIND)
 
 
 def is_agents_md(event: SessionEvent) -> bool:

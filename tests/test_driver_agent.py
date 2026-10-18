@@ -14,7 +14,7 @@ from core.compaction.llms import (
 from core.trajectory.llms import (
     get_default_trajectory_compactor_model,
 )
-from core.dev_profile.llms import get_default_dev_profile_model
+from core.preferences.llms import get_default_preferences_model
 from core.utilities.defaults import get_default_driver_model
 
 
@@ -131,7 +131,7 @@ class DriverAgentTests(TestCase):
             self.assertLess(names.index("TrajectoryCompactionMiddleware"), names.index("SessionLoadMiddleware"))
             self.assertEqual(names[-1], "UnsupportedContentMiddleware")
 
-    def test_driver_agent_places_dev_profile_after_system_prompt(self) -> None:
+    def test_driver_agent_places_preferences_after_system_prompt(self) -> None:
         with TemporaryDirectory() as directory:
             captured: list[object] = []
 
@@ -150,12 +150,15 @@ class DriverAgentTests(TestCase):
                 create_driver_agent(DriverAgentConfig(cwd=Path(directory), session_id="test-session"))
 
             names = [type(item).__name__ for item in captured]
-            self.assertLess(names.index("SystemPromptMiddleware"), names.index("DevProfileMiddleware"))
+            self.assertLess(names.index("SystemPromptMiddleware"), names.index("PreferencesMiddleware"))
             self.assertEqual(names.index("AgentsMdMiddleware"), names.index("SystemPromptMiddleware") + 1)
-            self.assertLess(names.index("AgentsMdMiddleware"), names.index("DevProfileMiddleware"))
+            self.assertLess(names.index("AgentsMdMiddleware"), names.index("PreferencesMiddleware"))
             agents_md = next(item for item in captured if type(item).__name__ == "AgentsMdMiddleware")
             self.assertEqual(agents_md.path, Path(directory).resolve() / "AGENTS.md")
-            self.assertLess(names.index("DevProfileMiddleware"), names.index("SkillsMiddleware"))
+            self.assertLess(names.index("PreferencesMiddleware"), names.index("SkillsMiddleware"))
+            preferences = next(item for item in captured if type(item).__name__ == "PreferencesMiddleware")
+            self.assertIs(preferences.manager, agents_md.manager)
+            self.assertIs(preferences.session_dump, agents_md.session_dump)
 
     def test_default_driver_model_uses_reasoning_profile(self) -> None:
         model = get_default_driver_model()
@@ -171,7 +174,7 @@ class DriverAgentTests(TestCase):
             get_default_compactor_model,
             get_default_critic_model,
             get_default_trajectory_compactor_model,
-            get_default_dev_profile_model,
+            get_default_preferences_model,
         ):
             model = factory()
             self.assertEqual(model.model, "gemini-3.1-flash-lite")

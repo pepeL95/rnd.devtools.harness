@@ -20,7 +20,7 @@ from core.middleware.hooks import HooksMiddleware
 from core.middleware.agents_md import AgentsMdMiddleware
 from core.middleware.cancellation import CancellationMiddleware
 from core.middleware.compaction import CompactionMiddleware
-from core.middleware.dev_profile import DevProfileMiddleware
+from core.middleware.preferences import PreferencesMiddleware
 from core.middleware.filesystem import HarnessFilesystemMiddleware
 from core.middleware.live_steering import LiveSteeringMiddleware
 from core.middleware.reasoning import ReasoningMiddleware, reasoning_tool
@@ -120,7 +120,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         SessionLoadMiddleware(manager, session_dump=session_dump),
         SystemPromptMiddleware(cwd=cwd, manager=manager, session_dump=session_dump),
         AgentsMdMiddleware(cwd=cwd, manager=manager, session_dump=session_dump),
-        DevProfileMiddleware(cwd=cwd),
+        PreferencesMiddleware(cwd=cwd, manager=manager, session_dump=session_dump),
         SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
         HarnessFilesystemMiddleware(backend=backend),

@@ -7,20 +7,20 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, SystemMessage
 
-from core.dev_profile.agent import create_dev_profile_agent
-from core.dev_profile.coordinator import DevProfileCoordinator
-from core.dev_profile.store import DevProfileConflictError, DevProfileStore
-from core.dev_profile.tools import EMPTY_DEV_PROFILE, completed_dump_snapshot, create_dev_profile_tools
-from core.middleware.dev_profile import DevProfileMiddleware
+from core.preferences.agent import create_preferences_agent
+from core.preferences.coordinator import PreferencesCoordinator
+from core.preferences.store import PreferencesConflictError, PreferencesStore
+from core.preferences.tools import EMPTY_PREFERENCES, completed_dump_snapshot, create_preferences_tools
+from core.middleware.preferences import PreferencesMiddleware
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager
 from tests.test_middleware import FakeModelRequest
 
 
-class DevProfileTests(TestCase):
-    def test_store_creates_and_revision_checks_free_form_profile(self) -> None:
+class PreferencesTests(TestCase):
+    def test_store_creates_and_revision_checks_free_form_preferences(self) -> None:
         with TemporaryDirectory() as directory:
-            store = DevProfileStore(directory)
+            store = PreferencesStore(directory)
 
             missing = store.read()
             created = store.update("Prefer small, focused commits.", expected_revision=None)
@@ -29,7 +29,7 @@ class DevProfileTests(TestCase):
             self.assertTrue(created.exists)
             self.assertEqual(created.content, "Prefer small, focused commits.")
             self.assertIsNotNone(created.revision)
-            with self.assertRaises(DevProfileConflictError):
+            with self.assertRaises(PreferencesConflictError):
                 store.update("Overwrite stale content.", expected_revision=None)
 
     def test_tools_progressively_expose_only_completed_dump_turns(self) -> None:
@@ -46,7 +46,7 @@ class DevProfileTests(TestCase):
                 SessionEvent(type=EventType.USER, turn=2, payload={"content": "This turn is still active."}),
             ]
             snapshot = completed_dump_snapshot(events)
-            tools = {tool.name: tool for tool in create_dev_profile_tools(snapshot, DevProfileStore(directory))}
+            tools = {tool.name: tool for tool in create_preferences_tools(snapshot, PreferencesStore(directory))}
 
             overview = json.loads(tools["inspect_session"].invoke({"start_turn": 1, "limit": 20}))
             search = json.loads(tools["search_session"].invoke({"query": "full suite", "limit": 20}))
@@ -67,14 +67,14 @@ class DevProfileTests(TestCase):
 
     def test_update_tool_requires_valid_user_evidence_and_handles_conflict(self) -> None:
         with TemporaryDirectory() as directory:
-            store = DevProfileStore(directory)
+            store = PreferencesStore(directory)
             events = (
                 SessionEvent(type=EventType.USER, turn=1, payload={"content": "Use the named Conda environment."}),
             )
-            tools = {tool.name: tool for tool in create_dev_profile_tools(events, store)}
+            tools = {tool.name: tool for tool in create_preferences_tools(events, store)}
 
             rejected = json.loads(
-                tools["update_devprofile"].invoke(
+                tools["update_preferences"].invoke(
                     {
                         "content": "# Developer Preferences\n\n## Environment\n\nUse the named Conda environment.",
                         "expected_revision": None,
@@ -83,7 +83,7 @@ class DevProfileTests(TestCase):
             )
 
             created = json.loads(
-                tools["update_devprofile"].invoke(
+                tools["update_preferences"].invoke(
                     {
                         "content": "# Developer Preferences\n\n## Environment\n\nUse the named Conda environment.",
                         "expected_revision": None,
@@ -92,7 +92,7 @@ class DevProfileTests(TestCase):
                 )
             )
             conflict = json.loads(
-                tools["update_devprofile"].invoke(
+                tools["update_preferences"].invoke(
                     {
                         "content": "# Developer Preferences\n\n## Environment\n\nStale replacement.",
                         "expected_revision": None,
@@ -105,32 +105,32 @@ class DevProfileTests(TestCase):
             self.assertEqual(created["status"], "updated")
             self.assertEqual(conflict["status"], "conflict")
 
-    def test_update_tool_accepts_empty_profile_without_evidence(self) -> None:
+    def test_update_tool_accepts_empty_preferences_without_evidence(self) -> None:
         with TemporaryDirectory() as directory:
-            store = DevProfileStore(directory)
-            tools = {tool.name: tool for tool in create_dev_profile_tools((), store)}
+            store = PreferencesStore(directory)
+            tools = {tool.name: tool for tool in create_preferences_tools((), store)}
 
             result = json.loads(
-                tools["update_devprofile"].invoke(
-                    {"content": EMPTY_DEV_PROFILE, "expected_revision": None}
+                tools["update_preferences"].invoke(
+                    {"content": EMPTY_PREFERENCES, "expected_revision": None}
                 )
             )
 
             self.assertEqual(result["status"], "updated")
-            self.assertEqual(store.read().content, EMPTY_DEV_PROFILE)
+            self.assertEqual(store.read().content, EMPTY_PREFERENCES)
 
-    def test_update_tool_does_not_replace_populated_profile_with_empty_state(self) -> None:
+    def test_update_tool_does_not_replace_populated_preferences_with_empty_state(self) -> None:
         with TemporaryDirectory() as directory:
-            store = DevProfileStore(directory)
+            store = PreferencesStore(directory)
             current = store.update(
                 "# Developer Preferences\n\n## Commits\n\nWrite rich commit messages.",
                 expected_revision=None,
             )
-            tools = {tool.name: tool for tool in create_dev_profile_tools((), store)}
+            tools = {tool.name: tool for tool in create_preferences_tools((), store)}
 
             result = json.loads(
-                tools["update_devprofile"].invoke(
-                    {"content": EMPTY_DEV_PROFILE, "expected_revision": current.revision}
+                tools["update_preferences"].invoke(
+                    {"content": EMPTY_PREFERENCES, "expected_revision": current.revision}
                 )
             )
 
@@ -143,11 +143,11 @@ class DevProfileTests(TestCase):
             events = (
                 SessionEvent(type=EventType.USER, turn=1, payload={"content": "Prefer focused tests."}),
             )
-            store = DevProfileStore(directory)
-            tools = {tool.name: tool for tool in create_dev_profile_tools(events, store)}
+            store = PreferencesStore(directory)
+            tools = {tool.name: tool for tool in create_preferences_tools(events, store)}
 
             result = json.loads(
-                tools["update_devprofile"].invoke(
+                tools["update_preferences"].invoke(
                     {
                         "content": "Prefer focused tests.",
                         "expected_revision": None,
@@ -164,11 +164,11 @@ class DevProfileTests(TestCase):
             events = (
                 SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"content": "Prefer focused tests."}),
             )
-            store = DevProfileStore(directory)
-            tools = {tool.name: tool for tool in create_dev_profile_tools(events, store)}
+            store = PreferencesStore(directory)
+            tools = {tool.name: tool for tool in create_preferences_tools(events, store)}
 
             result = json.loads(
-                tools["update_devprofile"].invoke(
+                tools["update_preferences"].invoke(
                     {
                         "content": "# Developer Preferences\n\n## Testing\n\nPrefer focused tests.",
                         "expected_revision": None,
@@ -180,11 +180,11 @@ class DevProfileTests(TestCase):
             self.assertEqual(result["status"], "rejected")
             self.assertFalse(store.read().exists)
 
-    def test_create_dev_profile_agent_uses_langchain_create_agent(self) -> None:
+    def test_create_preferences_agent_uses_langchain_create_agent(self) -> None:
         with TemporaryDirectory() as directory:
             model = object()
-            with patch("core.dev_profile.agent.create_agent", return_value="agent") as create:
-                agent = create_dev_profile_agent((), DevProfileStore(directory), model=model)  # type: ignore[arg-type]
+            with patch("core.preferences.agent.create_agent", return_value="agent") as create:
+                agent = create_preferences_agent((), PreferencesStore(directory), model=model)  # type: ignore[arg-type]
 
             self.assertEqual(agent, "agent")
             kwargs = create.call_args.kwargs
@@ -193,8 +193,8 @@ class DevProfileTests(TestCase):
                 "inspect_session",
                 "read_session_turns",
                 "search_session",
-                "read_devprofile",
-                "update_devprofile",
+                "read_preferences",
+                "update_preferences",
             ])
             self.assertIn("Heading names and section organization are your choice", kwargs["system_prompt"])
             self.assertIn("commit messages must always be rich", kwargs["system_prompt"])
@@ -204,11 +204,11 @@ class DevProfileTests(TestCase):
             self.assertIn("accumulated knowledge, not a document to regenerate", kwargs["system_prompt"])
             self.assertIn("Silence, omission, or lack of repeated evidence is never grounds", kwargs["system_prompt"])
 
-    def test_middleware_keeps_profile_stable_for_entire_agent_run(self) -> None:
+    def test_middleware_keeps_preferences_stable_for_entire_agent_run(self) -> None:
         with TemporaryDirectory() as directory:
-            store = DevProfileStore(directory)
+            store = PreferencesStore(directory)
             first = store.update("Prefer focused tests.", expected_revision=None)
-            middleware = DevProfileMiddleware(directory)
+            middleware = PreferencesMiddleware(directory)
             request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
 
             middleware.before_agent({"messages": []}, runtime=None)
@@ -237,12 +237,12 @@ class DevProfileTests(TestCase):
                     def invoke(self, inputs):
                         current = store.read()
                         store.update("Prefer atomic commits.", expected_revision=current.revision)
-                        return {"messages": [AIMessage(content="Profile updated.")]}
+                        return {"messages": [AIMessage(content="Preferences updated.")]}
 
                 self.assertEqual({event.turn for event in events}, {1})
                 return FakeAgent()
 
-            coordinator = DevProfileCoordinator(
+            coordinator = PreferencesCoordinator(
                 manager,
                 directory,
                 on_event=lambda phase, payload: phases.append((phase, payload)),

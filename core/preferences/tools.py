@@ -8,11 +8,11 @@ from typing import Any
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from core.dev_profile.store import DevProfileConflictError, DevProfileStore
+from core.preferences.store import PreferencesConflictError, PreferencesStore
 from core.session.events import EventType, SessionEvent
 from core.session.turns import is_user_authored_event
 
-EMPTY_DEV_PROFILE = "# Developer Preferences\n\n## Status\n\nNo dev preferences learned yet."
+EMPTY_PREFERENCES = "# Developer Preferences\n\n## Status\n\nNo dev preferences learned yet."
 
 
 class InspectSessionSchema(BaseModel):
@@ -29,26 +29,26 @@ class SearchSessionSchema(BaseModel):
     limit: int = Field(default=20, ge=1, le=50, description="Maximum matching events to return.")
 
 
-class DevProfileEvidence(BaseModel):
+class PreferencesEvidence(BaseModel):
     turn: int = Field(ge=1, description="Completed turn containing the user-authored evidence.")
     quote: str = Field(min_length=1, description="Exact quote from a user event in that turn.")
 
 
-class UpdateDevProfileSchema(BaseModel):
-    content: str = Field(description="Complete free-form Markdown content for DEVPROFILE.md.")
+class UpdatePreferencesSchema(BaseModel):
+    content: str = Field(description="Complete free-form Markdown content for PREFERENCES.md.")
     expected_revision: str | None = Field(
         default=None,
-        description="Revision returned by read_devprofile, or null when the file did not exist.",
+        description="Revision returned by read_preferences, or null when the file did not exist.",
     )
-    evidence: list[DevProfileEvidence] = Field(
+    evidence: list[PreferencesEvidence] = Field(
         default_factory=list,
-        description="Exact user-authored quotes supporting a substantive profile update.",
+        description="Exact user-authored quotes supporting a substantive preferences update.",
     )
 
 
-def create_dev_profile_tools(
+def create_preferences_tools(
     events: tuple[SessionEvent, ...],
-    store: DevProfileStore,
+    store: PreferencesStore,
 ) -> list[BaseTool]:
     """Create tools scoped to an immutable completed-session snapshot."""
 
@@ -106,8 +106,8 @@ def create_dev_profile_tools(
                 break
         return _bounded_json({"query": query, "matches": matches})
 
-    def read_devprofile() -> str:
-        """Read the current free-form developer profile and its revision."""
+    def read_preferences() -> str:
+        """Read the current free-form preferences and its revision."""
 
         snapshot = store.read()
         return json.dumps(
@@ -120,40 +120,40 @@ def create_dev_profile_tools(
             ensure_ascii=False,
         )
 
-    def update_devprofile(
+    def update_preferences(
         content: str,
         expected_revision: str | None = None,
-        evidence: list[DevProfileEvidence] | None = None,
+        evidence: list[PreferencesEvidence] | None = None,
     ) -> str:
-        """Create or atomically replace DEVPROFILE.md after verifying its revision."""
+        """Create or atomically replace PREFERENCES.md after verifying its revision."""
 
         references = evidence or []
         if not _has_heading_hierarchy(content):
             return json.dumps(
                 {
                     "status": "rejected",
-                    "message": "DEVPROFILE.md must use GitHub-flavored Markdown with an ATX heading and subheading.",
+                    "message": "PREFERENCES.md must use GitHub-flavored Markdown with an ATX heading and subheading.",
                 }
             )
         current = store.read()
         if (
-            content.strip() == EMPTY_DEV_PROFILE
+            content.strip() == EMPTY_PREFERENCES
             and current.exists
             and current.content.strip()
-            and current.content.strip() != EMPTY_DEV_PROFILE
+            and current.content.strip() != EMPTY_PREFERENCES
         ):
             return json.dumps(
                 {
                     "status": "rejected",
-                    "message": "A populated DEVPROFILE.md cannot be replaced with the empty-state document.",
+                    "message": "A populated PREFERENCES.md cannot be replaced with the empty-state document.",
                 }
             )
-        if content.strip() != EMPTY_DEV_PROFILE:
+        if content.strip() != EMPTY_PREFERENCES:
             if not references:
                 return json.dumps(
                     {
                         "status": "rejected",
-                        "message": "Substantive profile updates require exact quotes from user events.",
+                        "message": "Substantive preferences updates require exact quotes from user events.",
                     }
                 )
             invalid = [reference.model_dump() for reference in references if not _valid_user_evidence(reference, by_turn)]
@@ -168,7 +168,7 @@ def create_dev_profile_tools(
                 )
         try:
             updated = store.update(content, expected_revision=expected_revision)
-        except DevProfileConflictError as exc:
+        except PreferencesConflictError as exc:
             return json.dumps(
                 {
                     "status": "conflict",
@@ -207,15 +207,15 @@ def create_dev_profile_tools(
             infer_schema=False,
         ),
         StructuredTool.from_function(
-            func=read_devprofile,
-            name="read_devprofile",
-            description="Read the current free-form DEVPROFILE.md and its revision. Always call this before updating the profile.",
+            func=read_preferences,
+            name="read_preferences",
+            description="Read the current free-form PREFERENCES.md and its revision. Always call this before updating the preferences.",
         ),
         StructuredTool.from_function(
-            func=update_devprofile,
-            name="update_devprofile",
-            description=f"Create or atomically replace the complete merged DEVPROFILE.md as GitHub-flavored Markdown with descriptive ATX headings and subheadings. Preserve existing instructions unless newer user evidence explicitly changes them. The heading names and document structure are flexible. Substantive content requires exact user quotes; when the file does not exist and no supported preference exists, write exactly: {EMPTY_DEV_PROFILE}",
-            args_schema=UpdateDevProfileSchema,
+            func=update_preferences,
+            name="update_preferences",
+            description=f"Create or atomically replace the complete merged PREFERENCES.md as GitHub-flavored Markdown with descriptive ATX headings and subheadings. Preserve existing instructions unless newer user evidence explicitly changes them. The heading names and document structure are flexible. Substantive content requires exact user quotes; when the file does not exist and no supported preference exists, write exactly: {EMPTY_PREFERENCES}",
+            args_schema=UpdatePreferencesSchema,
             infer_schema=False,
         ),
     ]
@@ -240,7 +240,7 @@ def _event_with_evidence_role(event: SessionEvent) -> dict[str, Any]:
     return serialized
 
 
-def _valid_user_evidence(reference: DevProfileEvidence, by_turn: dict[int, list[SessionEvent]]) -> bool:
+def _valid_user_evidence(reference: PreferencesEvidence, by_turn: dict[int, list[SessionEvent]]) -> bool:
     quote = reference.quote.strip()
     if not quote:
         return False

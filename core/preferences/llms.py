@@ -7,7 +7,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
-def get_default_dev_profile_model() -> BaseChatModel:
+def get_default_preferences_model() -> BaseChatModel:
     load_dotenv(dotenv_path=Path.cwd() / ".env")
     return ChatGoogleGenerativeAI(
         model="gemini-3.1-flash-lite",
