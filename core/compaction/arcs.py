@@ -8,7 +8,9 @@ from core.compaction.models import CompactionResult, Critique
 from core.compaction.serialization import events_to_trajectory, memory_restore_message
 from core.compaction.window import split_compaction_window
 from core.session.events import EventType, SessionEvent, is_pinned_instruction
-from core.trajectory_bank.evidence import content_hash, fingerprint, keywords as extract_keywords, reasoning_chain
+from core.trajectory_bank.evidence import (
+    content_hash, fingerprint, keywords as extract_keywords, reasoning_chain, trajectory_document,
+)
 from core.trajectory_bank.models import ArcUpdate, TaskArc, TrajectoryRecord, arc_ref
 from core.utilities.defaults import get_model_name
 
@@ -139,10 +141,7 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
             if not document.strip():
                 # The task map still covers this turn; do not fabricate retrievable evidence.
                 continue
-            # Keep the synthesis unchanged. The user/final reply supply its original context.
-            if syntheses:
-                context = [event for event in events_in_turn if event.type in {EventType.USER, EventType.ASSISTANT}]
-                document += "\n\nTurn context:\n" + events_to_trajectory(context)
+            document = trajectory_document(events_in_turn, document)
             turn_keywords = extract_keywords(document)
             if turn_keywords:
                 document += "\n\nKeywords: " + ", ".join(turn_keywords)

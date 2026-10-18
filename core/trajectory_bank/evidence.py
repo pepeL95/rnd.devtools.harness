@@ -6,6 +6,7 @@ import re
 from collections import Counter
 
 from core.session.events import EventType, SessionEvent, is_pinned_instruction
+from core.session.turns import display_history_events
 
 
 def fingerprint(events: list[SessionEvent]) -> str:
@@ -34,6 +35,27 @@ def reasoning_chain(events: list[SessionEvent]) -> str:
         if isinstance(text, str) and text.strip():
             parts.append(text.strip())
     return "\n\n".join(parts)
+
+
+def trajectory_document(events: list[SessionEvent], trajectory: str) -> str:
+    """Ground a trajectory in real user messages and the last assistant response."""
+    history = display_history_events(events)
+    users = [_event_text(event) for event in history if event.type == EventType.USER]
+    user = "\n\n".join(text for text in users if text) or "(No user text recorded.)"
+    assistant = next((_event_text(event) for event in reversed(history)
+                      if event.type == EventType.ASSISTANT), "") or "(No assistant response recorded.)"
+    return f"User:\n{user}\n\nTrajectory:\n{trajectory}\n\nAssistant:\n{assistant}"
+
+
+def _event_text(event: SessionEvent) -> str:
+    content = event.payload.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        return "\n".join(block["text"] for block in content
+                         if isinstance(block, dict) and block.get("type") == "text"
+                         and isinstance(block.get("text"), str)).strip()
+    return ""
 
 
 def keywords(content: str) -> list[str]:

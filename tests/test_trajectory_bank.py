@@ -19,7 +19,7 @@ from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager, StaleCompactionError
-from core.trajectory_bank.evidence import content_hash, fingerprint, reasoning_chain
+from core.trajectory_bank.evidence import content_hash, fingerprint, reasoning_chain, trajectory_document
 from core.trajectory_bank.models import TrajectoryRecord, arc_ref, record_ref
 from core.trajectory_bank.policy import BankPolicy
 from core.trajectory_bank.retrieval import BankRetrieval
@@ -164,9 +164,9 @@ def compact_model(arcs):
     }))])
 
 
-def compactor(bank, manager, arcs):
+def compactor(bank, manager, arcs, *, keep_last_turns=1):
     model = compact_model(arcs)
-    return Compactor(policy=CompactionPolicy(keep_last_turns=1, compactor_model=model, max_critic_loops=0),
+    return Compactor(policy=CompactionPolicy(keep_last_turns=keep_last_turns, compactor_model=model, max_critic_loops=0),
                      trajectory_bank=bank, session_manager=manager)
 
 
@@ -191,6 +191,80 @@ def test_compaction_archives_groups_and_preserves_arcs_on_repeated_compaction(ba
     assert len(bank.get()) == 4
     assert {item.id for item in archived}.issubset({item.id for item in bank.get()})
     assert all(item in bank.get() for item in archived)
+
+
+@pytest.mark.parametrize("keep_last_turns", [0, 1, 2, 4, 5])
+def test_archive_is_restricted_to_eviction_window(bank, manager, keep_last_turns):
+    turns = [1, 3, 11, 24]
+    for turn in turns:
+        add_turn(manager, turn, f"unique_turn_{turn}_evidence")
+    original = manager.read_curated()
+    retained = turns[-keep_last_turns:] if keep_last_turns else []
+    evicted = [turn for turn in turns if turn not in retained]
+    assignments = [arc(evicted)] if evicted else []
+    result = compactor(bank, manager, assignments, keep_last_turns=keep_last_turns).compact(original)
+    records = bank.get()
+    assert {item.metadata["turn"] for item in records} == set(evicted)
+    expected_tail = [event for event in original if event.turn in retained]
+    assert [event for event in result.events if event.turn in retained] == expected_tail
+    retained_ids = {event.id for event in expected_tail}
+    for item in records:
+        assert retained_ids.isdisjoint(json.loads(item.metadata["source_event_ids"]))
+        assert all(f"unique_turn_{turn}_evidence" not in item.document for turn in retained)
+    if not evicted:
+        assert result.events == original
+        assert bank.embedder.calls == 0
+    else:
+        published_ids = {id for ids in result.events[0].payload["trajectory_manifest"].values() for id in ids}
+        assert published_ids == {item.id for item in records}
+
+
+@pytest.mark.parametrize("synthesized", [False, True])
+def test_archived_triplet_includes_corrections_and_final_response_without_noise(bank, manager, synthesized):
+    body = "I found tab-sensitive matching in parser.py; exact replacement is required."
+    events = [
+        SessionEvent(type=EventType.USER, turn=1, payload={"content": "Fix parsing in parser.py"}),
+        SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"content": "INTERMEDIATE_COMMENTARY"}),
+        SessionEvent(type=EventType.USER, turn=1, payload={"kind": "live_steering", "content": "Keep tabs intact"}),
+        SessionEvent(type=EventType.USER, turn=1, payload={"kind": "harness_context", "content": "SYNTHETIC_HINT"}),
+        SessionEvent(type=EventType.REASONING, turn=1, payload={
+            "content": body, **({"kind": "trajectory_memory"} if synthesized else {"reasoning_format": "thinking"}),
+        }),
+        SessionEvent(type=EventType.TOOL_OUTPUT, turn=1, payload={"content": "RAW_LOG_NOISE " * 1000}),
+        SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"content": "Patched parser.py; 12 tests passed."}),
+        SessionEvent(type=EventType.TURN_END, turn=1, payload={}),
+    ]
+    manager.append(events)
+    add_turn(manager, 2, "RETAINED_TURN")
+    with patch.object(bank.embedder, "embed_documents", wraps=bank.embedder.embed_documents) as embed:
+        compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+    item = bank.get()[0]
+    expected = ("User:\nFix parsing in parser.py\n\nKeep tabs intact\n\nTrajectory:\n"
+                f"{body}\n\nAssistant:\nPatched parser.py; 12 tests passed.")
+    assert item.document.startswith(expected + "\n\nKeywords:")
+    assert embed.call_args.args[0] == [item.document]
+    assert item.metadata["source_kind"] == ("trajectory_synthesis" if synthesized else "reasoning_chain")
+    assert item.metadata["content_hash"] == content_hash(item.document)
+    assert "parser.py" in json.loads(item.metadata["keywords"])
+    for noise in ("INTERMEDIATE_COMMENTARY", "SYNTHETIC_HINT", "RAW_LOG_NOISE", "RETAINED_TURN"):
+        assert noise not in item.document
+
+
+def test_triplet_uses_text_context_only_and_marks_missing_responses():
+    events = [
+        SessionEvent(type=EventType.USER, turn=1, payload={"content": [
+            {"type": "text", "text": "Inspect this failure"},
+            {"type": "image_url", "image_url": "BASE64_IMAGE"},
+        ]}),
+        SessionEvent(type=EventType.ASSISTANT, turn=1, payload={
+            "kind": "harness_context", "content": "Not a user-facing response",
+        }),
+    ]
+    assert trajectory_document(events, "I suspect tabs.") == (
+        "User:\nInspect this failure\n\nTrajectory:\nI suspect tabs.\n\n"
+        "Assistant:\n(No assistant response recorded.)"
+    )
+    assert "(No user text recorded.)" in trajectory_document([], "I suspect tabs.")
 
 
 @pytest.mark.parametrize("assignments", [[arc([])], [arc([1, 1])], [arc([2])], [arc([1], id="fabricated")]])
@@ -409,14 +483,14 @@ def test_reasoning_fallback_and_empty_scope_avoid_embedding(bank, manager):
     item = bank.get()[0]
     assert item.metadata["source_kind"] == "reasoning_chain"
     assert "I confirmed tabs must match exactly" in item.document
-    assert "tabs exact evidence" not in item.document and "Checked source" not in item.document
+    assert "User:\ntabs exact evidence" in item.document and "Assistant:\nChecked source" in item.document
     calls = bank.embedder.calls
     assert bank.search("tabs", where={"session_id": "empty-session"}, limit=2) == []
     assert bank.embedder.calls == calls
 
 
 @pytest.mark.parametrize("native,checkpoint", [(True, True), (True, False), (False, True)])
-def test_unsynthesized_archive_embeds_only_recorded_reasoning(bank, manager, native, checkpoint):
+def test_unsynthesized_archive_embeds_reasoning_with_context_not_tool_logs(bank, manager, native, checkpoint):
     messages = [HumanMessage(content="USER_CONTEXT_SENTINEL")]
     if native:
         messages.append(AIMessage(content=[{"type": "thinking", "thinking": "I found tabs in parser.py.",
@@ -456,7 +530,11 @@ def test_unsynthesized_archive_embeds_only_recorded_reasoning(bank, manager, nat
     item = bank.get()[0]
     embedded = embed.call_args.args[0]
     assert embedded == [item.document]
-    assert "SENTINEL" not in item.document
+    assert "USER_CONTEXT_SENTINEL" in item.document
+    assert "FINAL_REPLY_SENTINEL" in item.document
+    excluded = ("SIGNATURE_SENTINEL", "COMMENTARY_SENTINEL", "RECALL_SENTINEL", "OLD_RECORD_SENTINEL",
+                "COMMAND_SENTINEL", "NOISY_OUTPUT_SENTINEL", "CANCELLATION_SENTINEL", "STEERING_SENTINEL")
+    assert all(marker not in item.document for marker in excluded)
     assert len(item.document) < 1000
     assert ("I found tabs in parser.py." in item.document) == native
     assert ("I should preserve exact tabs matching" in item.document) == checkpoint
@@ -464,7 +542,7 @@ def test_unsynthesized_archive_embeds_only_recorded_reasoning(bank, manager, nat
     assert json.loads(item.metadata["source_event_ids"]) == [event.id for event in events]
     assert item.metadata["source_fingerprint"] == fingerprint(events)
     assert item.metadata["content_hash"] == content_hash(item.document)
-    assert "SENTINEL" not in item.metadata["keywords"]
+    assert all(marker not in item.metadata["keywords"] for marker in excluded)
     assert manager.read_dump() == dump
     manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
     assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
