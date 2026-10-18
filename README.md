@@ -150,3 +150,16 @@ Developers can change the embedding default in
 [`core/trajectory_bank/defaults.py`](core/trajectory_bank/defaults.py), using any
 LangChain `Embeddings` implementation. Update its compatibility identity when
 changing models; existing vectors require an explicit reindex.
+
+For manual bank maintenance, install the versioned curation skill globally:
+
+```sh
+mkdir -p ~/.quasipilot/skills
+rsync -a --exclude='__pycache__' --exclude='*.pyc' skills/trajectory-bank-curation/ ~/.quasipilot/skills/trajectory-bank-curation/
+```
+
+`SkillsMiddleware` discovers this directory automatically; `read_skill` loads its
+instructions, references, and guarded Chroma SDK helpers. No additional middleware
+or bank changes are needed. See [the skill](skills/trajectory-bank-curation/SKILL.md)
+for offline audit, backup, pruning, and staged re-indexing. Re-run the copy after
+updating the repository; installation does not change the bank itself.
