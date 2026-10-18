@@ -290,7 +290,8 @@ class ChatInputTests(TestCase):
                 await pilot.click("#chat-input")
                 await pilot.press("h", "i", "enter")
 
-        asyncio.run(run())
+        with TemporaryDirectory() as directory, patch("cli.run.Path.cwd", return_value=Path(directory)):
+            asyncio.run(run())
 
         self.assertEqual(submitted, ["hi"])
 
@@ -312,7 +313,8 @@ class ChatInputTests(TestCase):
                 await pilot.press("h", "i", "ctrl+j", "t", "h", "e", "r", "e")
                 snapshots.append(app.query_one(ChatInput).text)
 
-        asyncio.run(run())
+        with TemporaryDirectory() as directory, patch("cli.run.Path.cwd", return_value=Path(directory)):
+            asyncio.run(run())
 
         self.assertEqual(submitted, [])
         self.assertEqual(snapshots, ["hi\nthere"])
@@ -404,11 +406,12 @@ class RuntimeBarTests(TestCase):
                 rendered = bar.render()
                 self.assertEqual(
                     str(rendered),
-                    "gemini-3.1-flash-lite  ·  /Users/pepelopez/Documents/Programming/rnd.devtools.harness  ·  /tmp/sessions/curated/abc.jsonl",
+                    f"gemini-3.1-flash-lite  ·  {Path.cwd()}  ·  /tmp/sessions/curated/abc.jsonl",
                 )
                 self.assertTrue(all(not span.style or "link " not in str(span.style) for span in rendered.spans))
 
-        asyncio.run(run())
+        with TemporaryDirectory() as directory, patch("cli.run.Path.cwd", return_value=Path(directory)):
+            asyncio.run(run())
 
 
 class RuntimeConfigTests(TestCase):

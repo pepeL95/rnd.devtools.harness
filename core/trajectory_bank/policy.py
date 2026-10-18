@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import tomllib
-from pathlib import Path
-
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -23,11 +20,3 @@ class BankPolicy(BaseModel):
         if self.automatic_min_similarity < self.search_min_similarity:
             raise ValueError("automatic threshold must be at least the explicit-search threshold")
         return self
-
-
-def load_policy(root: Path) -> BankPolicy:
-    path = root / "config.toml"
-    try:
-        return BankPolicy.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))
-    except FileNotFoundError:
-        return BankPolicy()

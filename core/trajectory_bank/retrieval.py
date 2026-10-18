@@ -5,12 +5,13 @@ import re
 from typing import Any
 
 from core.compaction.token_counter import TokenCounter
+from core.config import load_config
 from core.session.manager import SessionManager
 from core.telemetry.events import TelemetryEvent
 from core.telemetry.store import TelemetryStore
 from core.trajectory_bank.evidence import fingerprint
 from core.trajectory_bank.models import Hit, arc_ref, record_ref
-from core.trajectory_bank.policy import BankPolicy, load_policy
+from core.trajectory_bank.policy import BankPolicy
 from core.trajectory_bank.store import TrajectoryBank
 
 
@@ -19,7 +20,7 @@ class BankRetrieval:
                  telemetry: TelemetryStore | None = None) -> None:
         self.bank = bank
         self.manager = manager
-        self.policy = policy or load_policy(bank.root)
+        self.policy = policy if policy is not None else load_config(bank.root.parent.parent).trajectory_bank
         self.telemetry = telemetry
         self.counter = TokenCounter()
 

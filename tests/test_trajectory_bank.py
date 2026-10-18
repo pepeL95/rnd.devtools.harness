@@ -21,7 +21,7 @@ from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager, StaleCompactionError
 from core.trajectory_bank.evidence import content_hash, fingerprint
 from core.trajectory_bank.models import TrajectoryRecord, arc_ref, record_ref
-from core.trajectory_bank.policy import BankPolicy, load_policy
+from core.trajectory_bank.policy import BankPolicy
 from core.trajectory_bank.retrieval import BankRetrieval
 from core.trajectory_bank.store import TrajectoryBank
 
@@ -137,11 +137,8 @@ def test_lower_manual_threshold_and_bounded_paginated_output(bank, manager):
 
 
 def test_policy_validates_thresholds(tmp_path):
-    root = tmp_path / "bank"
-    root.mkdir()
-    (root / "config.toml").write_text("automatic_min_similarity = 0.2\nsearch_min_similarity = 0.8\n")
     with pytest.raises(ValueError):
-        load_policy(root)
+        BankPolicy(automatic_min_similarity=0.2, search_min_similarity=0.8)
 
 
 def add_turn(manager, turn, text):

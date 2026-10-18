@@ -88,7 +88,7 @@ The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
 paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
 
-Configure reasoning and compaction in the nearest workspace's `.quasipilot/config.toml`
+Configure reasoning, compaction, and trajectory recall in the nearest workspace's `.quasipilot/config.toml`
 (defaults shown):
 
 ```toml
@@ -102,6 +102,15 @@ max_critic_loops = 1
 
 [compaction.trajectory]
 trigger_every_turns = 1
+
+[trajectory_bank]
+enabled = true
+automatic_min_similarity = 0.72
+search_min_similarity = 0.35
+automatic_results = 2
+search_results = 5
+automatic_tokens = 1200
+search_tokens = 3000
 ```
 
 CLI startup creates this file with defaults if it is missing, leaving existing
@@ -132,7 +141,10 @@ recall. Enabled CLI startup initializes or reopens the database; the local
 embedding model still downloads only on first embedding use.
 See [trajectory bank v1](core/trajectory_bank/docs/v1.md) for configuration,
 thresholds, provenance checks, and evaluation commands. It is enabled by default;
-set `enabled = false` in that bank's `config.toml` and restart to disable it.
+set `[trajectory_bank] enabled = false` in workspace `config.toml` and restart to disable it.
+If you have the old `.trajectorybank/config.toml`, move its settings into this
+section and remove that old config file (not the database). Legacy files raise
+a migration error rather than being silently ignored.
 Developers can change the embedding default in
 [`core/trajectory_bank/defaults.py`](core/trajectory_bank/defaults.py), using any
 LangChain `Embeddings` implementation. Update its compatibility identity when

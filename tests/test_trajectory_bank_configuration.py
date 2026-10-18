@@ -7,18 +7,21 @@ from cli.run import QuasipilotApp
 from cli.utilities.workspace import WorkspaceStore
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
+from core.config import ensure_config, load_config
 from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore
 from core.trajectory_bank.store import TrajectoryBank
 from core.trajectory_bank import defaults
+from core.trajectory_bank.policy import BankPolicy
+from core.trajectory_bank.retrieval import BankRetrieval
 from core.utilities.workspace import workspace_directory
 
 
 def configure(root, enabled):
     directory = root / ".quasipilot" / ".trajectorybank"
-    directory.mkdir(parents=True)
-    (directory / "config.toml").write_text(f"enabled = {str(enabled).lower()}\n")
+    directory.parent.mkdir(parents=True)
+    (directory.parent / "config.toml").write_text(f"[trajectory_bank]\nenabled = {str(enabled).lower()}\n")
     return directory
 
 
@@ -135,3 +138,86 @@ def test_disabled_driver_rejects_injected_archival_coordinator(tmp_path):
     with pytest.raises(ValueError, match="supplied compaction coordinator"):
         create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager,
                                              trajectory_bank_enabled=False, session_compaction_coordinator=coordinator))
+
+
+def test_bank_defaults_in_generated_workspace_config(tmp_path):
+    import tomllib
+
+    path = ensure_config(tmp_path)
+    document = tomllib.loads(path.read_text())
+    assert document["trajectory_bank"] == BankPolicy().model_dump()
+    assert load_config(tmp_path).trajectory_bank == BankPolicy()
+
+
+def test_all_retrieval_settings_reach_driver_and_direct_retrieval(tmp_path):
+    directory = configure(tmp_path, True)
+    with (directory.parent / "config.toml").open("a") as handle:
+        handle.write("automatic_min_similarity = 0.9\nsearch_min_similarity = 0.6\n"
+                     "automatic_results = 3\nsearch_results = 7\n"
+                     "automatic_tokens = 900\nsearch_tokens = 1800\n")
+    child = tmp_path / "src"
+    child.mkdir()
+    manager = SessionManager(root=tmp_path / "sessions")
+    with patch("langchain.agents.create_agent") as factory:
+        create_driver_agent(DriverAgentConfig(cwd=child, session_manager=manager))
+    middleware = next(item for item in factory.call_args.kwargs["middleware"]
+                      if isinstance(item, TrajectoryBankMiddleware))
+    expected = BankPolicy(automatic_min_similarity=0.9, search_min_similarity=0.6,
+                          automatic_results=3, search_results=7, automatic_tokens=900, search_tokens=1800)
+    assert middleware.retrieval.policy == expected
+    assert BankRetrieval(TrajectoryBank(child), manager).policy == expected
+    explicit = BankPolicy(search_results=2)
+    assert BankRetrieval(TrajectoryBank(child), manager, policy=explicit).policy is explicit
+
+
+@pytest.mark.parametrize("setting", [
+    "automatic_min_similarity = 0.1\nsearch_min_similarity = 0.8",
+    "automatic_min_similarity = 1.1",
+    "search_min_similarity = -0.1",
+    "automatic_results = 0",
+    "search_results = 21",
+    "automatic_tokens = 99",
+    "search_tokens = 10001",
+    "enabled = 'invalid'",
+    "enabld = false",
+])
+def test_invalid_bank_settings_fail_before_cli_initializes_database(tmp_path, setting):
+    directory = tmp_path / ".quasipilot"
+    directory.mkdir()
+    path = directory / "config.toml"
+    path.write_text(f"[trajectory_bank]\n{setting}\n")
+    with patch("cli.run.Path.cwd", return_value=tmp_path), patch.object(TrajectoryBank, "initialize") as initialize:
+        with pytest.raises(ValueError, match="Invalid harness configuration") as error:
+            QuasipilotApp()
+    assert str(path) in str(error.value)
+    initialize.assert_not_called()
+
+
+@pytest.mark.parametrize("central_exists", [False, True])
+def test_legacy_bank_config_requires_explicit_migration_without_overwriting(tmp_path, central_exists):
+    legacy = tmp_path / ".quasipilot/.trajectorybank/config.toml"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("enabled = false\n")
+    central = legacy.parent.parent / "config.toml"
+    content = '[reasoning]\neagerness = "low"\n'
+    if central_exists:
+        central.write_text(content)
+    for operation in (ensure_config, load_config):
+        with pytest.raises(ValueError, match="Move settings") as error:
+            operation(tmp_path)
+        assert str(legacy) in str(error.value)
+        assert "[trajectory_bank]" in str(error.value)
+    assert central.exists() == central_exists
+    if central_exists:
+        assert central.read_text() == content
+    assert legacy.read_text() == "enabled = false\n"
+
+
+def test_missing_bank_section_uses_defaults_without_rewriting(tmp_path):
+    path = tmp_path / ".quasipilot/config.toml"
+    path.parent.mkdir()
+    content = '# Retain comments\n[reasoning]\neagerness = "low"\n'
+    path.write_text(content)
+    ensure_config(tmp_path)
+    assert load_config(tmp_path).trajectory_bank == BankPolicy()
+    assert path.read_text() == content

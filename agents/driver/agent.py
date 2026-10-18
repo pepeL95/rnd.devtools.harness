@@ -39,7 +39,6 @@ from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 from core.trajectory.policy import TrajectoryCompactionPolicy
 from core.trajectory_bank.store import TrajectoryBank
 from core.trajectory_bank.retrieval import BankRetrieval
-from core.trajectory_bank.policy import load_policy
 from core.utilities.defaults import get_default_driver_model
 
 @dataclass(frozen=True)
@@ -80,7 +79,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     if config.session_compaction_coordinator is not None:
         coordinator_bank = getattr(config.session_compaction_coordinator.compactor, "trajectory_bank", None)
     trajectory_bank = coordinator_bank if coordinator_bank is not None else TrajectoryBank(cwd)
-    bank_policy = load_policy(trajectory_bank.root)
+    bank_policy = settings.trajectory_bank
     bank_enabled = bank_policy.enabled if config.trajectory_bank_enabled is None else config.trajectory_bank_enabled
     if not bank_enabled and coordinator_bank is not None:
         raise ValueError("Trajectory bank is disabled, but the supplied compaction coordinator still archives to it")
