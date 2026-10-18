@@ -48,14 +48,14 @@ class SlashCommandRegistryTests(TestCase):
         self.assertFalse(should_exit)
         app.new_session.assert_called_once()
 
-    def test_devprofile_dispatches_optional_focus(self) -> None:
+    def test_preferences_dispatches_optional_focus(self) -> None:
         registry = SlashCommandRegistry()
         app = MagicMock()
 
-        should_exit = registry.dispatch(app, "/devprofile focus on commit discipline")
+        should_exit = registry.dispatch(app, "/preferences focus on commit discipline")
 
         self.assertFalse(should_exit)
-        app.trigger_dev_profile_update.assert_called_once_with("focus on commit discipline")
+        app.trigger_preferences_update.assert_called_once_with("focus on commit discipline")
 
     def test_models_dispatches_model_picker(self) -> None:
         registry = SlashCommandRegistry()

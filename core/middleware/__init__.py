@@ -5,7 +5,7 @@ from typing import Any
 
 __all__ = [
     "CompactionMiddleware",
-    "DevProfileMiddleware",
+    "PreferencesMiddleware",
     "HarnessFilesystemMiddleware",
     "HooksMiddleware",
     "LiveSteeringMiddleware",
@@ -20,7 +20,7 @@ __all__ = [
 
 _EXPORTS = {
     "CompactionMiddleware": "core.middleware.compaction",
-    "DevProfileMiddleware": "core.middleware.dev_profile",
+    "PreferencesMiddleware": "core.middleware.preferences",
     "HarnessFilesystemMiddleware": "core.middleware.filesystem",
     "HooksMiddleware": "core.middleware.hooks",
     "LiveSteeringMiddleware": "core.middleware.live_steering",

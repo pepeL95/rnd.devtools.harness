@@ -71,13 +71,27 @@ Run the CLI with:
 quasipilot
 ```
 
-Use `/devprofile` from an idle prompt to asynchronously evolve the workspace's
-free-form `.quasipilot/DEVPROFILE.md` from completed turns in the active session.
+Use `/preferences` from an idle prompt to asynchronously evolve the workspace's
+free-form `.quasipilot/PREFERENCES.md` from completed turns in the active session.
 An optional focus can guide the detached review, for example:
 
 ```text
-/devprofile focus on testing and commit preferences
+/preferences focus on testing and commit preferences
 ```
+
+Preferences follow the SYSTEM.md/AGENTS.md session lifecycle: they are read at each
+new turn, held stable through that turn and live steering, and persisted as one
+latest system entry in both raw and curated sessions. The entry includes the
+existing precedence guidance and survives compaction without duplicating
+model context or appearing in chat history. Clearing or removing PREFERENCES.md
+clears its entry on the next turn; an initially missing/blank file adds nothing.
+Unreadable preferences raise an error instead of silently dropping instructions.
+
+`PREFERENCES.md` replaces `DEVPROFILE.md`, and `/preferences` replaces `/devprofile`.
+For an existing workspace, rename `.quasipilot/DEVPROFILE.md` to
+`.quasipilot/PREFERENCES.md` before starting the CLI. A legacy-only file raises a
+migration error rather than silently losing preferences. If both exist, the new
+file wins, including when empty; neither file is automatically merged or rewritten.
 
 Configure steering and executable hooks in global or workspace
 `.quasipilot/.hooks/hooks.toml`. See the [hooks v1 reference](core/hooks/docs/v1.md)

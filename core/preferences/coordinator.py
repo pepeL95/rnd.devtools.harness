@@ -7,18 +7,18 @@ from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from core.dev_profile.agent import create_dev_profile_agent
-from core.dev_profile.store import DevProfileStore
-from core.dev_profile.tools import completed_dump_snapshot
+from core.preferences.agent import create_preferences_agent
+from core.preferences.store import PreferencesStore
+from core.preferences.tools import completed_dump_snapshot
 from core.session.events import SessionEvent
 from core.session.manager import SessionManager
 
-DevProfileEventCallback = Callable[[str, dict[str, Any]], None]
-DevProfileAgentFactory = Callable[..., Any]
+PreferencesEventCallback = Callable[[str, dict[str, Any]], None]
+PreferencesAgentFactory = Callable[..., Any]
 
 
-class DevProfileCoordinator:
-    """Run developer-profile maintenance off the main agent path."""
+class PreferencesCoordinator:
+    """Run preferences maintenance off the main agent path."""
 
     def __init__(
         self,
@@ -26,11 +26,11 @@ class DevProfileCoordinator:
         cwd: str | Path,
         *,
         model: BaseChatModel | None = None,
-        on_event: DevProfileEventCallback | None = None,
-        agent_factory: DevProfileAgentFactory = create_dev_profile_agent,
+        on_event: PreferencesEventCallback | None = None,
+        agent_factory: PreferencesAgentFactory = create_preferences_agent,
     ) -> None:
         self.manager = manager
-        self.store = DevProfileStore(cwd)
+        self.store = PreferencesStore(cwd)
         self.model = model
         self.on_event = on_event
         self.agent_factory = agent_factory
@@ -52,7 +52,7 @@ class DevProfileCoordinator:
             self._worker = Thread(
                 target=self._run,
                 args=(snapshot, focus.strip()),
-                name=f"dev-profile-{self.manager.session_id}",
+                name=f"preferences-{self.manager.session_id}",
                 daemon=True,
             )
             self._worker.start()
@@ -64,7 +64,7 @@ class DevProfileCoordinator:
             before_revision = self.store.read().revision
             agent = self.agent_factory(events, self.store, model=self.model)
             instruction = (
-                "Review the completed session and merge every explicit reusable user preference into DEVPROFILE.md, "
+                "Review the completed session and merge every explicit reusable user preference into PREFERENCES.md, "
                 "preserving existing contents unless newer user evidence explicitly changes them."
             )
             if focus:

@@ -89,7 +89,7 @@ class CompactionUiTests(TestCase):
         self.assertIsInstance(mounted[0], StatusBubble)
         self.assertEqual(notifications, ["session compaction finished"])
 
-    def test_dev_profile_event_does_not_mount_subagent_output(self) -> None:
+    def test_preferences_event_does_not_mount_subagent_output(self) -> None:
         app = QuasipilotApp()
         mounted: list[object] = []
         notifications: list[str] = []
@@ -97,7 +97,7 @@ class CompactionUiTests(TestCase):
         app._sync_compaction_ui = lambda: None  # type: ignore[method-assign]
         app.notify = lambda message, **_: notifications.append(message)  # type: ignore[method-assign]
 
-        app._handle_dev_profile_event(
+        app._handle_preferences_event(
             "end",
             {
                 "changed": True,
@@ -106,7 +106,7 @@ class CompactionUiTests(TestCase):
         )
 
         self.assertEqual(mounted, [])
-        self.assertEqual(notifications, ["developer profile updated"])
+        self.assertEqual(notifications, ["preferences updated"])
 
 
 class SelectionActionTests(TestCase):
@@ -290,7 +290,8 @@ class ChatInputTests(TestCase):
                 await pilot.click("#chat-input")
                 await pilot.press("h", "i", "enter")
 
-        asyncio.run(run())
+        with TemporaryDirectory() as directory, patch("cli.run.Path.cwd", return_value=Path(directory)):
+            asyncio.run(run())
 
         self.assertEqual(submitted, ["hi"])
 
@@ -312,7 +313,8 @@ class ChatInputTests(TestCase):
                 await pilot.press("h", "i", "ctrl+j", "t", "h", "e", "r", "e")
                 snapshots.append(app.query_one(ChatInput).text)
 
-        asyncio.run(run())
+        with TemporaryDirectory() as directory, patch("cli.run.Path.cwd", return_value=Path(directory)):
+            asyncio.run(run())
 
         self.assertEqual(submitted, [])
         self.assertEqual(snapshots, ["hi\nthere"])
@@ -343,7 +345,7 @@ class ChatInputTests(TestCase):
         app._live_steering.submit = queued.append  # type: ignore[method-assign]
         app.notify_warning = warnings.append  # type: ignore[method-assign]
 
-        event = ChatInput.Submitted(type("StubInput", (), {"load_text": lambda self, _: None})(), "/devprofile")
+        event = ChatInput.Submitted(type("StubInput", (), {"load_text": lambda self, _: None})(), "/preferences")
         app.on_chat_input_submitted(event)
 
         self.assertEqual(queued, [])
@@ -353,7 +355,7 @@ class ChatInputTests(TestCase):
         warnings: list[str] = []
 
         app = QuasipilotApp()
-        app._dev_profile_active = True
+        app._preferences_active = True
         app.notify_warning = warnings.append  # type: ignore[method-assign]
 
         event = ChatInput.Submitted(type("StubInput", (), {"load_text": lambda self, _: None})(), "/new")
@@ -408,7 +410,8 @@ class RuntimeBarTests(TestCase):
                 )
                 self.assertTrue(all(not span.style or "link " not in str(span.style) for span in rendered.spans))
 
-        asyncio.run(run())
+        with TemporaryDirectory() as directory, patch("cli.run.Path.cwd", return_value=Path(directory)):
+            asyncio.run(run())
 
 
 class RuntimeConfigTests(TestCase):
