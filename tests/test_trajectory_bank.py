@@ -19,7 +19,7 @@ from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager, StaleCompactionError
-from core.trajectory_bank.evidence import content_hash, fingerprint
+from core.trajectory_bank.evidence import content_hash, fingerprint, reasoning_chain
 from core.trajectory_bank.models import TrajectoryRecord, arc_ref, record_ref
 from core.trajectory_bank.policy import BankPolicy
 from core.trajectory_bank.retrieval import BankRetrieval
@@ -399,17 +399,108 @@ def test_invented_arc_id_is_repaired_and_schema_constrains_ids(bank, manager):
     assert len(bank.get()) == 1
 
 
-def test_raw_turn_fallback_and_empty_scope_avoid_embedding(bank, manager):
+def test_reasoning_fallback_and_empty_scope_avoid_embedding(bank, manager):
     manager.append([SessionEvent(type=EventType.USER, turn=1, payload={"content": "tabs exact evidence"}),
+                    SessionEvent(type=EventType.TOOL, turn=1, payload={"name": "reasoning", "args": {
+                        "reasoning": "I confirmed tabs must match exactly; I will retain exact matching."}}),
                     SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"content": "Checked source"})])
     add_turn(manager, 2, "tail")
     compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
     item = bank.get()[0]
-    assert item.metadata["source_kind"] == "raw_turn"
-    assert "tabs exact evidence" in item.document and "Checked source" in item.document
+    assert item.metadata["source_kind"] == "reasoning_chain"
+    assert "I confirmed tabs must match exactly" in item.document
+    assert "tabs exact evidence" not in item.document and "Checked source" not in item.document
     calls = bank.embedder.calls
     assert bank.search("tabs", where={"session_id": "empty-session"}, limit=2) == []
     assert bank.embedder.calls == calls
+
+
+@pytest.mark.parametrize("native,checkpoint", [(True, True), (True, False), (False, True)])
+def test_unsynthesized_archive_embeds_only_recorded_reasoning(bank, manager, native, checkpoint):
+    messages = [HumanMessage(content="USER_CONTEXT_SENTINEL")]
+    if native:
+        messages.append(AIMessage(content=[{"type": "thinking", "thinking": "I found tabs in parser.py.",
+                                            "signature": "SIGNATURE_SENTINEL"}]))
+    if checkpoint:
+        messages.extend([
+            AIMessage(content="COMMENTARY_SENTINEL", tool_calls=[{
+                "name": "reasoning", "id": "checkpoint", "args": {
+                    "reasoning": "I should preserve exact tabs matching; the parser tests passed.",
+                },
+            }]),
+            ToolMessage(content="Reasoning checkpoint recorded. RECALL_SENTINEL", tool_call_id="checkpoint",
+                        additional_kwargs={"trajectory_record_ids": ["OLD_RECORD_SENTINEL"]}),
+        ])
+    messages.extend([
+        AIMessage(content="", tool_calls=[{"name": "execute", "id": "cmd", "args": {
+            "command": "COMMAND_SENTINEL",
+        }}]),
+        ToolMessage(content="NOISY_OUTPUT_SENTINEL " * 10000, tool_call_id="cmd"),
+        AIMessage(content="FINAL_REPLY_SENTINEL"),
+    ])
+    events = manager.events_from_messages(messages, turn=1)
+    events.extend([
+        SessionEvent(type=EventType.REASONING, turn=1, payload={
+            "content": "CANCELLATION_SENTINEL", "reasoning_format": "cancellation",
+        }),
+        SessionEvent(type=EventType.REASONING, turn=1, payload={
+            "content": "STEERING_SENTINEL", "reasoning_format": "live_steering",
+        }),
+        SessionEvent(type=EventType.TURN_END, turn=1, payload={}),
+    ])
+    manager.append(events)
+    add_turn(manager, 2, "tail")
+    dump = manager.read_dump()
+    with patch.object(bank.embedder, "embed_documents", wraps=bank.embedder.embed_documents) as embed:
+        result = compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+    item = bank.get()[0]
+    embedded = embed.call_args.args[0]
+    assert embedded == [item.document]
+    assert "SENTINEL" not in item.document
+    assert len(item.document) < 1000
+    assert ("I found tabs in parser.py." in item.document) == native
+    assert ("I should preserve exact tabs matching" in item.document) == checkpoint
+    assert item.metadata["source_kind"] == "reasoning_chain"
+    assert json.loads(item.metadata["source_event_ids"]) == [event.id for event in events]
+    assert item.metadata["source_fingerprint"] == fingerprint(events)
+    assert item.metadata["content_hash"] == content_hash(item.document)
+    assert "SENTINEL" not in item.metadata["keywords"]
+    assert manager.read_dump() == dump
+    manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
+    assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
+
+
+def test_no_reasoning_skips_vector_record_but_preserves_task_map(bank, manager):
+    manager.append([
+        SessionEvent(type=EventType.USER, turn=1, payload={"content": "Inspect tabs"}),
+        SessionEvent(type=EventType.TOOL_OUTPUT, turn=1, payload={"content": "NOISY_OUTPUT " * 1000}),
+        SessionEvent(type=EventType.TOOL, turn=1, payload={"name": "reasoning", "args": {"reasoning": "  "}}),
+        SessionEvent(type=EventType.REASONING, turn=1, payload={"content": "", "signature": "opaque"}),
+        SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"content": "Done"}),
+    ])
+    add_turn(manager, 2, "tail")
+    original = manager.read_dump()
+    result = compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+    assert bank.get() == []
+    assert bank.embedder.calls == 0
+    assert result.events[0].payload["task_arcs"][0]["turns"] == [1]
+    assert result.events[0].payload["trajectory_manifest"] == {}
+    assert "trajectory://" not in result.memory_document
+    assert manager.read_dump() == original
+
+
+def test_reasoning_chain_extracts_supported_native_formats_and_ignores_invalid_payloads(manager):
+    messages = [
+        AIMessage(content=[{"type": "reasoning", "reasoning": "First finding"}]),
+        AIMessage(content="", additional_kwargs={"reasoning_content": "Second finding"}),
+    ]
+    events = manager.events_from_messages(messages, turn=1)
+    events.extend([
+        SessionEvent(type=EventType.TOOL, turn=1, payload={"name": "reasoning", "args": "malformed"}),
+        SessionEvent(type=EventType.TOOL, turn=1, payload={"name": "reasoning", "args": {"reasoning": 42}}),
+        SessionEvent(type=EventType.REASONING, turn=1, payload={"content": "Hint", "kind": "harness_context"}),
+    ])
+    assert reasoning_chain(events) == "First finding\n\nSecond finding"
 
 
 def test_legacy_pending_rewrite_is_discarded(manager, tmp_path):

@@ -8,7 +8,7 @@ from core.compaction.models import CompactionResult, Critique
 from core.compaction.serialization import events_to_trajectory, memory_restore_message
 from core.compaction.window import split_compaction_window
 from core.session.events import EventType, SessionEvent, is_pinned_instruction
-from core.trajectory_bank.evidence import content_hash, fingerprint, keywords as extract_keywords
+from core.trajectory_bank.evidence import content_hash, fingerprint, keywords as extract_keywords, reasoning_chain
 from core.trajectory_bank.models import ArcUpdate, TaskArc, TrajectoryRecord, arc_ref
 from core.utilities.defaults import get_model_name
 
@@ -135,7 +135,10 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
             events_in_turn = [event for event in new_events if event.turn == turn]
             syntheses = [str(event.payload.get("content", "")) for event in events_in_turn
                          if event.payload.get("kind") == "trajectory_memory"]
-            document = "\n\n".join(syntheses) if syntheses else events_to_trajectory(events_in_turn)
+            document = "\n\n".join(syntheses) if syntheses else reasoning_chain(events_in_turn)
+            if not document.strip():
+                # The task map still covers this turn; do not fabricate retrievable evidence.
+                continue
             # Keep the synthesis unchanged. The user/final reply supply its original context.
             if syntheses:
                 context = [event for event in events_in_turn if event.type in {EventType.USER, EventType.ASSISTANT}]
@@ -151,7 +154,7 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
                 "started_at": source[0].timestamp, "ended_at": source[-1].timestamp, "archived_at": timestamp,
                 "source_event_ids": json.dumps([event.id for event in source]), "source_path": str(manager.dump_path),
                 "source_fingerprint": source_hash, "content_hash": digest,
-                "keywords": json.dumps(turn_keywords), "source_kind": "trajectory_synthesis" if syntheses else "raw_turn",
+                "keywords": json.dumps(turn_keywords), "source_kind": "trajectory_synthesis" if syntheses else "reasoning_chain",
             }
             records.append(TrajectoryRecord(record_id, document, metadata))
             manifest[id] = list(dict.fromkeys([*manifest.get(id, []), record_id]))
