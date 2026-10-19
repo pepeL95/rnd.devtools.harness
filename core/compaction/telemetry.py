@@ -41,7 +41,7 @@ class CompactionTelemetry:
         normalized = {"kind": self.kind, "status": status, **payload}
         self.store.record(TelemetryEvent(name=f"compaction.{status}", payload=normalized))
         if self.logger is not None:
-            level = logging.ERROR if status == "error" else logging.INFO
+            level = logging.ERROR if status == "error" else logging.WARNING if payload.get("warning") else logging.INFO
             self.logger.log(level, json.dumps(normalized, ensure_ascii=False, sort_keys=True))
 
 

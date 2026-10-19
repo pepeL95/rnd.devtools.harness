@@ -400,7 +400,10 @@ class QuasipilotApp(App[None]):
                 self._set_spinner_status("working")
             if content:
                 self._mount_chat(StatusBubble(content))
-            self.notify("session compaction finished", timeout=2, markup=False)
+            if payload.get("warning"):
+                self.notify_warning(str(payload["warning"]))
+            else:
+                self.notify("session compaction finished", timeout=2, markup=False)
         elif phase == "error":
             self._compaction_active = False
             self._sync_compaction_ui()

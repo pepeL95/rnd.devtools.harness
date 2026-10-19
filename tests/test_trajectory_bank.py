@@ -1,8 +1,10 @@
 import asyncio
 import json
+import logging
 import re
 from math import sqrt
-from unittest.mock import patch
+from time import monotonic, sleep
+from unittest.mock import Mock, patch
 from xml.etree import ElementTree
 
 import pytest
@@ -15,12 +17,14 @@ from langchain_core.tools import tool
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from core.compaction.compactor import Compactor
+from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.middleware.reasoning import reasoning_tool
 from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager, StaleCompactionError
+from core.telemetry.store import TelemetryStore
 from core.trajectory_bank.evidence import content_hash, fingerprint, reasoning_chain, trajectory_document
 from core.trajectory_bank.models import Hit, TrajectoryRecord, arc_ref, record_ref
 from core.trajectory_bank.policy import BankPolicy
@@ -655,7 +659,8 @@ def test_cli_names_recall_without_surfacing_reasoning_evidence():
 
 
 @pytest.mark.parametrize("approved", [True, False])
-def test_fidelity_review_repairs_or_preserves_original_context(bank, manager, approved):
+@pytest.mark.parametrize("loops", [1, 2])
+def test_fidelity_review_accepts_latest_revision_with_explicit_approval_status(bank, manager, approved, loops):
     add_turn(manager, 1, "Reread AGENTS.md each turn; do not cache stale instructions")
     add_turn(manager, 2, "tail")
     source = manager.read_curated()
@@ -663,23 +668,110 @@ def test_fidelity_review_repairs_or_preserves_original_context(bank, manager, ap
     incorrect["findings"] = "Rereading is inefficient"
     corrected = arc([1])
     corrected["findings"] = "Reread AGENTS.md each turn; do not cache stale instructions"
-    synthesis = FakeMessagesListChatModel(responses=[compact_model([incorrect]).responses[0], compact_model([corrected]).responses[0]])
-    critic = FakeMessagesListChatModel(responses=[AIMessage(content="Remove invented inefficiency; preserve reread-each-turn requirement."),
-                                                AIMessage(content="APPROVE" if approved else "Still missing source constraints")])
+    synthesis = FakeMessagesListChatModel(responses=[compact_model([incorrect]).responses[0]]
+                                          + [compact_model([corrected]).responses[0]] * loops)
+    final_review = "APPROVE" if approved else "Still missing source constraints"
+    critic = FakeMessagesListChatModel(responses=[
+        AIMessage(content="Remove invented inefficiency; preserve reread-each-turn requirement.")
+    ] * loops + [AIMessage(content=final_review)])
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, compactor_model=synthesis, critic_model=critic,
-                                               max_critic_loops=1), trajectory_bank=bank, session_manager=manager)
-    if approved:
-        result = engine.compact(source)
-        assert "Reread AGENTS.md each turn" in result.memory_document
-        assert "inefficient" not in result.memory_document
-        assert result.revisions == 1 and result.token_usage["call_count"] == 4
-        assert len(result.critiques) == 2 and result.critiques[-1].approved
-        assert len(bank.get()) == 1
+                                               max_critic_loops=loops), trajectory_bank=bank, session_manager=manager)
+    raw = manager.read_dump()
+    result = engine.compact(source)
+    assert "Reread AGENTS.md each turn" in result.memory_document
+    assert "inefficient" not in result.memory_document
+    assert result.revisions == loops and result.token_usage["call_count"] == 2 * (loops + 1)
+    assert len(result.critiques) == loops + 1
+    assert result.critiques[-1].approved is approved
+    assert result.fidelity_warning == (None if approved else final_review)
+    assert len(bank.get()) == 1
+    assert manager.read_curated() == source  # Publication is still the coordinator's job.
+    manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
+    assert manager.read_dump() == raw
+    item = bank.get()[0]
+    assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
+
+
+@pytest.mark.parametrize("loops,review", [(0, "unused"), (1, "APPROVE"), (1, ""),
+                                         (1, "Do not return RECOMMENDED ACTION: APPROVE; evidence is missing.")])
+def test_fidelity_review_skip_early_approval_and_strict_rejection(bank, manager, loops, review):
+    add_turn(manager, 1, "tabs")
+    add_turn(manager, 2, "tail")
+    engine = compactor(bank, manager, [arc([1])])
+    from dataclasses import replace
+    critic = FakeMessagesListChatModel(responses=[AIMessage(content=review)])
+    engine.policy = replace(engine.policy, max_critic_loops=loops, critic_model=critic)
+    result = engine.compact(manager.read_curated())
+    assert result.fidelity_warning == (review if loops and review != "APPROVE" else None)
+    assert result.token_usage["call_count"] == (1 if not loops else 2 if review == "APPROVE" else 4)
+    assert result.revisions == (1 if loops and review != "APPROVE" else 0)
+    if result.critiques:
+        assert result.critiques[-1].approved is (review == "APPROVE")
+
+
+@pytest.mark.parametrize("failure", [None, "archive", "stale_snapshot"])
+def test_best_effort_coordinator_publishes_before_warning_and_records_cost(bank, manager, tmp_path, failure):
+    from dataclasses import replace
+
+    add_turn(manager, 1, "tabs")
+    add_turn(manager, 2, "tail")
+    before = manager.read_curated()
+    raw = manager.read_dump()
+    engine = compactor(bank, manager, [arc([1])])
+    engine.policy = replace(engine.policy, max_critic_loops=1,
+                            critic_model=FakeMessagesListChatModel(responses=[AIMessage(content="Missing detail")]))
+    observed = []
+    telemetry = TelemetryStore(tmp_path / "telemetry.jsonl")
+    coordinator = CompactionCoordinator(manager, engine, repo_root=tmp_path, telemetry_store=telemetry,
+                                         on_compaction_event=lambda phase, payload: observed.append((phase, payload)))
+    coordinator.telemetry.logger = Mock()
+    if failure == "archive":
+        target, method, error = bank, "archive", OSError("disk full")
     else:
-        with pytest.raises(ValueError, match="fidelity review failed"):
-            engine.compact(source)
-        assert manager.read_curated() == source
-        assert bank.get() == []
+        target, method = manager, "apply_compaction_result"
+        error = StaleCompactionError("source changed") if failure else None
+    with patch.object(target, method, wraps=getattr(target, method), side_effect=error):
+        assert coordinator.request_manual_compaction() == "started"
+        deadline = monotonic() + 5
+        while coordinator.is_running() and monotonic() < deadline:
+            sleep(0.01)
+        assert not coordinator.is_running()
+    entries = [json.loads(line) for line in telemetry.path.read_text().splitlines()]
+    assert manager.read_dump() == raw
+    if failure:
+        assert [phase for phase, _ in observed] == ["start", "error"]
+        assert manager.read_curated() == before
+        assert "warning" not in entries[-1]["payload"]
+        assert BankRetrieval(bank, manager).retrieve(query="tabs", automatic=True)[1] == []
+    else:
+        assert [phase for phase, _ in observed] == ["start", "end"]
+        payload = entries[-1]["payload"]
+        assert entries[-1]["name"] == "compaction.end"
+        assert payload["fidelity_warning"] == "Missing detail"
+        assert "without critic approval" in payload["warning"]
+        assert payload["warning"] in payload["content"]
+        assert payload["counts"]["revisions"] == 1
+        assert payload["token_usage"]["call_count"] == 4
+        assert payload["token_usage"]["total_tokens"] > 0
+        assert coordinator.telemetry.logger.log.call_args.args[0] == logging.WARNING
+        assert manager.read_curated()[0].payload["kind"] == "memory_restore"
+
+
+def test_invalid_revision_still_aborts_instead_of_falling_back(bank, manager):
+    from dataclasses import replace
+
+    add_turn(manager, 1, "tabs")
+    add_turn(manager, 2, "tail")
+    before = manager.read_curated()
+    engine = compactor(bank, manager, [arc([1])])
+    invalid = compact_model([arc([2])]).responses[0]  # Attempts to archive the retained tail.
+    engine.policy.compactor_model.responses.extend([invalid, invalid])
+    engine.policy = replace(engine.policy, max_critic_loops=1,
+                            critic_model=FakeMessagesListChatModel(responses=[AIMessage(content="Revise")]))
+    with pytest.raises(ValueError, match="Every new turn"):
+        engine.compact(before)
+    assert manager.read_curated() == before
+    assert bank.get() == []
 
 
 def test_local_embeddings_include_text_beyond_first_window(monkeypatch):

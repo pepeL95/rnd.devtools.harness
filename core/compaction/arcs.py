@@ -98,6 +98,7 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
     }, ensure_ascii=False)
     update, raw, revisions = _synthesize_update(compactor, prompt, turns, previous, usage)
     critiques = []
+    fidelity_warning = None
     model_names = {"compactor": get_model_name(compactor.policy.compactor_model)}
     if compactor.policy.max_critic_loops:
         model_names["critic"] = get_model_name(compactor.policy.critic_model)
@@ -106,11 +107,12 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
                                   prompt + "\nProposed update:\n" + update.model_dump_json(),
                                   token_counter=compactor.token_counter, usage=usage).strip()
             approved = review == "APPROVE"
-            critiques.append(Critique("RECOMMENDED ACTION: APPROVE" if approved else review))
+            critiques.append(Critique(review, approval=approved))
             if approved:
                 break
             if review_index == compactor.policy.max_critic_loops:
-                raise ValueError("Task arc fidelity review failed; keeping original session context: " + review)
+                fidelity_warning = review
+                break
             update, raw, repairs = _synthesize_update(
                 compactor, prompt + "\nPrevious update:\n" + update.model_dump_json()
                 + "\nRequired fidelity corrections:\n" + review, turns, previous, usage,
@@ -167,6 +169,7 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
     })
     return CompactionResult(events=[memory_event, *window.retained], memory_document=memory, segmentation=raw,
                             revisions=revisions, critiques=critiques, model_names=model_names, token_usage=usage.as_dict(),
+                            fidelity_warning=fidelity_warning,
                             token_estimate_before=token_estimate or compactor.token_counter.count_events(events),
                             compacted_event_count=len(window.compacted), retained_event_count=len(window.retained))
 
