@@ -4,6 +4,201 @@
   "description": "Realistic coding-agent trajectories for measuring whether compaction preserves rich, resumable semantics rather than generic summaries.",
   "cases": [
     {
+      "id": "cumulative_handoff_preserves_prior_trajectories",
+      "title": "Preserve prior completed work, causal findings, corrections, and unverified live edge",
+      "keep_last_turns": 1,
+      "events": [
+        {
+          "turn": 0,
+          "type": "user",
+          "timestamp": "2026-10-01T09:00:00+00:00",
+          "payload": {
+            "kind": "memory_restore",
+            "content": "Prior session memory: We fixed exact-edit diagnostics in core/middleware/filesystem.py::_edit_diagnostic. Source tabs were U+0009 while the replacement used spaces; fuzzy normalization was rejected because it would alter source indentation. Keep exact matching. In quasipilot-harness, python -m pytest tests/test_edit_diagnostics.py yielded 18 passed. Committed as abc1234; NOT PUSHED because the user prohibited pushing. Evidence: trajectory://eval-session/batch-edits. Separate task: investigated stale settings in core/config.py::load_config. A process-wide cache kept the previous workspace's values after cwd changed. Removing caching is only a proposal; no implementation or tests yet. User wants workspace-local settings, no new configuration knobs."
+          }
+        },
+        {
+          "turn": 4,
+          "type": "user",
+          "timestamp": "2026-10-01T09:10:00+00:00",
+          "payload": {
+            "content": "Now implement Escape cancellation. Keep this local-development focused; do not push. Do not touch my unrelated core/utilities/defaults.py edit."
+          }
+        },
+        {
+          "turn": 4,
+          "type": "reasoning",
+          "timestamp": "2026-10-01T09:11:00+00:00",
+          "payload": {
+            "content": "I tested wrapping the synchronous provider call in a worker thread. Cancelling the await did not stop the underlying provider request, so that approach cannot provide immediate cancellation. I will use the async request directly."
+          }
+        },
+        {
+          "turn": 5,
+          "type": "assistant",
+          "timestamp": "2026-10-01T09:15:00+00:00",
+          "payload": {
+            "content": "Changed core/driver.py::aiter_agent_turn and cli/run.py::action_cancel to cancel the active async request. Initially treated resume as a new turn. The changes are uncommitted."
+          }
+        },
+        {
+          "turn": 6,
+          "type": "user",
+          "timestamp": "2026-10-01T09:20:00+00:00",
+          "payload": {
+            "content": "Correction: cancellation pauses the SAME semantic turn. My live steering text is a user message; only the harness interruption introspection is assistant-side and displayed as a muted event. Do not conflate those."
+          }
+        },
+        {
+          "turn": 6,
+          "type": "assistant",
+          "timestamp": "2026-10-01T09:25:00+00:00",
+          "payload": {
+            "content": "Updated core/live_steering.py::LiveSteeringController to preserve the turn on resume. python -m pytest tests/test_live_steering.py: 9 passed with a mocked provider. No live cancellation test yet. Full suite still has the pre-existing test_default_driver_model_uses_reasoning_profile failure: expected low, got minimal, from the user's defaults.py edit; this is not a new cancellation regression. Async changes remain uncommitted. Linux behavior is unknown, not broken."
+          }
+        },
+        {
+          "turn": 7,
+          "type": "user",
+          "timestamp": "2026-10-01T09:30:00+00:00",
+          "payload": {
+            "content": "Next, verify cancellation with a live provider before committing. Keep the settings-cache investigation pending."
+          }
+        }
+      ],
+      "expected_atoms": [
+        {
+          "id": "prior_symbol",
+          "label": "Prior implementation detail survives",
+          "must_include_any": [
+            "_edit_diagnostic"
+          ]
+        },
+        {
+          "id": "prior_cause",
+          "label": "Whitespace diagnosis survives",
+          "must_include_any": [
+            "U+0009"
+          ]
+        },
+        {
+          "id": "prior_constraint",
+          "label": "Rejected fuzzy normalization is remembered",
+          "must_include_any": [
+            "fuzzy"
+          ]
+        },
+        {
+          "id": "prior_test",
+          "label": "Prior focused verification survives",
+          "must_include_any": [
+            "18 passed"
+          ]
+        },
+        {
+          "id": "prior_commit",
+          "label": "Prior local commit survives",
+          "must_include_any": [
+            "abc1234"
+          ]
+        },
+        {
+          "id": "no_push",
+          "label": "Push prohibition or unpushed state survives",
+          "must_include_any": [
+            "not pushed",
+            "do not push",
+            "no push",
+            "unpushed"
+          ]
+        },
+        {
+          "id": "prior_reference",
+          "label": "Useful prior citation survives",
+          "must_include_any": [
+            "trajectory://eval-session/batch-edits"
+          ]
+        },
+        {
+          "id": "pending_cause",
+          "label": "Separate unresolved cache diagnosis survives",
+          "must_include_any": [
+            "previous workspace",
+            "prior workspace",
+            "workspace's values",
+            "workspace values"
+          ]
+        },
+        {
+          "id": "pending_symbol",
+          "label": "Pending task location survives",
+          "must_include_any": [
+            "load_config"
+          ]
+        },
+        {
+          "id": "failed_approach",
+          "label": "Why thread cancellation failed survives",
+          "must_include_any": [
+            "underlying provider",
+            "underlying request",
+            "provider request continued",
+            "background thread"
+          ]
+        },
+        {
+          "id": "user_correction",
+          "label": "Same-turn correction survives",
+          "must_include_any": [
+            "same semantic turn",
+            "same turn"
+          ]
+        },
+        {
+          "id": "message_distinction",
+          "label": "User steering remains user-originated",
+          "must_include_any": [
+            "user message"
+          ]
+        },
+        {
+          "id": "verification_scope",
+          "label": "Mocked verification is not upgraded",
+          "must_include_any": [
+            "mock"
+          ]
+        },
+        {
+          "id": "baseline_failure",
+          "label": "Known baseline failure is distinguished",
+          "must_include_any": [
+            "test_default_driver_model_uses_reasoning_profile"
+          ]
+        },
+        {
+          "id": "untouched_edit",
+          "label": "Unrelated user edit is identified",
+          "must_include_any": [
+            "core/utilities/defaults.py"
+          ]
+        },
+        {
+          "id": "worktree_state",
+          "label": "Cancellation work is uncommitted",
+          "must_include_any": [
+            "uncommitted"
+          ]
+        },
+        {
+          "id": "environment",
+          "label": "Required environment survives",
+          "must_include_any": [
+            "quasipilot-harness"
+          ]
+        }
+      ]
+    },
+    {
       "id": "cli_telemetry_resource_exhaustion",
       "title": "Troubleshoot quasipilot chat hang and enrich driver telemetry",
       "keep_last_turns": 2,
