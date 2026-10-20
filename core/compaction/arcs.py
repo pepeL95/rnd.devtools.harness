@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -98,7 +99,6 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
     }, ensure_ascii=False)
     update, raw, revisions = _synthesize_update(compactor, prompt, turns, previous, usage)
     critiques = []
-    fidelity_warning = None
     model_names = {"compactor": get_model_name(compactor.policy.compactor_model)}
     if compactor.policy.max_critic_loops:
         model_names["critic"] = get_model_name(compactor.policy.critic_model)
@@ -107,11 +107,11 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
                                   prompt + "\nProposed update:\n" + update.model_dump_json(),
                                   token_counter=compactor.token_counter, usage=usage).strip()
             approved = review == "APPROVE"
-            critiques.append(Critique(review, approval=approved))
+            critiques.append(Critique("RECOMMENDED ACTION: APPROVE" if approved else review))
             if approved:
                 break
             if review_index == compactor.policy.max_critic_loops:
-                fidelity_warning = review
+                logging.getLogger(__name__).warning("Task arc review budget exhausted; using the latest revision.")
                 break
             update, raw, repairs = _synthesize_update(
                 compactor, prompt + "\nPrevious update:\n" + update.model_dump_json()
@@ -169,7 +169,6 @@ def compact_arcs(compactor: Compactor, events: list[SessionEvent], token_estimat
     })
     return CompactionResult(events=[memory_event, *window.retained], memory_document=memory, segmentation=raw,
                             revisions=revisions, critiques=critiques, model_names=model_names, token_usage=usage.as_dict(),
-                            fidelity_warning=fidelity_warning,
                             token_estimate_before=token_estimate or compactor.token_counter.count_events(events),
                             compacted_event_count=len(window.compacted), retained_event_count=len(window.retained))
 

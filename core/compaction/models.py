@@ -18,12 +18,9 @@ class CompactionWindow:
 @dataclass(frozen=True)
 class Critique:
     text: str
-    approval: bool | None = None
 
     @property
     def approved(self) -> bool:
-        if self.approval is not None:
-            return self.approval
         normalized = self.text.upper()
         return (
             "RECOMMENDED ACTION: APPROVE AS-IS" in normalized
@@ -44,4 +41,3 @@ class CompactionResult:
     token_estimate_before: int = 0
     compacted_event_count: int = 0
     retained_event_count: int = 0
-    fidelity_warning: str | None = None

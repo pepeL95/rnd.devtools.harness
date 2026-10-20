@@ -149,10 +149,6 @@ class CompactionCoordinator:
                     retained_event_count=result.retained_event_count,
                 ),
             }
-            if result.fidelity_warning is not None:
-                warning = "Session compaction accepted the latest revision without critic approval (revision budget exhausted)."
-                end_payload.update(warning=warning, fidelity_warning=result.fidelity_warning)
-                end_payload["content"] += f". {warning}"
             self.telemetry.end(end_payload)
             self._emit_compaction_event("end", end_payload)
         except Exception as exc:

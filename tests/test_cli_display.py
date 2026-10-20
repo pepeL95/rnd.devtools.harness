@@ -2,7 +2,7 @@ import json
 from unittest import TestCase
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from cli.components import AIBubble, ChatInput, WorkingSpinner
 from cli.components import ToolStream
@@ -67,22 +67,6 @@ class SessionPickerMarkupTests(TestCase):
 
 
 class CompactionUiTests(TestCase):
-    def test_best_effort_compaction_finishes_with_warning_not_success_toast(self) -> None:
-        app = QuasipilotApp()
-        app._compaction_active = True
-        app._mount_chat = Mock()
-        app._sync_compaction_ui = Mock()
-        app.notify = Mock()
-        app.notify_warning = Mock()
-        warning = "Session compaction accepted the latest revision without critic approval."
-        app._handle_compaction_event("end", {"content": warning, "warning": warning})
-        self.assertFalse(app._compaction_active)
-        app._sync_compaction_ui.assert_called_once()
-        app._mount_chat.assert_called_once()
-        self.assertIsInstance(app._mount_chat.call_args.args[0], StatusBubble)
-        app.notify_warning.assert_called_once_with(warning)
-        app.notify.assert_not_called()
-
     def test_handle_compaction_event_mounts_status_bubble(self) -> None:
         app = QuasipilotApp()
         mounted: list[object] = []
