@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -390,6 +391,11 @@ class TrajectoryCompactionTests(TestCase):
 
             pending_path = root / "pending_trajectories" / "s1.json"
             self.assertTrue(pending_path.exists())
+            pending = json.loads(pending_path.read_text())
+            breakdown = pending["payload"]["context_tokens"]
+            self.assertGreater(breakdown["compacted_tokens"], 0)
+            self.assertGreater(breakdown["injected_tokens"], 0)
+            self.assertEqual(breakdown["saved_tokens"], breakdown["before_tokens"] - breakdown["after_tokens"])
             self.assertFalse(any(item.payload.get("kind") == "trajectory_memory" for item in manager.read_curated()))
 
             second = TrajectoryCompactionCoordinator(
@@ -403,6 +409,10 @@ class TrajectoryCompactionTests(TestCase):
             self.assertFalse(pending_path.exists())
             curated = manager.read_curated()
             self.assertTrue(any(item.payload.get("kind") == "trajectory_memory" for item in curated))
+            logged = [json.loads(line) for line in (root / "telemetry-2.jsonl").read_text().splitlines()][-1]["payload"]
+            self.assertEqual(logged["context_tokens"], breakdown)
+            self.assertEqual(logged["token_usage"]["input_tokens"], pending["token_usage"]["input_tokens"])
+            self.assertEqual(logged["token_usage"]["estimated_calls"], 1)
 
     def test_format_turn_interval_coalesces_ranges(self) -> None:
         self.assertEqual(format_turn_interval([1, 2, 3, 5, 7, 8]), "[1-3, 5, 7-8]")

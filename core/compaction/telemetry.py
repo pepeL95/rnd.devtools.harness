@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from core.compaction.token_counter import TokenCounter
 from core.session.events import SessionEvent
 from core.telemetry.events import TelemetryEvent
 from core.telemetry.store import TelemetryStore
@@ -43,6 +44,36 @@ class CompactionTelemetry:
         if self.logger is not None:
             level = logging.ERROR if status == "error" else logging.INFO
             self.logger.log(level, json.dumps(normalized, ensure_ascii=False, sort_keys=True))
+
+
+def context_token_breakdown(
+    source: list[SessionEvent], result: list[SessionEvent], counter: TokenCounter, *, completed: bool = True,
+) -> dict[str, Any]:
+    """Compare replaced and inserted message content within the compaction snapshot."""
+    source_ids = {event.id for event in source}
+    result_ids = {event.id for event in result}
+    removed = [event for event in source if event.id not in result_ids]
+    retained = [event for event in source if event.id in result_ids]
+    compacted_tokens = counter.count_context(removed)
+    retained_tokens = counter.count_context(retained)
+    breakdown = {
+        "estimated": True,
+        "basis": "restored_message_content",
+        "encoding": counter.encoding_name,
+        "fallback": "characters_divided_by_4",
+        "compacted_tokens": compacted_tokens,
+        "retained_tokens": retained_tokens,
+        "before_tokens": compacted_tokens + retained_tokens,
+    }
+    if completed:
+        injected = [event for event in result if event.id not in source_ids]
+        injected_tokens = counter.count_context(injected)
+        breakdown.update(
+            injected_tokens=injected_tokens,
+            after_tokens=retained_tokens + injected_tokens,
+            saved_tokens=compacted_tokens - injected_tokens,
+        )
+    return breakdown
 
 
 def compaction_logger(repo_root: Path, *, name: str, log_dir: str) -> logging.Logger:

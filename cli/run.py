@@ -384,9 +384,9 @@ class QuasipilotApp(App[None]):
         content = content_to_plaintext(payload.get("content", ""))
         if phase == "start":
             self._compaction_active = True
-            token_usage = payload.get("token_usage", {})
-            tokens = token_usage.get("source_tokens") if isinstance(token_usage, dict) else None
-            suffix = f" · {tokens} estimated source tokens" if isinstance(tokens, int) else ""
+            context_tokens = payload.get("context_tokens", {})
+            tokens = context_tokens.get("compacted_tokens") if isinstance(context_tokens, dict) else None
+            suffix = f" · {tokens:,} estimated tokens to compact" if isinstance(tokens, int) else ""
             self._sync_compaction_ui()
             if self._spinner is not None:
                 self._set_spinner_status(f"compacting session{suffix}")

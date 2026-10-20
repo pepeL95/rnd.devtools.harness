@@ -43,18 +43,3 @@ class TokenUsage:
             "reported_calls": self.reported_calls,
             "estimated_calls": self.estimated_calls,
         }
-
-
-def format_token_usage(usage: dict[str, int]) -> str:
-    calls = usage.get("call_count", 0)
-    if not calls:
-        return "no model calls"
-    reported = usage.get("reported_calls", 0)
-    if reported == calls:
-        source = "provider-reported"
-    elif reported:
-        source = f"mixed; {calls - reported}/{calls} calls estimated"
-    else:
-        source = "estimated"
-    return (f"{usage['input_tokens']:,} input / {usage['output_tokens']:,} output tokens"
-            f" ({source}, {calls} {'call' if calls == 1 else 'calls'})")

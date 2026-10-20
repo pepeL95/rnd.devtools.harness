@@ -267,7 +267,7 @@ class SessionManager:
         return events
 
     def load_curated_messages(self) -> list[BaseMessage]:
-        return _reconstruct_agent_messages(agent_history_events(self.read_curated()))
+        return reconstruct_agent_messages(agent_history_events(self.read_curated()))
 
     def read_display_history(self) -> list[SessionEvent]:
         return display_history_events(self.read_dump())
@@ -294,7 +294,7 @@ def _compact_text(text: str, limit: int = 72) -> str:
     return compact[: limit - 1] + "…"
 
 
-def _reconstruct_agent_messages(events: list[SessionEvent]) -> list[BaseMessage]:
+def reconstruct_agent_messages(events: list[SessionEvent]) -> list[BaseMessage]:
     """Reconstruct a valid LangChain message sequence from stored session events.
 
     LangChain requires strict structural pairing: every AIMessage with tool_calls

@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import Lock, Thread
 from time import perf_counter
 
-from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span
+from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span, context_token_breakdown
 from core.compaction.token_counter import TokenCounter
 from core.session.events import SessionEvent, is_pinned_instruction
 from core.session.manager import SessionManager, StaleCompactionError
@@ -105,7 +105,9 @@ class TrajectoryCompactionCoordinator:
                 result_events=result.events,
                 snapshot_latest_turn=snapshot_latest_turn,
                 source_event_ids=[event.id for event in snapshot_events],
-                payload=payload,
+                payload={**payload, "context_tokens": context_token_breakdown(
+                    snapshot_events, result.events, self.compactor.token_counter,
+                )},
                 compacted_event_count=result.compacted_event_count,
                 compacted_turn_count=len(result.compacted_turns),
                 result_event_count=len(result.events),

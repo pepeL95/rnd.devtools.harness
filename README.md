@@ -157,13 +157,25 @@ A bounded fidelity review checks for lost context, not formatting. If review att
 run out, a warning is logged and the latest nonempty revision is used. The harness
 retains an evidence index independently of the prose; archival and stale-session checks remain.
 Extraction uses the compactor model (one additional call), without new configuration.
-The CLI completion event shows total input/output tokens across extraction, synthesis,
-review, and revisions, using provider-reported usage when available. Missing usage falls
-back to explicitly labeled estimates; mixed totals are marked too. These are model-call
-totals, not the final arc's size. Session and trajectory compaction telemetry records
-the same counts plus `reported_calls` / `estimated_calls`. Start-of-compaction source
-tokens remain estimates. Provider usage can include reasoning and cached input; retries
-not exposed by the provider are not independently counted.
+The CLI start event shows estimated tokens in the context selected for replacement,
+excluding retained turns and pinned instructions. Completion shows `before -> injected`
+tokens and the savings (or growth). Both sides estimate restored message content with
+`cl100k_base` (characters/4 fallback), including tool calls and the injected memory wrapper,
+but excluding duplicate storage fields, provider framing, and tool schemas. These are
+comparable content estimates, not provider-reported request usage.
+
+Structured `compaction.start` / `compaction.end` events live in the existing per-session
+`~/.quasipilot/telemetry/YYYY/MM/DD/<session-id>.jsonl` and `.logs/compaction/` logs.
+`context_tokens` records compacted, retained, injected, before/after, and saved tokens,
+plus the estimation basis. Before/after totals describe the non-pinned compaction
+snapshot, not newer turns arriving while compaction runs. Trajectory compaction records
+the same completed breakdown in its telemetry and `.logs/trajectory/` logs.
+Separately, `token_usage` records aggregate model input/output/total tokens and call
+counts across extraction, synthesis, review, and revisions. `reported_calls` and
+`estimated_calls` distinguish provider usage from fallback estimates. Its legacy
+`source_tokens` field remains the serialized-event policy estimate, not the CLI delta.
+Provider usage can include reasoning and cached input; retries not exposed by the
+provider are not independently counted. Trigger thresholds are unchanged.
 
 Optional archival uses the nearest `.quasipilot/.trajectorybank` (cwd, then parents).
 Disabling it does not change compaction semantics. New archives store task episodes,

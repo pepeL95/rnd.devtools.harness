@@ -7,9 +7,9 @@ from time import perf_counter
 from typing import Any
 
 from core.compaction.compactor import Compactor
-from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span
+from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span, context_token_breakdown
 from core.compaction.token_counter import TokenCounter
-from core.compaction.usage import format_token_usage
+from core.compaction.window import split_compaction_window
 from core.session.events import SessionEvent, is_pinned_instruction
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
@@ -112,14 +112,22 @@ class CompactionCoordinator:
         payload: dict[str, Any],
     ) -> None:
         started = perf_counter()
-        start_payload = {
-            **payload,
-            "content": self._format_compaction_message("start", str(payload["trigger"]), estimated=source_tokens),
-        }
-        self.telemetry.start(start_payload)
-        self._emit_compaction_event("start", start_payload)
         try:
+            window = split_compaction_window(source_events, self.compactor.policy.keep_last_turns)
+            context_tokens = context_token_breakdown(
+                source_events, window.retained, self.compactor.token_counter, completed=False,
+            )
+            payload = {**payload, "context_tokens": context_tokens}
+            start_payload = {
+                **payload,
+                "content": self._format_compaction_message(
+                    "start", str(payload["trigger"]), estimated=context_tokens["compacted_tokens"],
+                ),
+            }
+            self.telemetry.start(start_payload)
+            self._emit_compaction_event("start", start_payload)
             result = self.compactor.compact(source_events, token_estimate=source_tokens)
+            context_tokens = context_token_breakdown(source_events, result.events, self.compactor.token_counter)
             merged_events = self.manager.apply_compaction_result(
                 result.events,
                 snapshot_latest_turn=snapshot_latest_turn,
@@ -128,6 +136,7 @@ class CompactionCoordinator:
             duration_ms = int((perf_counter() - started) * 1000)
             end_payload = {
                 **payload,
+                "context_tokens": context_tokens,
                 "counts": {
                     **dict(payload["counts"]),
                     "compacted_event_count": result.compacted_event_count,
@@ -145,9 +154,8 @@ class CompactionCoordinator:
                 "content": self._format_compaction_message(
                     "end",
                     str(payload["trigger"]),
-                    compacted_event_count=result.compacted_event_count,
-                    retained_event_count=result.retained_event_count,
-                ) + "; " + format_token_usage(result.token_usage),
+                    context_tokens=context_tokens,
+                ),
             }
             self.telemetry.end(end_payload)
             self._emit_compaction_event("end", end_payload)
@@ -178,21 +186,20 @@ class CompactionCoordinator:
         trigger: str,
         *,
         estimated: int | None = None,
-        compacted_event_count: int | None = None,
-        retained_event_count: int | None = None,
+        context_tokens: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> str:
         prefix = "manual" if trigger == "manual" else "policy"
         if phase == "start":
-            suffix = f" ({estimated} estimated tokens)" if isinstance(estimated, int) else ""
+            suffix = f" ({estimated:,} estimated tokens to compact)" if isinstance(estimated, int) else ""
             return f"{prefix} compaction started{suffix}"
         if phase == "end":
-            details: list[str] = []
-            if isinstance(compacted_event_count, int):
-                details.append(f"{compacted_event_count} compacted")
-            if isinstance(retained_event_count, int):
-                details.append(f"{retained_event_count} retained")
-            suffix = f" ({', '.join(details)})" if details else ""
+            suffix = ""
+            if context_tokens is not None:
+                before, after = context_tokens["compacted_tokens"], context_tokens["injected_tokens"]
+                saved = context_tokens["saved_tokens"]
+                delta = f"saved {saved:,}" if saved >= 0 else f"grew by {-saved:,}"
+                suffix = f" ({before:,} -> {after:,} estimated tokens; {delta})"
             return f"{prefix} compaction finished{suffix}"
         if error:
             return f"{prefix} compaction failed: {error}"
