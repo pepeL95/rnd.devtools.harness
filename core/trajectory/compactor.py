@@ -7,6 +7,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from core.compaction.token_counter import TokenCounter
+from core.compaction.usage import TokenUsage as _TokenUsage
 from core.session.events import EventType, SessionEvent
 from core.session.turns import is_user_authored_event
 from core.trajectory.models import TrajectoryCompactionResult, TurnTrajectorySynthesis
@@ -246,7 +247,6 @@ def _invoke_text(
     usage: "_TokenUsage",
 ) -> str:
     prompt = f"{system_prompt}\n\n{user_prompt}"
-    usage.input_tokens += token_counter.count_text(prompt)
     usage.call_count += 1
     response = model.invoke(
         [
@@ -256,7 +256,7 @@ def _invoke_text(
     )
     content = getattr(response, "content", response)
     text = _stringify_content(content)
-    usage.output_tokens += token_counter.count_text(text)
+    usage.record(response, prompt, text, token_counter)
     return text
 
 
@@ -276,18 +276,3 @@ def _stringify_content(content: Any) -> str:
 
 def _trajectory_model_names(policy: TrajectoryCompactionPolicy) -> dict[str, str]:
     return {"compactor": get_model_name(policy.compactor_model)}
-
-
-class _TokenUsage:
-    def __init__(self) -> None:
-        self.input_tokens = 0
-        self.output_tokens = 0
-        self.call_count = 0
-
-    def as_dict(self) -> dict[str, int]:
-        return {
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
-            "total_tokens": self.input_tokens + self.output_tokens,
-            "call_count": self.call_count,
-        }

@@ -157,6 +157,13 @@ A bounded fidelity review checks for lost context, not formatting. If review att
 run out, a warning is logged and the latest nonempty revision is used. The harness
 retains an evidence index independently of the prose; archival and stale-session checks remain.
 Extraction uses the compactor model (one additional call), without new configuration.
+The CLI completion event shows total input/output tokens across extraction, synthesis,
+review, and revisions, using provider-reported usage when available. Missing usage falls
+back to explicitly labeled estimates; mixed totals are marked too. These are model-call
+totals, not the final arc's size. Session and trajectory compaction telemetry records
+the same counts plus `reported_calls` / `estimated_calls`. Start-of-compaction source
+tokens remain estimates. Provider usage can include reasoning and cached input; retries
+not exposed by the provider are not independently counted.
 
 Optional archival uses the nearest `.quasipilot/.trajectorybank` (cwd, then parents).
 Disabling it does not change compaction semantics. New archives store task episodes,

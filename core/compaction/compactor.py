@@ -13,6 +13,7 @@ from core.compaction.policy import CompactionPolicy
 from core.compaction.prompts import ARC_PROMPT, ARC_REVIEW_PROMPT, TASK_EPISODES_PROMPT
 from core.compaction.serialization import events_to_trajectory, memory_restore_message
 from core.compaction.token_counter import TokenCounter
+from core.compaction.usage import TokenUsage as _TokenUsage
 from core.compaction.window import split_compaction_window
 from core.session.events import EventType, SessionEvent
 from core.utilities.defaults import get_model_name
@@ -160,7 +161,6 @@ def _invoke_text(
     usage: "_TokenUsage",
 ) -> str:
     prompt = f"{system_prompt}\n\n{user_prompt}"
-    usage.input_tokens += token_counter.count_text(prompt)
     usage.call_count += 1
     response = model.invoke(
         [
@@ -170,7 +170,7 @@ def _invoke_text(
     )
     content = getattr(response, "content", response)
     text = _stringify_content(content)
-    usage.output_tokens += token_counter.count_text(text)
+    usage.record(response, prompt, text, token_counter)
     return text
 
 
@@ -186,18 +186,3 @@ def _stringify_content(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(parts)
     return str(content)
-
-
-class _TokenUsage:
-    def __init__(self) -> None:
-        self.input_tokens = 0
-        self.output_tokens = 0
-        self.call_count = 0
-
-    def as_dict(self) -> dict[str, int]:
-        return {
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
-            "total_tokens": self.input_tokens + self.output_tokens,
-            "call_count": self.call_count,
-        }

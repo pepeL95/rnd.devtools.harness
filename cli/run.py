@@ -386,7 +386,7 @@ class QuasipilotApp(App[None]):
             self._compaction_active = True
             token_usage = payload.get("token_usage", {})
             tokens = token_usage.get("source_tokens") if isinstance(token_usage, dict) else None
-            suffix = f" · {tokens} tokens" if isinstance(tokens, int) else ""
+            suffix = f" · {tokens} estimated source tokens" if isinstance(tokens, int) else ""
             self._sync_compaction_ui()
             if self._spinner is not None:
                 self._set_spinner_status(f"compacting session{suffix}")

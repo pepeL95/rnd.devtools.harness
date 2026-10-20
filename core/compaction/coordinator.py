@@ -9,6 +9,7 @@ from typing import Any
 from core.compaction.compactor import Compactor
 from core.compaction.telemetry import CompactionTelemetry, compaction_logger, compaction_time_span
 from core.compaction.token_counter import TokenCounter
+from core.compaction.usage import format_token_usage
 from core.session.events import SessionEvent, is_pinned_instruction
 from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore, telemetry_session_path
@@ -146,7 +147,7 @@ class CompactionCoordinator:
                     str(payload["trigger"]),
                     compacted_event_count=result.compacted_event_count,
                     retained_event_count=result.retained_event_count,
-                ),
+                ) + "; " + format_token_usage(result.token_usage),
             }
             self.telemetry.end(end_payload)
             self._emit_compaction_event("end", end_payload)
