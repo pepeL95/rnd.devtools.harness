@@ -68,5 +68,6 @@ Each run writes a timestamped bundle under `eval_results/` containing:
 - `metrics.json`
 - `summary.md`
 
-Compaction runs also emit `memory.md` and `segmentation.md`, while trajectory
+Compaction runs also emit `memory.md` and `segmentation.md` (the raw arc-update JSON;
+the filename is retained for compatibility, not a separate model stage), while trajectory
 compression runs emit `syntheses.json`.

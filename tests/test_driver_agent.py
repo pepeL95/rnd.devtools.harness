@@ -9,7 +9,6 @@ from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from core.compaction.llms import (
     get_default_compactor_model,
     get_default_critic_model,
-    get_default_task_extractor_model,
 )
 from core.trajectory.llms import (
     get_default_trajectory_compactor_model,
@@ -170,7 +169,6 @@ class DriverAgentTests(TestCase):
 
     def test_compaction_component_defaults_share_non_reasoning_profile(self) -> None:
         for factory in (
-            get_default_task_extractor_model,
             get_default_compactor_model,
             get_default_critic_model,
             get_default_trajectory_compactor_model,

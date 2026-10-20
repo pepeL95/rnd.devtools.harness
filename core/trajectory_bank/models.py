@@ -1,33 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class TaskArc(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    arc_id: str = ""
-    title: str = Field(min_length=1)
-    status: Literal["active", "completed", "blocked", "abandoned", "superseded"]
-    intent: str = Field(min_length=1)
-    implementation: str = Field(min_length=1)
-    findings: str = Field(min_length=1)
-    constraints: str = Field(min_length=1)
-    validation: str = Field(min_length=1)
-    remaining: str = Field(min_length=1)
-    turns: list[int] = Field(default_factory=list)
-    keywords: list[str] = Field(default_factory=list, max_length=12)
-
-
-class ArcUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    narrative: str = Field(min_length=1)
-    current_state: str = Field(min_length=1)
-    arcs: list[TaskArc]
+from core.compaction.models import ArcUpdate, TaskArc  # Compatibility for installed curation skills.
 
 
 @dataclass(frozen=True)

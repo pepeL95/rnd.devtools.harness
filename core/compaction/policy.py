@@ -8,7 +8,6 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from core.compaction.llms import (
     get_default_compactor_model,
     get_default_critic_model,
-    get_default_task_extractor_model,
 )
 from core.session.events import SessionEvent
 
@@ -24,7 +23,6 @@ class CompactionPolicy:
     trigger_tokens: int = 80_000
     keep_last_turns: int = 2
     max_critic_loops: int = 1
-    task_extractor_model: BaseChatModel = field(default_factory=get_default_task_extractor_model)
     compactor_model: BaseChatModel = field(default_factory=get_default_compactor_model)
     critic_model: BaseChatModel = field(default_factory=get_default_critic_model)
     trigger_after: timedelta | None = None

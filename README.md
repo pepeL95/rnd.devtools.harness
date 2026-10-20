@@ -149,8 +149,15 @@ use first-person introspective prose as durable memory, favoring high-signal
 findings and concrete keywords without a fixed template or length quota.
 Reasoning-only batches restore normal tool choice; lower settings are unchanged.
 
-Session compaction now preserves a detailed task map backed by the local
-nearest `.quasipilot/.trajectorybank` (cwd, then parents). Original turn trajectories remain available through
+Session compaction always maintains a cumulative session arc: direction, a detailed
+task map, and current working state. Unchanged tasks survive verbatim, including
+completed work; updated tasks retain stable IDs and prior context. One synthesis
+call assigns tasks and updates memory, followed by bounded review/revision. If review
+attempts run out, a warning is logged and the latest valid revision is used.
+The separate segmentation stage and `CompactionPolicy.task_extractor_model` are removed.
+
+Optional archival uses the nearest `.quasipilot/.trajectorybank` (cwd, then parents).
+Disabling it does not change compaction semantics. Archived turn trajectories remain available through
 exact references, the `trajectory_bank` tool, and conservative post-reasoning
 recall. Enabled CLI startup initializes or reopens the database; the local
 embedding model still downloads only on first embedding use.

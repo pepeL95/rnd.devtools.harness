@@ -1,4 +1,5 @@
 import json
+import sys
 from threading import Event
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -6,6 +7,7 @@ from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from time import sleep
 from unittest import TestCase
+from unittest.mock import patch
 
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
@@ -18,48 +20,24 @@ from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore
 
 
-COMPLETE_MEMORY_DOCUMENT = """## Episodic Memory
+def arc_update(turns=(1,), *, arc_id="", findings="Exact matching preserves tabs; normalization would corrupt indentation."):
+    return {
+        "narrative": "Preserve exact editing semantics across the session.",
+        "current_state": "Continue checking indentation diagnostics without normalizing source.",
+        "arcs": [{
+            "arc_id": arc_id, "title": "Editing contract", "status": "completed",
+            "intent": "Improve edit failures without changing exact-match semantics.",
+            "implementation": "core/middleware/filesystem.py reports whitespace mismatches.",
+            "findings": findings,
+            "constraints": "Do not normalize source whitespace or add configuration.",
+            "validation": "Focused regression tests passed.",
+            "remaining": "Verify diagnostics on mixed tabs and spaces.",
+            "turns": list(turns), "keywords": [],
+        }],
+    }
 
-### Task History
-#### Compaction contract
-- FULL-FIDELITY REF: turns [1-2]
-- TASK TIMESTAMPS: 2026-05-23T10:00:00+00:00 -> 2026-05-23T10:15:00+00:00
-- TASK DESCRIPTION SYNTHESIS: Stabilize compaction output so older trajectory state can be compressed without losing the exact continuation edge for the next turn, while keeping the memory resumable and semantically rich.
-- EXECUTION MEMORY: The task evolved from a raw-history framing into a resumability-first compaction design. The important thing to remember is not the chronology of edits but the result: older turns can collapse into a compact memory that still carries the live continuation edge, the meaningful constraints, and the context a later agent needs to re-enter the work without rereading the full transcript.
 
-### Failed Approaches
-- APPROACH: Using transcript-like summaries with weak structure.
-- FAILURE MECHANISM: The result preserves wording but loses reusable judgment and leaves the next agent to reread the trajectory.
-- REUSABLE LESSON: Compaction should preserve mechanisms, constraints, and state transitions instead of replaying the session.
-- STATUS: abandoned
-
-### Open Problems
-- No active blocker in this fixture. The remaining question is whether the critic loop keeps the summary dense enough.
-
-### Implicit Tasks Discovered
-- The compactor needs a stable heading contract so downstream tooling can reason about the memory document.
-
-### Next Steps
-- Keep validating that compaction revisions preserve resumability while increasing semantic density.
-
-## Semantic Memory
-
-### Task-Approach Pairs
-- TASK CLASS: trajectory compaction for coding agents
-- EFFECTIVE APPROACH: use segmentation plus a critique loop that pushes toward mechanism-rich summaries.
-- PITFALLS: transcript replay, vague failed approaches, and missing exact file paths.
-- CONFIDENCE: high
-
-### Generalizable Insights
-- Compaction quality improves when the system optimizes for causal structure and next-step utility instead of preserving long verbatim spans. This transfers to any agent that resumes from compressed state. Confidence: high.
-
-## Handoff
-
-### Session Narrative
-The fixture represents a compaction run where the important requirement is structural fidelity plus semantic density. The exact wording is not important; the resumable state and learned constraints are.
-
-The next agent should be able to continue without rereading the raw trajectory because the durable constraints, current state, and continuation plan are all explicit.
-"""
+COMPLETE_ARC_UPDATE = json.dumps(arc_update())
 
 
 class FakeResponse:
@@ -94,9 +72,8 @@ class BlockingModel(ScriptedModel):
 def scripted_session_policy(*, trigger_tokens: int = 1, keep_last_turns: int = 1, max_critic_loops: int = 2, trigger_on_day_change: bool = False) -> CompactionPolicy:
     model = ScriptedModel(
         [
-            "EPISODE 1: old\nTURNS: 1 to 1",
-            COMPLETE_MEMORY_DOCUMENT,
-            "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+            COMPLETE_ARC_UPDATE,
+            "APPROVE",
         ]
     )
     return CompactionPolicy(
@@ -104,7 +81,6 @@ def scripted_session_policy(*, trigger_tokens: int = 1, keep_last_turns: int = 1
         keep_last_turns=keep_last_turns,
         max_critic_loops=max_critic_loops,
         trigger_on_day_change=trigger_on_day_change,
-        task_extractor_model=model,
         compactor_model=model,
         critic_model=model,
     )
@@ -183,13 +159,12 @@ class CompactionTests(TestCase):
     def test_compactor_replaces_old_events_with_memory_restore(self) -> None:
         model = ScriptedModel(
             [
-                "EPISODE 1: setup\nTURNS: 1 to 1",
-                COMPLETE_MEMORY_DOCUMENT,
-                "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                COMPLETE_ARC_UPDATE,
+                "APPROVE",
             ]
         )
         compactor = Compactor(
-            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, task_extractor_model=model, compactor_model=model, critic_model=model),
+            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, compactor_model=model, critic_model=model),
         )
         events = [
             event(1, EventType.USER, "original task"),
@@ -204,20 +179,16 @@ class CompactionTests(TestCase):
         self.assertEqual(len(result.events), 2)
         self.assertEqual(result.events[0].payload["kind"], "memory_restore")
         self.assertIn("[MEMORY RESTORE]", result.events[0].payload["content"])
-        self.assertIn("### Task History", result.events[0].payload["content"])
+        self.assertIn("## Task Map", result.events[0].payload["content"])
         self.assertEqual(result.events[1].payload["content"], "continue")
 
     def test_compactor_runs_revision_loop_until_approved(self) -> None:
         model = ScriptedModel(
             [
-                "EPISODE 1: setup\nTURNS: 1 to 1",
-                COMPLETE_MEMORY_DOCUMENT,
-                "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 1\n  RECOMMENDED ACTION: revise targeted sections",
-                COMPLETE_MEMORY_DOCUMENT.replace(
-                    "preserve resumability while increasing semantic density.",
-                    "preserve resumability while increasing semantic density after revision.",
-                ),
-                "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                COMPLETE_ARC_UPDATE,
+                "Preserve the concrete edit diagnostics.",
+                json.dumps(arc_update(findings="Revised findings preserve exact edit diagnostics.")),
+                "APPROVE",
             ]
         )
         compactor = Compactor(
@@ -225,7 +196,6 @@ class CompactionTests(TestCase):
                 trigger_tokens=1,
                 keep_last_turns=1,
                 max_critic_loops=2,
-                task_extractor_model=model,
                 compactor_model=model,
                 critic_model=model,
             ),
@@ -239,72 +209,122 @@ class CompactionTests(TestCase):
         )
 
         self.assertEqual(result.revisions, 1)
-        self.assertIn("preserve resumability while increasing semantic density after revision.", result.memory_document)
+        self.assertIn("Revised findings preserve exact edit diagnostics.", result.memory_document)
         self.assertEqual(len(result.critiques), 2)
 
-    def test_compactor_revises_legacy_quote_heavy_draft_before_model_critic(self) -> None:
-        model = ScriptedModel(
-            [
-                "EPISODE 1: setup\nTURNS: 1 to 1",
-                'ORIGINAL TASK\n"repeat the whole prompt verbatim because that feels safe"\nUSER DIRECTIVES\n"quote everything back"',
-                COMPLETE_MEMORY_DOCUMENT,
-                "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
-            ]
-        )
-        compactor = Compactor(
-            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, task_extractor_model=model, compactor_model=model, critic_model=model),
-        )
-
-        result = compactor.compact(
-            [
-                event(1, EventType.USER, "original task"),
-                event(2, EventType.USER, "latest"),
-            ]
-        )
-
+    def test_compactor_repairs_invalid_arc_before_model_critic(self) -> None:
+        model = ScriptedModel(["not JSON", COMPLETE_ARC_UPDATE, "APPROVE"])
+        compactor = Compactor(policy=CompactionPolicy(
+            keep_last_turns=1, compactor_model=model, critic_model=model,
+        ))
+        result = compactor.compact([event(1, EventType.USER, "original task"), event(2, EventType.USER, "latest")])
         self.assertEqual(result.revisions, 1)
-        self.assertEqual(len(result.critiques), 2)
-        self.assertIn("LOCAL QUALITY REVIEW", result.critiques[0].text)
-        self.assertIn("### Task History", result.memory_document)
+        self.assertEqual(len(result.critiques), 1)
+        self.assertIn("Previous output failed validation", model.calls[1][1])
+        self.assertIn("## Task Map", result.memory_document)
 
-    def test_compactor_strips_revision_artifacts_from_final_memory(self) -> None:
-        model = ScriptedModel(
-            [
-                "EPISODE 1: setup\nTURNS: 1 to 1",
-                "junk before heading\n\n## Episodic Memory\n\n### Task History\n#### T\n- FULL-FIDELITY REF: turns [1]\n- TASK TIMESTAMPS: 2026-05-23T10:00:00+00:00 -> 2026-05-23T10:01:00+00:00\n- TASK DESCRIPTION SYNTHESIS: summarize the requested task with enough concrete detail for resumption and keep the real user intent visible in a task-aware way\n- EXECUTION MEMORY: this task changed the approach and captured the important session semantics in prose, preserving the meaningful findings and results without replaying low-signal operational trivia or critic-side bookkeeping that would pollute the final memory surface\n\n### Failed Approaches\n- none\n\n### Open Problems\n- none\n\n### Implicit Tasks Discovered\n- none\n\n### Next Steps\n- continue\n\n## Semantic Memory\n\n### Task-Approach Pairs\n- TASK CLASS: compact session memory\n- EFFECTIVE APPROACH: preserve signal\n- PITFALLS: replaying noise\n- CONFIDENCE: medium\n\n### Generalizable Insights\n- High-signal memory is more useful than transcript replay when the next agent must resume quickly.\n\n## Handoff\n\n### Session Narrative\nhandoff\n\nREVISION LOG\n[VIOLATION 1] -> removed noise",
-                "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
-            ]
-        )
-        compactor = Compactor(
-            policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, task_extractor_model=model, compactor_model=model, critic_model=model)
-        )
-
+    def test_compactor_rejects_process_artifacts_outside_arc_schema(self) -> None:
+        draft = arc_update()
+        draft["revision_log"] = "Removed noise"
+        model = ScriptedModel([json.dumps(draft), COMPLETE_ARC_UPDATE, "APPROVE"])
+        compactor = Compactor(policy=CompactionPolicy(
+            keep_last_turns=1, compactor_model=model, critic_model=model,
+        ))
         result = compactor.compact([event(1, EventType.USER, "original task"), event(2, EventType.USER, "latest")])
+        self.assertEqual(result.revisions, 1)
+        self.assertNotIn("revision_log", result.memory_document)
+        self.assertTrue(result.memory_document.startswith("# Session Arc"))
 
-        self.assertNotIn("REVISION LOG", result.memory_document)
-        self.assertNotIn("junk before heading", result.memory_document)
-        self.assertTrue(result.memory_document.startswith("## Episodic Memory"))
-
-    def test_compactor_can_distribute_stage_models(self) -> None:
-        task_extractor = ScriptedModel(["EPISODE 1: setup\nTURNS: 1 to 1"])
-        compactor_model = ScriptedModel([COMPLETE_MEMORY_DOCUMENT])
-        critic_model = ScriptedModel(["CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is"])
-        compactor = Compactor(
-            policy=CompactionPolicy(
-                trigger_tokens=1,
-                keep_last_turns=1,
-                task_extractor_model=task_extractor,
-                compactor_model=compactor_model,
-                critic_model=critic_model,
-            ),
-        )
-
+    def test_compactor_uses_only_synthesis_and_review_models(self) -> None:
+        compactor_model = ScriptedModel([COMPLETE_ARC_UPDATE])
+        critic_model = ScriptedModel(["APPROVE"])
+        compactor = Compactor(policy=CompactionPolicy(
+            keep_last_turns=1, compactor_model=compactor_model, critic_model=critic_model,
+        ))
         result = compactor.compact([event(1, EventType.USER, "original task"), event(2, EventType.USER, "latest")])
-
         self.assertEqual(result.revisions, 0)
-        self.assertEqual(len(task_extractor.calls), 1)
         self.assertEqual(len(compactor_model.calls), 1)
         self.assertEqual(len(critic_model.calls), 1)
+        self.assertEqual(result.token_usage["call_count"], 2)
+        self.assertEqual(set(result.model_names), {"compactor", "critic"})
+
+    def test_repeated_compaction_preserves_entire_task_set_without_bank(self) -> None:
+        initial = arc_update()
+        second_task = arc_update((2,), findings="Cancellation resumes the same turn.")["arcs"][0]
+        second_task.update(title="Cancellation", status="active", remaining="Check live steering")
+        initial["arcs"].append(second_task)
+        model = ScriptedModel([json.dumps(initial)])
+        compactor = Compactor(policy=CompactionPolicy(
+            keep_last_turns=1, compactor_model=model, max_critic_loops=0,
+        ))
+        events = [event(turn, EventType.USER, f"Task {turn}") for turn in range(1, 4)]
+        with patch.dict(sys.modules, {"core.trajectory_bank.archival": None, "chromadb": None}):
+            first = compactor.compact(events)
+            original_arcs = first.events[0].payload["task_arcs"]
+
+            # Work on a third task must not erase either earlier task.
+            third_task = arc_update((3,), findings="Configuration is workspace-local.")
+            third_task["arcs"][0]["title"] = "Configuration"
+            model.responses.append(json.dumps(third_task))
+            second = compactor.compact([*first.events, event(4, EventType.USER, "Resume cancellation")])
+            self.assertEqual(second.events[0].payload["task_arcs"][:2], original_arcs)
+
+            # A nonconsecutive return updates the same arc, retaining its historical turn membership.
+            updated = dict(original_arcs[1], turns=[4], status="completed",
+                           findings="Cancellation resumes the same turn; live steering verified.", remaining="None known")
+            model.responses.append(json.dumps({**third_task, "arcs": [updated]}))
+            third = compactor.compact([*second.events, event(5, EventType.USER, "Next task")])
+
+        arcs = third.events[0].payload["task_arcs"]
+        self.assertEqual(len(arcs), 3)
+        self.assertEqual(arcs[0], original_arcs[0])
+        self.assertEqual(arcs[2], second.events[0].payload["task_arcs"][2])
+        self.assertEqual(arcs[1]["arc_id"], original_arcs[1]["arc_id"])
+        self.assertEqual(arcs[1]["turns"], [2, 4])
+        self.assertEqual(arcs[1]["status"], "completed")
+        self.assertIn("normalization would corrupt indentation", third.memory_document)
+        self.assertIn("live steering verified", third.memory_document)
+        self.assertEqual(third.events[-1].turn, 5)
+        self.assertEqual(third.events[0].payload["trajectory_manifest"], {})
+        self.assertNotIn("trajectory://", third.memory_document)
+        prompt = json.loads(model.calls[1][1])
+        self.assertEqual(prompt["existing_arcs"], original_arcs)
+        self.assertEqual(prompt["previous_session_context"], [{
+            "narrative": initial["narrative"], "current_state": initial["current_state"],
+        }])
+        self.assertEqual(prompt["new_turns"], [3])
+        self.assertIn("Resume cancellation", prompt["retained_tail_for_orientation_only"])
+
+    def test_legacy_memory_survives_bankless_compaction(self) -> None:
+        old = event(0, EventType.USER, "Historical requirement: never rewrite user changes.")
+        old.payload["kind"] = "memory_restore"
+        compactor = Compactor(policy=scripted_session_policy())
+        result = compactor.compact([old, event(1, EventType.USER, "New work"), event(2, EventType.USER, "Tail")])
+        self.assertIn(old.payload["content"], result.memory_document)
+        self.assertTrue(result.events[0].payload["task_arcs"][0]["arc_id"].startswith("legacy-"))
+
+    def test_no_eviction_does_not_call_models(self) -> None:
+        model = ScriptedModel([])
+        compactor = Compactor(policy=CompactionPolicy(keep_last_turns=2, compactor_model=model))
+        events = [event(1, EventType.USER, "Keep this")]
+        for source in ([], events):
+            self.assertEqual(compactor.compact(source).events, source)
+        self.assertEqual(model.calls, [])
+
+    def test_semantic_eval_scores_arc_sections_and_concrete_findings(self) -> None:
+        from evals.compaction_semantic_richness import _score_case
+
+        result = Compactor(policy=scripted_session_policy()).compact([
+            event(1, EventType.USER, "Keep exact whitespace matching"), event(2, EventType.USER, "Continue"),
+        ])
+        case = {"id": "arc-format", "title": "Arc format", "expected_atoms": [
+            {"id": "whitespace", "label": "Preserve exact matching", "must_include_any": ["normalization would corrupt indentation"]},
+            {"id": "missing", "label": "Missing evidence stays missing", "must_include_any": ["MISSING_EVIDENCE_SENTINEL"]},
+        ]}
+        score = _score_case(case, result.memory_document, result.memory_document, result)
+        self.assertEqual(score.section_score, 1.0)
+        self.assertEqual(score.atom_score, 0.5)
+        self.assertEqual(score.missing_sections, [])
 
     def test_compaction_middleware_runs_compaction_in_background(self) -> None:
         with TemporaryDirectory() as directory:
@@ -355,13 +375,12 @@ class CompactionTests(TestCase):
             observed: list[tuple[str, dict[str, object]]] = []
             model = ScriptedModel(
                 [
-                    "EPISODE 1: old\nTURNS: 1 to 1",
-                    COMPLETE_MEMORY_DOCUMENT,
-                    "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                    COMPLETE_ARC_UPDATE,
+                    "APPROVE",
                 ]
             )
             compactor = Compactor(
-                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, task_extractor_model=model, compactor_model=model, critic_model=model),
+                policy=CompactionPolicy(trigger_tokens=1, keep_last_turns=1, compactor_model=model, critic_model=model),
             )
             telemetry_path = Path(directory) / "telemetry.jsonl"
             coordinator = CompactionCoordinator(
@@ -440,9 +459,8 @@ class CompactionTests(TestCase):
             release = Event()
             blocking_model = BlockingModel(
                 [
-                    "EPISODE 1: old\nTURNS: 1 to 1",
-                    COMPLETE_MEMORY_DOCUMENT,
-                    "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                    COMPLETE_ARC_UPDATE,
+                    "APPROVE",
                 ],
                 started=started,
                 release=release,
@@ -453,7 +471,6 @@ class CompactionTests(TestCase):
                     policy=CompactionPolicy(
                         trigger_tokens=1,
                         keep_last_turns=1,
-                        task_extractor_model=blocking_model,
                         compactor_model=blocking_model,
                         critic_model=blocking_model,
                     )
@@ -518,9 +535,8 @@ class CompactionTests(TestCase):
             release = Event()
             blocking_model = BlockingModel(
                 [
-                    "EPISODE 1: old\nTURNS: 1 to 1",
-                    COMPLETE_MEMORY_DOCUMENT,
-                    "CRITIQUE SUMMARY\n  VIOLATIONS FOUND: 0\n  RECOMMENDED ACTION: approve as-is",
+                    COMPLETE_ARC_UPDATE,
+                    "APPROVE",
                 ],
                 started=started,
                 release=release,
@@ -531,7 +547,6 @@ class CompactionTests(TestCase):
                     policy=CompactionPolicy(
                         trigger_tokens=1,
                         keep_last_turns=1,
-                        task_extractor_model=blocking_model,
                         compactor_model=blocking_model,
                         critic_model=blocking_model,
                     )
@@ -548,7 +563,10 @@ class CompactionTests(TestCase):
             release.set()
             self._wait_until_idle(coordinator)
 
-            self.assertEqual([item.payload["content"] for item in manager.read_curated()], [memory_restore_message(COMPLETE_MEMORY_DOCUMENT), "new", "latest"])
+            curated = manager.read_curated()
+            self.assertEqual(curated[0].payload["kind"], "memory_restore")
+            self.assertIn("Exact matching preserves tabs", curated[0].payload["content"])
+            self.assertEqual([item.payload["content"] for item in curated[1:]], ["new", "latest"])
 
     def test_memory_restore_message_matches_injection_contract(self) -> None:
         content = memory_restore_message("DOC")

@@ -65,7 +65,6 @@ class CompactionCoordinator:
                 "trigger": trigger,
                 "reason": "manual",
                 "model_names": {
-                    "task_extractor": get_model_name(self.compactor.policy.task_extractor_model),
                     "compactor": get_model_name(self.compactor.policy.compactor_model),
                     "critic": get_model_name(self.compactor.policy.critic_model),
                 },

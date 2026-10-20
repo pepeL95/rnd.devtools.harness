@@ -243,6 +243,25 @@ def test_compaction_archives_groups_and_preserves_arcs_on_repeated_compaction(ba
     assert all(item in bank.get() for item in archived)
 
 
+def test_arc_semantics_are_independent_of_archival(bank, manager):
+    add_turn(manager, 1, "tabs")
+    add_turn(manager, 2, "tail")
+    source = manager.read_curated()
+    raw = manager.read_dump()
+    engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, max_critic_loops=0,
+                                              compactor_model=compact_model([arc([1])])), session_manager=manager)
+    with patch.object(manager, "read_dump", side_effect=AssertionError("No archival reads when disabled")):
+        without_bank = engine.compact(source)
+    assert not bank.root.exists()
+    with_bank = compactor(bank, manager, [arc([1])]).compact(source)
+    assert without_bank.events[0].payload["task_arcs"] == with_bank.events[0].payload["task_arcs"]
+    assert without_bank.events[0].payload["narrative"] == with_bank.events[0].payload["narrative"]
+    assert without_bank.events[0].payload["current_state"] == with_bank.events[0].payload["current_state"]
+    assert without_bank.events[0].payload["trajectory_manifest"] == {}
+    assert len(bank.get()) == 1
+    assert manager.read_curated() == source and manager.read_dump() == raw
+
+
 @pytest.mark.parametrize("keep_last_turns", [0, 1, 2, 4, 5])
 def test_archive_is_restricted_to_eviction_window(bank, manager, keep_last_turns):
     turns = [1, 3, 11, 24]
@@ -703,6 +722,8 @@ def test_fidelity_review_skip_early_approval_and_strict_rejection(bank, manager,
     assert bool(caplog.records) == bool(loops and review != "APPROVE")
     assert result.token_usage["call_count"] == (1 if not loops else 2 if review == "APPROVE" else 4)
     assert result.revisions == (1 if loops and review != "APPROVE" else 0)
+    if result.critiques:
+        assert result.critiques[-1].approved is (review == "APPROVE")
 
 
 def test_invalid_revision_still_aborts_instead_of_falling_back(bank, manager):
@@ -742,23 +763,54 @@ def test_local_embeddings_include_text_beyond_first_window(monkeypatch):
     assert np.linalg.norm(vector) == pytest.approx(1)
 
 
-def test_legacy_compaction_keeps_published_evidence_for_reenabling(bank, manager):
+def test_bank_disabled_compaction_keeps_published_evidence_for_reenabling(bank, manager):
     item = record(manager)
     bank.archive([item])
     add_turn(manager, 2, "tail")
-    model = FakeMessagesListChatModel(responses=[AIMessage(content="Legacy task memory")])
-    legacy = Compactor(policy=CompactionPolicy(keep_last_turns=1, task_extractor_model=model,
-                                              compactor_model=model, max_critic_loops=0))
-    with patch("core.compaction.compactor.quality_report", return_value=None):
-        result = legacy.compact(manager.read_curated())
+    model = compact_model([arc([1])])
+    engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, compactor_model=model, max_critic_loops=0),
+                       session_manager=manager)
+    with patch.object(bank, "archive", side_effect=AssertionError("Archival is disabled")):
+        result = engine.compact(manager.read_curated())
     assert result.events[0].payload["trajectory_manifest"] == {"arc-tabs": [item.id]}
     manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
     assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
     add_turn(manager, 3, "new tail")
     resumed = compactor(bank, manager, [arc([2])]).compact(manager.read_curated())
     manager.apply_compaction_result(resumed.events, snapshot_latest_turn=3)
-    assert "Legacy task memory" in resumed.memory_document
+    assert "Published evidence" in resumed.memory_document
+    assert result.events[0].payload["task_arcs"][1] in resumed.events[0].payload["task_arcs"]
     assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
+
+
+def test_bank_toggle_preserves_arcs_and_only_archives_enabled_evictions(bank, manager):
+    add_turn(manager, 1, "tabs")
+    add_turn(manager, 2, "compaction")
+    first = compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+    manager.apply_compaction_result(first.events, snapshot_latest_turn=2)
+    first_arc = first.events[0].payload["task_arcs"][0]
+    record_id = bank.get()[0].id
+
+    add_turn(manager, 3, "more tabs")
+    disabled = Compactor(policy=CompactionPolicy(keep_last_turns=1, max_critic_loops=0,
+                                                compactor_model=compact_model([arc([2], title="Memory")])),
+                         session_manager=manager)
+    second = disabled.compact(manager.read_curated())
+    manager.apply_compaction_result(second.events, snapshot_latest_turn=3)
+    assert second.events[0].payload["task_arcs"][0] == first_arc
+    assert second.events[0].payload["trajectory_manifest"] == first.events[0].payload["trajectory_manifest"]
+    assert arc_ref(manager.session_id, first_arc["arc_id"]) in second.memory_document
+    assert len(bank.get()) == 1
+
+    add_turn(manager, 4, "tail")
+    raw = manager.read_dump()
+    third = compactor(bank, manager, [arc([3], id=first_arc["arc_id"])]).compact(manager.read_curated())
+    manager.apply_compaction_result(third.events, snapshot_latest_turn=4)
+    assert third.events[0].payload["task_arcs"][0]["turns"] == [1, 3]
+    assert third.events[0].payload["task_arcs"][1] == second.events[0].payload["task_arcs"][1]
+    assert {item.metadata["turn"] for item in bank.get()} == {1, 3}
+    assert BankRetrieval(bank, manager).retrieve(ref=record_ref(record_id))[1] == [record_id]
+    assert manager.read_dump() == raw
 
 
 def test_child_directory_archive_initializes_parent_chroma_workspace(tmp_path, manager):

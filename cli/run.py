@@ -339,7 +339,7 @@ class QuasipilotApp(App[None]):
             manager,
             Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump()),
                       trajectory_bank=bank if enabled else None,
-                      session_manager=manager if enabled else None),
+                      session_manager=manager),
             on_compaction_event=self._post_compaction_event,
             telemetry_store=TelemetryStore(telemetry_session_path(manager.session_id)),
         )
