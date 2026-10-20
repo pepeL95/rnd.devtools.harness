@@ -149,16 +149,18 @@ use first-person introspective prose as durable memory, favoring high-signal
 findings and concrete keywords without a fixed template or length quota.
 Reasoning-only batches restore normal tool choice; lower settings are unchanged.
 
-Session compaction writes a cumulative prose arc from prior memory and newly evicted
-conversation. It preserves tasks, concrete progress, constraints, findings, and next
+Session compaction extracts rich task episodes from newly evicted conversation, then
+writes a cumulative prose arc using those episodes, original evidence, and prior memory.
+It preserves tasks, concrete progress, constraints, findings, and next
 actions with source references, without a JSON schema, fixed headings, or turn assignments.
 A bounded fidelity review checks for lost context, not formatting. If review attempts
 run out, a warning is logged and the latest nonempty revision is used. The harness
 retains an evidence index independently of the prose; archival and stale-session checks remain.
-The separate segmentation stage and `CompactionPolicy.task_extractor_model` are removed.
+Extraction uses the compactor model (one additional call), without new configuration.
 
 Optional archival uses the nearest `.quasipilot/.trajectorybank` (cwd, then parents).
-Disabling it does not change compaction semantics. Archived turn trajectories remain available through
+Disabling it does not change compaction semantics. New archives store task episodes,
+not duplicate per-turn records; existing archives remain unchanged and available through
 exact references, the `trajectory_bank` tool, and conservative post-reasoning
 recall. Enabled CLI startup initializes or reopens the database; the local
 embedding model still downloads only on first embedding use.

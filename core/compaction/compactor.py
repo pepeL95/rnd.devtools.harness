@@ -7,9 +7,10 @@ from typing import Any, TYPE_CHECKING
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from core.compaction.episodes import split_task_episodes
 from core.compaction.models import CompactionResult, Critique
 from core.compaction.policy import CompactionPolicy
-from core.compaction.prompts import ARC_PROMPT, ARC_REVIEW_PROMPT
+from core.compaction.prompts import ARC_PROMPT, ARC_REVIEW_PROMPT, TASK_EPISODES_PROMPT
 from core.compaction.serialization import events_to_trajectory, memory_restore_message
 from core.compaction.token_counter import TokenCounter
 from core.compaction.window import split_compaction_window
@@ -69,16 +70,25 @@ class Compactor:
         prior_ids = {id for ids in manifest.values() for id in ids}
         if bank is not None and prior_ids and {record.id for record in bank.get(ids=sorted(prior_ids))} != prior_ids:
             raise ValueError("Previously archived trajectory references are missing; refusing to compact")
+        sources = {
+            "previous_session_arc": previous,
+            "trajectory": events_to_trajectory(new_events),
+        }
+        extraction = _invoke_text(
+            self.policy.compactor_model, TASK_EPISODES_PROMPT, json.dumps(sources, ensure_ascii=False),
+            token_counter=self.token_counter, usage=usage,
+        ).strip()
+        if not extraction:
+            raise ValueError("Task episodes are empty; keeping original session context")
+        episodes = split_task_episodes(extraction)
         records = []
-        turn_references = {}
         if bank is not None:
             from core.trajectory_bank.archival import prepare_trajectories
 
-            records = prepare_trajectories(manager, new_events, turns)
+            records = prepare_trajectories(manager, new_events, turns, episodes)
             for record in records:
                 group = record.metadata["arc_id"]
                 manifest[group] = list(dict.fromkeys([*manifest.get(group, []), record.id]))
-                turn_references[str(record.metadata["turn"])] = f"trajectory-record://{record.id}"
         references = []
         for group, ids in manifest.items():
             if manager:
@@ -88,11 +98,11 @@ class Compactor:
         if manager:
             references.append(f"Raw session: {manager.dump_path} (look up the cited turn numbers).")
         prompt = json.dumps({
-            "previous_session_arc": previous,
-            "trajectory": events_to_trajectory(new_events),
+            **sources,
+            "task_episodes": [{"content": episode, "reference": f"trajectory-record://{records[index].id}" if records else ""}
+                              for index, episode in enumerate(episodes)],
             "retained_tail_for_orientation_only": events_to_trajectory(window.retained),
             "evidence_references": references,
-            "turn_references": turn_references,
         }, ensure_ascii=False)
         memory = _invoke_text(self.policy.compactor_model, ARC_PROMPT, prompt,
                               token_counter=self.token_counter, usage=usage).strip()
@@ -135,7 +145,7 @@ class Compactor:
             "session_arc": memory, "trajectory_manifest": manifest,
             "compacted_event_count": len(window.compacted), "retained_event_count": len(window.retained),
         })
-        return CompactionResult(events=[memory_event, *window.retained], memory_document=document, segmentation="",
+        return CompactionResult(events=[memory_event, *window.retained], memory_document=document, segmentation=extraction,
                                 revisions=revisions, critiques=critiques, model_names=model_names, token_usage=usage.as_dict(),
                                 token_estimate_before=estimated, compacted_event_count=len(window.compacted),
                                 retained_event_count=len(window.retained))

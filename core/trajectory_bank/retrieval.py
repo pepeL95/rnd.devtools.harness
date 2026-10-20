@@ -53,7 +53,9 @@ class BankRetrieval:
                     records = [record for record in records if record.metadata["session_id"] == self.manager.session_id]
                 if not records:
                     raise ValueError("Trajectory reference not found in this scope; it may be missing or removed")
-                hits = [Hit(record) for record in sorted(records, key=lambda r: (r.metadata["turn"], r.id))]
+                hits = [Hit(record) for record in sorted(records, key=lambda r: (
+                    r.metadata["turn"], r.metadata.get("episode_index", 0), r.id,
+                ))]
             else:
                 where = {"session_id": self.manager.session_id} if scope == "session" else None
                 hits = self.bank.search(query, where=where, limit=40)
@@ -115,8 +117,10 @@ class BankRetrieval:
         for hit in hits[:maximum]:
             record = hit.record
             meta = record.metadata
+            source_label = (f"source batch turns {meta['source_turns']}" if "source_turns" in meta
+                            else f"turn {meta['turn']}")
             header = (f"{record_ref(record.id)} | {arc_ref(meta['session_id'], meta['arc_id'])}"
-                      f" | turn {meta['turn']} | {meta['started_at']}\n")
+                      f" | {source_label} | {meta['started_at']}\n")
             body = record.document[char_offset:]
 
             def render_record(end: int) -> str:

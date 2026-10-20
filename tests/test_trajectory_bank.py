@@ -22,7 +22,7 @@ from core.middleware.session_dump import SessionDumpMiddleware
 from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager, StaleCompactionError
-from core.trajectory_bank.evidence import content_hash, fingerprint, reasoning_chain, trajectory_document
+from core.trajectory_bank.evidence import content_hash, fingerprint
 from core.trajectory_bank.models import Hit, TrajectoryRecord, arc_ref, record_ref
 from core.trajectory_bank.policy import BankPolicy
 from core.trajectory_bank.retrieval import BankRetrieval
@@ -201,14 +201,68 @@ def add_turn(manager, turn, text):
     return events
 
 
-def compact_model(memory="Tabs require exact matching. Updated filesystem.py; tests passed."):
-    return FakeMessagesListChatModel(responses=[AIMessage(content=memory)])
+def compact_model(memory="Tabs require exact matching. Updated filesystem.py; tests passed.", *, episodes=None):
+    return FakeMessagesListChatModel(responses=[AIMessage(content=memory if episodes is None else episodes),
+                                               AIMessage(content=memory)])
 
 
-def compactor(bank, manager, memory="Tabs require exact matching. Updated filesystem.py; tests passed.", *, keep_last_turns=1):
-    model = compact_model(memory)
+def compactor(bank, manager, memory="Tabs require exact matching. Updated filesystem.py; tests passed.", *, keep_last_turns=1,
+              episodes=None):
+    model = compact_model(memory, episodes=episodes)
     return Compactor(policy=CompactionPolicy(keep_last_turns=keep_last_turns, compactor_model=model, max_critic_loops=0),
                      trajectory_bank=bank, session_manager=manager)
+
+
+def test_task_episodes_span_turns_and_support_exact_and_semantic_recall(bank, manager):
+    from core.compaction.compactor import _invoke_text
+
+    for turn, text in [(1, "tabs"), (3, "compaction"), (8, "tabs verified"), (9, "PRIVATE_TAIL")]:
+        add_turn(manager, turn, text)
+    episodes = ("## Exact tabs in parser.py\nThe user requested exact matching. Turns 1, 8 established "
+                "that normalization corrupts indentation; verification passed.\nKeywords: tabs, parser.py\n\n"
+                "## Session compaction\nTurn 3 established that prior evidence must survive. "
+                "Verification remains pending.\nKeywords: compaction, memory")
+    source = manager.read_curated()
+    with patch("core.compaction.compactor._invoke_text", wraps=_invoke_text) as invoke:
+        result = compactor(bank, manager, episodes=episodes).compact(source)
+    records = sorted(bank.get(), key=lambda item: item.metadata["episode_index"])
+    assert len(records) == 2  # Three turns, two tasks, one shared source batch.
+    assert result.segmentation == episodes
+    for item in records:
+        assert json.loads(item.metadata["source_turns"]) == [1, 3, 8]
+        assert json.loads(item.metadata["source_event_ids"]) == [event.id for event in source if event.turn != 9]
+        assert item.metadata["source_fingerprint"] == fingerprint([event for event in source if event.turn != 9])
+        assert item.metadata["source_kind"] == "task_episode"
+    extraction = json.loads(invoke.call_args_list[0].args[2])
+    assert "PRIVATE_TAIL" not in json.dumps(extraction)
+    synthesis = json.loads(invoke.call_args_list[1].args[2])
+    assert [entry["reference"] for entry in synthesis["task_episodes"]] == [record_ref(item.id) for item in records]
+    assert "PRIVATE_TAIL" in synthesis["retained_tail_for_orientation_only"]
+    with pytest.raises(ValueError, match="not published"):
+        BankRetrieval(bank, manager).retrieve(ref=record_ref(records[0].id))
+    manager.apply_compaction_result(result.events, snapshot_latest_turn=9)
+    retrieval = BankRetrieval(bank, manager)
+    for item, query in zip(records, ["tabs", "compaction"]):
+        text, ids = retrieval.retrieve(query=query, automatic=True)
+        assert ids == [item.id]
+        assert item.document in text
+        assert "source batch turns [1, 3, 8]" in text
+        assert retrieval.retrieve(ref=record_ref(item.id))[1] == [item.id]
+    assert retrieval.retrieve(ref=arc_ref(manager.session_id, records[0].metadata["arc_id"]))[1] == [item.id for item in records]
+    calls = bank.embedder.calls
+    bank.archive(records)
+    assert bank.embedder.calls == calls
+    assert manager.read_dump() == source
+
+
+def test_empty_extraction_never_archives_or_replaces_context(bank, manager):
+    add_turn(manager, 1, "tabs")
+    add_turn(manager, 2, "tail")
+    before = manager.read_curated()
+    with pytest.raises(ValueError, match="Task episodes are empty"):
+        compactor(bank, manager, episodes="  ").compact(before)
+    assert bank.get() == []
+    assert manager.read_curated() == before
 
 
 def test_compaction_archives_batches_and_preserves_references_on_repeated_compaction(bank, manager):
@@ -217,7 +271,7 @@ def test_compaction_archives_batches_and_preserves_references_on_repeated_compac
     result = compactor(bank, manager).compact(manager.read_curated())
     payload = result.events[0].payload
     assert len(payload["trajectory_manifest"]) == 1
-    assert len(bank.get()) == 3
+    assert len(bank.get()) == 1
     assert "trajectory://test-session/batch-" in result.memory_document
     assert [event.turn for event in result.events[1:]] == [4] * 4
     archived = bank.get()
@@ -228,7 +282,7 @@ def test_compaction_archives_batches_and_preserves_references_on_repeated_compac
     for group, ids in payload["trajectory_manifest"].items():
         assert updated.events[0].payload["trajectory_manifest"][group] == ids
         assert arc_ref(manager.session_id, group) in updated.memory_document
-    assert len(bank.get()) == 4
+    assert len(bank.get()) == 2
     assert all(item in bank.get() for item in archived)
 
 
@@ -259,7 +313,7 @@ def test_archive_is_restricted_to_eviction_window(bank, manager, keep_last_turns
     evicted = [turn for turn in turns if turn not in retained]
     result = compactor(bank, manager, keep_last_turns=keep_last_turns).compact(original)
     records = bank.get()
-    assert {item.metadata["turn"] for item in records} == set(evicted)
+    assert {turn for item in records for turn in json.loads(item.metadata["source_turns"])} == set(evicted)
     expected_tail = [event for event in original if event.turn in retained]
     assert [event for event in result.events if event.turn in retained] == expected_tail
     retained_ids = {event.id for event in expected_tail}
@@ -275,7 +329,7 @@ def test_archive_is_restricted_to_eviction_window(bank, manager, keep_last_turns
 
 
 @pytest.mark.parametrize("synthesized", [False, True])
-def test_archived_triplet_includes_corrections_and_final_response_without_noise(bank, manager, synthesized):
+def test_archived_episode_preserves_extraction_verbatim_without_appending_tool_logs(bank, manager, synthesized):
     body = "I found tab-sensitive matching in parser.py; exact replacement is required."
     events = [
         SessionEvent(type=EventType.USER, turn=1, payload={"content": "Fix parsing in parser.py"}),
@@ -291,35 +345,18 @@ def test_archived_triplet_includes_corrections_and_final_response_without_noise(
     ]
     manager.append(events)
     add_turn(manager, 2, "RETAINED_TURN")
-    with patch.object(bank.embedder, "embed_documents", wraps=bank.embedder.embed_documents) as embed:
-        compactor(bank, manager).compact(manager.read_curated())
-    item = bank.get()[0]
     expected = ("User:\nFix parsing in parser.py\n\nKeep tabs intact\n\nTrajectory:\n"
-                f"{body}\n\nAssistant:\nPatched parser.py; 12 tests passed.")
-    assert item.document.startswith(expected + "\n\nKeywords:")
+                f"{body}\n\nAssistant:\nPatched parser.py; 12 tests passed.\nKeywords: parser.py, tabs")
+    with patch.object(bank.embedder, "embed_documents", wraps=bank.embedder.embed_documents) as embed:
+        compactor(bank, manager, episodes=expected).compact(manager.read_curated())
+    item = bank.get()[0]
+    assert item.document == expected
     assert embed.call_args.args[0] == [item.document]
-    assert item.metadata["source_kind"] == ("trajectory_synthesis" if synthesized else "reasoning_chain")
+    assert item.metadata["source_kind"] == "task_episode"
     assert item.metadata["content_hash"] == content_hash(item.document)
     assert "parser.py" in json.loads(item.metadata["keywords"])
     for noise in ("INTERMEDIATE_COMMENTARY", "SYNTHETIC_HINT", "RAW_LOG_NOISE", "RETAINED_TURN"):
         assert noise not in item.document
-
-
-def test_triplet_uses_text_context_only_and_marks_missing_responses():
-    events = [
-        SessionEvent(type=EventType.USER, turn=1, payload={"content": [
-            {"type": "text", "text": "Inspect this failure"},
-            {"type": "image_url", "image_url": "BASE64_IMAGE"},
-        ]}),
-        SessionEvent(type=EventType.ASSISTANT, turn=1, payload={
-            "kind": "harness_context", "content": "Not a user-facing response",
-        }),
-    ]
-    assert trajectory_document(events, "I suspect tabs.") == (
-        "User:\nInspect this failure\n\nTrajectory:\nI suspect tabs.\n\n"
-        "Assistant:\n(No assistant response recorded.)"
-    )
-    assert "(No user text recorded.)" in trajectory_document([], "I suspect tabs.")
 
 
 @pytest.mark.parametrize("memory", [
@@ -332,7 +369,7 @@ def test_prose_needs_no_turn_assignments_to_archive_evicted_evidence(bank, manag
     add_turn(manager, 2, "tail")
     result = compactor(bank, manager, memory).compact(manager.read_curated())
     assert result.events[0].payload["session_arc"] == memory
-    assert result.token_usage["call_count"] == 1
+    assert result.token_usage["call_count"] == 2
     assert {item.metadata["turn"] for item in bank.get()} == {1}
 
 
@@ -528,31 +565,31 @@ def test_references_are_available_to_synthesis_and_survive_model_omission(bank, 
         result = compactor(bank, manager, "Keep exact matching.").compact(manager.read_curated())
     prompt = json.loads(invoke.call_args.args[2])
     item = bank.get()[0]
-    assert prompt["turn_references"] == {"1": record_ref(item.id)}
+    assert prompt["task_episodes"] == [{"content": item.document, "reference": record_ref(item.id)}]
     assert arc_ref(manager.session_id, item.metadata["arc_id"]) in result.memory_document
     assert str(manager.dump_path) in result.memory_document
     assert "task_arcs" not in result.events[0].payload
-    assert result.token_usage["call_count"] == 1
+    assert result.token_usage["call_count"] == 2
 
 
-def test_reasoning_fallback_and_empty_scope_avoid_embedding(bank, manager):
+def test_task_episode_and_empty_search_scope_avoid_unnecessary_embedding(bank, manager):
     manager.append([SessionEvent(type=EventType.USER, turn=1, payload={"content": "tabs exact evidence"}),
                     SessionEvent(type=EventType.TOOL, turn=1, payload={"name": "reasoning", "args": {
                         "reasoning": "I confirmed tabs must match exactly; I will retain exact matching."}}),
                     SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"content": "Checked source"})])
     add_turn(manager, 2, "tail")
-    compactor(bank, manager).compact(manager.read_curated())
+    compactor(bank, manager, episodes="I confirmed tabs must match exactly. Checked source.").compact(manager.read_curated())
     item = bank.get()[0]
-    assert item.metadata["source_kind"] == "reasoning_chain"
+    assert item.metadata["source_kind"] == "task_episode"
     assert "I confirmed tabs must match exactly" in item.document
-    assert "User:\ntabs exact evidence" in item.document and "Assistant:\nChecked source" in item.document
+    assert "Checked source" in item.document
     calls = bank.embedder.calls
     assert bank.search("tabs", where={"session_id": "empty-session"}, limit=2) == []
     assert bank.embedder.calls == calls
 
 
 @pytest.mark.parametrize("native,checkpoint", [(True, True), (True, False), (False, True)])
-def test_unsynthesized_archive_embeds_reasoning_with_context_not_tool_logs(bank, manager, native, checkpoint):
+def test_unsynthesized_source_archives_only_extracted_episode(bank, manager, native, checkpoint):
     messages = [HumanMessage(content="USER_CONTEXT_SENTINEL")]
     if native:
         messages.append(AIMessage(content=[{"type": "thinking", "thinking": "I found tabs in parser.py.",
@@ -587,8 +624,13 @@ def test_unsynthesized_archive_embeds_reasoning_with_context_not_tool_logs(bank,
     manager.append(events)
     add_turn(manager, 2, "tail")
     dump = manager.read_dump()
+    episode = "USER_CONTEXT_SENTINEL\nFINAL_REPLY_SENTINEL\n"
+    if native:
+        episode += "I found tabs in parser.py.\n"
+    if checkpoint:
+        episode += "I should preserve exact tabs matching; the parser tests passed.\n"
     with patch.object(bank.embedder, "embed_documents", wraps=bank.embedder.embed_documents) as embed:
-        result = compactor(bank, manager).compact(manager.read_curated())
+        result = compactor(bank, manager, episodes=episode).compact(manager.read_curated())
     item = bank.get()[0]
     embedded = embed.call_args.args[0]
     assert embedded == [item.document]
@@ -600,7 +642,7 @@ def test_unsynthesized_archive_embeds_reasoning_with_context_not_tool_logs(bank,
     assert len(item.document) < 1000
     assert ("I found tabs in parser.py." in item.document) == native
     assert ("I should preserve exact tabs matching" in item.document) == checkpoint
-    assert item.metadata["source_kind"] == "reasoning_chain"
+    assert item.metadata["source_kind"] == "task_episode"
     assert json.loads(item.metadata["source_event_ids"]) == [event.id for event in events]
     assert item.metadata["source_fingerprint"] == fingerprint(events)
     assert item.metadata["content_hash"] == content_hash(item.document)
@@ -610,7 +652,7 @@ def test_unsynthesized_archive_embeds_reasoning_with_context_not_tool_logs(bank,
     assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
 
 
-def test_no_reasoning_skips_vector_record_but_preserves_session_arc(bank, manager):
+def test_no_reasoning_still_archives_extracted_task_context(bank, manager):
     manager.append([
         SessionEvent(type=EventType.USER, turn=1, payload={"content": "Inspect tabs"}),
         SessionEvent(type=EventType.TOOL_OUTPUT, turn=1, payload={"content": "NOISY_OUTPUT " * 1000}),
@@ -621,26 +663,12 @@ def test_no_reasoning_skips_vector_record_but_preserves_session_arc(bank, manage
     add_turn(manager, 2, "tail")
     original = manager.read_dump()
     result = compactor(bank, manager).compact(manager.read_curated())
-    assert bank.get() == []
-    assert bank.embedder.calls == 0
+    assert len(bank.get()) == 1
+    assert "NOISY_OUTPUT" not in bank.get()[0].document
     assert "Tabs require exact matching" in result.events[0].payload["session_arc"]
-    assert result.events[0].payload["trajectory_manifest"] == {}
-    assert "trajectory://" not in result.memory_document
+    assert result.events[0].payload["trajectory_manifest"]
+    assert "trajectory://" in result.memory_document
     assert manager.read_dump() == original
-
-
-def test_reasoning_chain_extracts_supported_native_formats_and_ignores_invalid_payloads(manager):
-    messages = [
-        AIMessage(content=[{"type": "reasoning", "reasoning": "First finding"}]),
-        AIMessage(content="", additional_kwargs={"reasoning_content": "Second finding"}),
-    ]
-    events = manager.events_from_messages(messages, turn=1)
-    events.extend([
-        SessionEvent(type=EventType.TOOL, turn=1, payload={"name": "reasoning", "args": "malformed"}),
-        SessionEvent(type=EventType.TOOL, turn=1, payload={"name": "reasoning", "args": {"reasoning": 42}}),
-        SessionEvent(type=EventType.REASONING, turn=1, payload={"content": "Hint", "kind": "harness_context"}),
-    ])
-    assert reasoning_chain(events) == "First finding\n\nSecond finding"
 
 
 def test_legacy_pending_rewrite_is_discarded(manager, tmp_path):
@@ -670,7 +698,7 @@ def test_fidelity_review_uses_latest_revision(bank, manager, caplog, approved, l
     source = manager.read_curated()
     incorrect = "Rereading is inefficient"
     corrected = "Reread AGENTS.md each turn; do not cache stale instructions"
-    synthesis = FakeMessagesListChatModel(responses=[compact_model(incorrect).responses[0]]
+    synthesis = FakeMessagesListChatModel(responses=[AIMessage(content=corrected), compact_model(incorrect).responses[0]]
                                           + [compact_model(corrected).responses[0]] * loops)
     final_review = "APPROVE" if approved else "Still missing source constraints"
     critic = FakeMessagesListChatModel(responses=[
@@ -682,7 +710,7 @@ def test_fidelity_review_uses_latest_revision(bank, manager, caplog, approved, l
     result = engine.compact(source)
     assert "Reread AGENTS.md each turn" in result.memory_document
     assert "inefficient" not in result.memory_document
-    assert result.revisions == loops and result.token_usage["call_count"] == 2 * (loops + 1)
+    assert result.revisions == loops and result.token_usage["call_count"] == 2 * (loops + 1) + 1
     assert len(result.critiques) == loops + 1
     assert result.critiques[-1].approved is approved
     warnings = [record.message for record in caplog.records if record.levelno == logging.WARNING]
@@ -706,7 +734,7 @@ def test_fidelity_review_skip_early_approval_and_strict_rejection(bank, manager,
     engine.policy = replace(engine.policy, max_critic_loops=loops, critic_model=critic)
     result = engine.compact(manager.read_curated())
     assert bool(caplog.records) == bool(loops and review != "APPROVE")
-    assert result.token_usage["call_count"] == (1 if not loops else 2 if review == "APPROVE" else 4)
+    assert result.token_usage["call_count"] == (2 if not loops else 3 if review == "APPROVE" else 5)
     assert result.revisions == (1 if loops and review != "APPROVE" else 0)
     if result.critiques:
         assert result.critiques[-1].approved is (review == "APPROVE")
@@ -732,7 +760,7 @@ def test_empty_initial_draft_never_archives_or_rewrites(bank, manager):
     add_turn(manager, 2, "tail")
     before = manager.read_curated()
     with pytest.raises(ValueError, match="Session arc is empty"):
-        compactor(bank, manager, "").compact(before)
+        compactor(bank, manager, "", episodes="Task evidence").compact(before)
     assert bank.get() == []
     assert manager.read_curated() == before
 

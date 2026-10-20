@@ -89,8 +89,9 @@ def _scan(bank: Path, sessions: Path):
         events = [sources[session][key] for key in ids if key in sources[session]]
         if len(events) != len(ids) or fingerprint(events) != meta.get("source_fingerprint"):
             issues.append(f"{id}: raw source evidence missing or changed")
-        if any(event.turn != meta["turn"] for event in events):
-            issues.append(f"{id}: raw evidence belongs to a different turn")
+        source_turns = json.loads(meta["source_turns"]) if "source_turns" in meta else [meta["turn"]]
+        if {event.turn for event in events} != set(source_turns):
+            issues.append(f"{id}: raw evidence belongs to different source turns")
         if meta.get("source_path") and Path(meta["source_path"]).expanduser().resolve() != sessions / "dump" / f"{session}.jsonl":
             issues.append(f"{id}: source_path differs from the supplied sessions root")
         if referenced.get(id, set()) - {(session, arc)}:

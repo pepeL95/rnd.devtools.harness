@@ -10,6 +10,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from core.compaction.compactor import Compactor
+from core.compaction.episodes import split_task_episodes
 from core.compaction.coordinator import CompactionCoordinator
 from core.compaction.policy import CompactionPolicy
 from core.compaction.serialization import memory_restore_message
@@ -58,6 +59,7 @@ def scripted_session_policy(*, trigger_tokens: int = 1, keep_last_turns: int = 1
     model = ScriptedModel(
         [
             COMPLETE_MEMORY,
+            COMPLETE_MEMORY,
             "APPROVE",
         ]
     )
@@ -94,6 +96,14 @@ def dated_event(turn: int, when: datetime, content: str = "x") -> SessionEvent:
 
 
 class CompactionTests(TestCase):
+    def test_episode_boundaries_are_optional_and_ignore_fenced_headings(self) -> None:
+        prose = "Tasks overlap turns 1 and 3. Preserve exact matching."
+        self.assertEqual(split_task_episodes(prose), [prose])
+        first = "Preamble\n## Matching\nTurn 1, 3.\n### Findings\n```md\n## Not a task\n```"
+        second = "## Cancellation\nTurn 3.\n~~~md\n## Also not a task\n~~~"
+        self.assertEqual(split_task_episodes(first + "\n\n" + second), [first, second])
+        self.assertEqual(split_task_episodes(" \n"), [])
+
     def _wait_until_idle(self, coordinator: CompactionCoordinator, timeout_seconds: float = 2.0) -> None:
         deadline = datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)
         while coordinator.is_running() and datetime.now(timezone.utc) < deadline:
@@ -145,6 +155,7 @@ class CompactionTests(TestCase):
         model = ScriptedModel(
             [
                 COMPLETE_MEMORY,
+                COMPLETE_MEMORY,
                 "APPROVE",
             ]
         )
@@ -170,6 +181,7 @@ class CompactionTests(TestCase):
     def test_compactor_runs_revision_loop_until_approved(self) -> None:
         model = ScriptedModel(
             [
+                COMPLETE_MEMORY,
                 COMPLETE_MEMORY,
                 "Preserve the concrete edit diagnostics.",
                 "Revised findings preserve exact edit diagnostics.",
@@ -198,18 +210,19 @@ class CompactionTests(TestCase):
         self.assertEqual(len(result.critiques), 2)
 
     def test_compactor_accepts_unstructured_prose_without_repairs(self) -> None:
-        model = ScriptedModel([COMPLETE_MEMORY, "APPROVE"])
+        model = ScriptedModel([COMPLETE_MEMORY, COMPLETE_MEMORY, "APPROVE"])
         result = Compactor(policy=CompactionPolicy(
             keep_last_turns=1, compactor_model=model, critic_model=model,
         )).compact([event(1, EventType.USER, "original task"), event(2, EventType.USER, "latest")])
         self.assertEqual(result.memory_document, COMPLETE_MEMORY)
         self.assertEqual(result.revisions, 0)
-        self.assertEqual(len(model.calls), 2)
+        self.assertEqual(len(model.calls), 3)
+        self.assertEqual(result.segmentation, COMPLETE_MEMORY)
         self.assertNotIn("schema", json.loads(model.calls[0][1]))
         self.assertNotIn("task_arcs", result.events[0].payload)
 
     def test_empty_initial_arc_does_not_replace_context(self) -> None:
-        model = ScriptedModel(["  "])
+        model = ScriptedModel([COMPLETE_MEMORY, "  "])
         compactor = Compactor(policy=CompactionPolicy(
             keep_last_turns=1, compactor_model=model, max_critic_loops=0,
         ))
@@ -217,22 +230,22 @@ class CompactionTests(TestCase):
             compactor.compact([event(1, EventType.USER, "Keep this"), event(2, EventType.USER, "Tail")])
 
     def test_compactor_uses_only_synthesis_and_review_models(self) -> None:
-        compactor_model = ScriptedModel([COMPLETE_MEMORY])
+        compactor_model = ScriptedModel([COMPLETE_MEMORY, COMPLETE_MEMORY])
         critic_model = ScriptedModel(["APPROVE"])
         compactor = Compactor(policy=CompactionPolicy(
             keep_last_turns=1, compactor_model=compactor_model, critic_model=critic_model,
         ))
         result = compactor.compact([event(1, EventType.USER, "original task"), event(2, EventType.USER, "latest")])
         self.assertEqual(result.revisions, 0)
-        self.assertEqual(len(compactor_model.calls), 1)
+        self.assertEqual(len(compactor_model.calls), 2)
         self.assertEqual(len(critic_model.calls), 1)
-        self.assertEqual(result.token_usage["call_count"], 2)
+        self.assertEqual(result.token_usage["call_count"], 3)
         self.assertEqual(set(result.model_names), {"compactor", "critic"})
 
     def test_repeated_compaction_supplies_prior_progress_to_synthesis_and_review(self) -> None:
         first_arc = COMPLETE_MEMORY + "\nCancellation resumes the same turn; live steering remains untested."
         corrected = first_arc + "\nConfiguration is workspace-local (turn 3)."
-        model = ScriptedModel([first_arc, "APPROVE", "Only configuration remains.",
+        model = ScriptedModel([COMPLETE_MEMORY, first_arc, "APPROVE", "Configuration task (turn 3).", "Only configuration remains.",
                                "Restore the completed editing task and the cancellation constraint.",
                                corrected, "APPROVE"])
         compactor = Compactor(policy=CompactionPolicy(
@@ -242,9 +255,14 @@ class CompactionTests(TestCase):
         with patch.dict(sys.modules, {"core.trajectory_bank.archival": None, "chromadb": None}):
             first = compactor.compact(events)
             second = compactor.compact([*first.events, event(4, EventType.USER, "Resume cancellation")])
-        prompt = json.loads(model.calls[2][1])
+        extraction_source = json.loads(model.calls[3][1])
+        self.assertNotIn("retained_tail_for_orientation_only", extraction_source)
+        self.assertNotIn("Resume cancellation", extraction_source["trajectory"])
+        prompt = json.loads(model.calls[4][1])
         self.assertEqual(prompt["previous_session_arc"], [first_arc])
-        review_source = json.loads(model.calls[3][1].split("\nProposed session arc:", 1)[0])
+        review_source = json.loads(model.calls[5][1].split("\nProposed session arc:", 1)[0])
+        self.assertEqual(review_source["task_episodes"], prompt["task_episodes"])
+        self.assertIn("Configuration task", prompt["task_episodes"][0]["content"])
         self.assertEqual(review_source["previous_session_arc"], [first_arc])
         self.assertIn("Resume cancellation", prompt["retained_tail_for_orientation_only"])
         self.assertEqual(second.memory_document, corrected)
@@ -337,6 +355,7 @@ class CompactionTests(TestCase):
             model = ScriptedModel(
                 [
                     COMPLETE_MEMORY,
+                    COMPLETE_MEMORY,
                     "APPROVE",
                 ]
             )
@@ -421,6 +440,7 @@ class CompactionTests(TestCase):
             blocking_model = BlockingModel(
                 [
                     COMPLETE_MEMORY,
+                    COMPLETE_MEMORY,
                     "APPROVE",
                 ],
                 started=started,
@@ -496,6 +516,7 @@ class CompactionTests(TestCase):
             release = Event()
             blocking_model = BlockingModel(
                 [
+                    COMPLETE_MEMORY,
                     COMPLETE_MEMORY,
                     "APPROVE",
                 ],

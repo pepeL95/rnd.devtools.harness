@@ -12,18 +12,23 @@ migrating a different version. The guard rejects unsupported collection schemas.
 - Collection metadata: `schema_version = 1`, `embedding_identity`. Do not relabel
   old vectors with a new identity. Use `core.trajectory_bank.defaults` for both
   the LangChain embedding factory and its identity.
-- Documents: normally `User -> Trajectory -> Assistant`, then keywords. Older
-  banks may contain different bodies. Re-indexing preserves documents verbatim;
+- Documents: new records contain rich Markdown task episodes; older records may
+  contain `User -> Trajectory -> Assistant` triplets or different bodies.
+  Re-indexing preserves documents verbatim;
   upgrading their construction is a separate migration.
 - Record metadata: `session_id`, `arc_id`, `turn`, timestamps, `source_kind`,
   `source_event_ids` (JSON string), `source_path`, `source_fingerprint`,
   `content_hash`, `keywords` (JSON string). Preserve additional metadata.
-- Record IDs include session, arc, turn, and source/content hash fragments.
+- Task episodes add `source_kind = "task_episode"`, `episode_index`, and
+  `source_turns` (JSON list). Their provenance covers the entire evicted batch,
+  not an exact per-task partition; `turn` is the batch's first turn. Timestamps
+  also describe the batch. Task-specific turn citations remain in document prose.
+- Record IDs include session, arc, turn or episode index, and source/content hash fragments.
   Treat IDs and historical documents as immutable during ordinary maintenance.
 
 ## Arcs and Publication
 
-Chroma contains turn documents grouped by `arc_id`. New groups identify compaction
+Chroma contains task episodes and legacy turn documents grouped by `arc_id`. New groups identify compaction
 batches (`batch-...`), not model-inferred tasks. Historical task groups remain valid.
 Session `curated/<session>.jsonl` memory-restore events contain prose `session_arc`
 and `trajectory_manifest` mapping group IDs to record IDs. Older sessions may also

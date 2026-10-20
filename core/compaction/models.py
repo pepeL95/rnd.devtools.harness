@@ -27,7 +27,7 @@ class Critique:
 class CompactionResult:
     events: list[SessionEvent]
     memory_document: str
-    segmentation: str  # Unused; retained for compatibility with older evaluation tooling.
+    segmentation: str  # Extracted task episodes; historical field name retained for callers.
     critiques: list[Critique] = field(default_factory=list)
     model_names: dict[str, str] = field(default_factory=dict)
     token_usage: dict[str, int] = field(default_factory=dict)

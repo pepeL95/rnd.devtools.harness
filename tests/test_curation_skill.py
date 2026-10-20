@@ -76,17 +76,19 @@ def test_audit_accepts_prose_session_with_batch_references(tmp_path):
         SessionEvent(type=EventType.USER, turn=1, payload={"content": "Keep tabs"}),
         SessionEvent(type=EventType.REASONING, turn=1, payload={"content": "I confirmed exact matching preserves tabs."}),
         SessionEvent(type=EventType.USER, turn=2, payload={"content": "Continue"}),
+        SessionEvent(type=EventType.USER, turn=3, payload={"content": "Tail"}),
     ])
     bank = TrajectoryBank(tmp_path / "workspace", embedder=EmbeddingModel(), embedding_identity="test-original")
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, max_critic_loops=0,
         compactor_model=FakeMessagesListChatModel(responses=[AIMessage(content="Preserve exact tabs (turn 1).") ])),
         trajectory_bank=bank, session_manager=manager)
     result = engine.compact(manager.read_curated())
-    manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
+    manager.apply_compaction_result(result.events, snapshot_latest_turn=3)
     report = guard.inspect_bank(bank.root, manager.root)
     assert not report["issues"]
     assert report["records"][0]["published"]
     assert "task_arcs" not in result.events[0].payload
+    assert json.loads(bank.get()[0].metadata["source_turns"]) == [1, 2]
 
 
 def test_audit_never_creates_missing_bank_or_session(archive, tmp_path):
