@@ -25,7 +25,7 @@ DOCUMENTS = {
     "hooks": "Parallel tool hooks deduplicate steering by hook ID while retaining every originating tool_call_id. "
              "Current before.tool steering is delivered after the tool result, not as a pre-execution intercept.",
     "archive": "At session compaction archive original turn syntheses in the local Chroma trajectory bank. Group records "
-               "under stable task arc IDs, preserve exact references, and publish the session rewrite only after archive verification.",
+               "by compaction batch, preserve exact references, and publish the session rewrite only after archive verification.",
 }
 
 # Includes close-topic negatives; an empty label set means abstain, not nearest-neighbor guessing.
@@ -39,7 +39,7 @@ QUERIES = [
     ("instructions", "SYSTEM.md and cwd AGENTS.md are reread each turn. Store only the latest system instructions in both raw and curated sessions."),
     ("instructions", "I should preserve current agent instructions through compaction without a revision log."),
     ("hooks", "Parallel tool hooks deduplicate steering by hook ID while retaining every originating tool_call_id."),
-    ("archive", "At session compaction archive original turn syntheses in the local Chroma trajectory bank under stable task arc IDs."),
+    ("archive", "At session compaction archive original turn syntheses in the local Chroma trajectory bank by compaction batch."),
     (None, "I need to adjust CSS tab spacing in the browser navigation bar."),
     (None, "I should cancel a PostgreSQL query that has been running too long."),
     (None, "I need to tune Chroma HNSW index ef_search for a million product catalog embeddings."),
@@ -121,7 +121,7 @@ def live_compaction(run_dir: Path) -> dict:
     write_jsonl(run_dir / "source.jsonl", source)
     write_jsonl(run_dir / "rewritten.jsonl", result.events)
     (run_dir / "memory.md").write_text(result.memory_document, encoding="utf-8")
-    return {"records": len(records), "arcs": len(result.events[0].payload["task_arcs"]),
+    return {"records": len(records), "groups": len(result.events[0].payload["trajectory_manifest"]),
             "model_names": result.model_names, "token_usage": result.token_usage, "revisions": result.revisions}
 
 

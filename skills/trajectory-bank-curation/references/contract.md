@@ -23,10 +23,12 @@ migrating a different version. The guard rejects unsupported collection schemas.
 
 ## Arcs and Publication
 
-Chroma contains turn documents with arc IDs, not the authoritative task map.
-Session `curated/<session>.jsonl` memory-restore events contain `task_arcs` and
-`trajectory_manifest` mapping arc IDs to record IDs. Their rendered content also
-contains evidence references. Raw sources are in `dump/<session>.jsonl`.
+Chroma contains turn documents grouped by `arc_id`. New groups identify compaction
+batches (`batch-...`), not model-inferred tasks. Historical task groups remain valid.
+Session `curated/<session>.jsonl` memory-restore events contain prose `session_arc`
+and `trajectory_manifest` mapping group IDs to record IDs. Older sessions may also
+contain structured `task_arcs`; the guard checks those only when present. Rendered
+memory contains evidence references. Raw sources are in `dump/<session>.jsonl`.
 
 Retrieval requires publication plus matching raw source IDs/fingerprint. The
 fingerprint excludes pinned SYSTEM.md/AGENTS.md instructions. It does not prove

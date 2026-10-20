@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
-from hashlib import sha256
 from typing import Any, TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from core.compaction.models import ArcUpdate, CompactionResult, Critique, TaskArc
+from core.compaction.models import CompactionResult, Critique
 from core.compaction.policy import CompactionPolicy
 from core.compaction.prompts import ARC_PROMPT, ARC_REVIEW_PROMPT
-from core.compaction.serialization import events_to_trajectory, memory_restore_message, render_arc_memory
+from core.compaction.serialization import events_to_trajectory, memory_restore_message
 from core.compaction.token_counter import TokenCounter
 from core.compaction.window import split_compaction_window
 from core.session.events import EventType, SessionEvent
@@ -23,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class Compactor:
-    """Maintain cumulative task arcs, optionally archiving evicted trajectory evidence."""
+    """Synthesize a cumulative session arc, optionally archiving evicted evidence."""
 
     def __init__(
         self,
@@ -46,135 +45,100 @@ class Compactor:
         events: list[SessionEvent],
         token_estimate: int | None = None,
     ) -> CompactionResult:
-        bank = self.trajectory_bank
-        manager = self.session_manager
         window = split_compaction_window(events, self.policy.keep_last_turns)
         usage = _TokenUsage()
-        previous: dict[str, TaskArc] = {}
+        previous = []
         manifest: dict[str, list[str]] = {}
         new_events = []
-        prior_context = []
         for event in window.compacted:
             if event.payload.get("kind") == "memory_restore":
-                prior_context.append(
-                    {key: event.payload[key] for key in ("narrative", "current_state")}
-                    if "narrative" in event.payload and "current_state" in event.payload
-                    else str(event.payload.get("content", ""))
-                )
-                for item in event.payload.get("task_arcs", []):
-                    arc = TaskArc.model_validate(item)
-                    previous[arc.arc_id] = arc
-                manifest.update(event.payload.get("trajectory_manifest", {}))
-                if not event.payload.get("task_arcs"):
-                    # Preserve legacy memory verbatim rather than manufacture missing source references.
-                    id = "legacy-" + sha256(str(event.payload.get("content", "")).encode()).hexdigest()[:16]
-                    previous[id] = TaskArc(arc_id=id, title="Prior session memory", status="active",
-                                          intent="Preserve pre-bank task history", implementation="Legacy compacted context",
-                                          findings=str(event.payload.get("content", "")), constraints="See preserved memory",
-                                          validation="No bank references available for this legacy summary", remaining="See preserved memory")
+                previous.append(event.payload.get("session_arc", event.payload.get("content", "")))
+                for group, ids in event.payload.get("trajectory_manifest", {}).items():
+                    manifest[group] = list(dict.fromkeys([*manifest.get(group, []), *ids]))
             else:
                 new_events.append(event)
         meaningful = {EventType.USER, EventType.ASSISTANT, EventType.REASONING, EventType.TOOL, EventType.TOOL_OUTPUT}
         turns = sorted({event.turn for event in new_events if event.type in meaningful})
+        estimated = token_estimate if token_estimate is not None else self.token_counter.count_events(events)
         if not turns:
             return CompactionResult(events=list(events), memory_document="", segmentation="",
                                     retained_event_count=len(events), token_usage=usage.as_dict(),
-                                    token_estimate_before=token_estimate if token_estimate is not None
-                                    else self.token_counter.count_events(events))
+                                    token_estimate_before=estimated)
+
+        bank, manager = self.trajectory_bank, self.session_manager
         prior_ids = {id for ids in manifest.values() for id in ids}
         if bank is not None and prior_ids and {record.id for record in bank.get(ids=sorted(prior_ids))} != prior_ids:
             raise ValueError("Previously archived trajectory references are missing; refusing to compact")
+        records = []
+        turn_references = {}
+        if bank is not None:
+            from core.trajectory_bank.archival import prepare_trajectories
 
-        schema = ArcUpdate.model_json_schema()
-        schema["$defs"]["TaskArc"]["properties"]["arc_id"]["enum"] = ["", *previous]
+            records = prepare_trajectories(manager, new_events, turns)
+            for record in records:
+                group = record.metadata["arc_id"]
+                manifest[group] = list(dict.fromkeys([*manifest.get(group, []), record.id]))
+                turn_references[str(record.metadata["turn"])] = f"trajectory-record://{record.id}"
+        references = []
+        for group, ids in manifest.items():
+            if manager:
+                references.append(f"trajectory://{manager.session_id}/{group} ({len(ids)} trajectories)")
+            else:
+                references.extend(f"trajectory-record://{id}" for id in ids)
+        if manager:
+            references.append(f"Raw session: {manager.dump_path} (look up the cited turn numbers).")
         prompt = json.dumps({
-            "schema": schema, "existing_arcs": [arc.model_dump() for arc in previous.values()],
-            "previous_session_context": prior_context,
-            "new_turns": turns, "trajectory": events_to_trajectory(new_events),
+            "previous_session_arc": previous,
+            "trajectory": events_to_trajectory(new_events),
             "retained_tail_for_orientation_only": events_to_trajectory(window.retained),
+            "evidence_references": references,
+            "turn_references": turn_references,
         }, ensure_ascii=False)
-        update, raw, revisions = _synthesize_update(self, prompt, turns, previous, usage)
+        memory = _invoke_text(self.policy.compactor_model, ARC_PROMPT, prompt,
+                              token_counter=self.token_counter, usage=usage).strip()
+        if not memory:
+            raise ValueError("Session arc is empty; keeping original session context")
         critiques = []
+        revisions = 0
         model_names = {"compactor": get_model_name(self.policy.compactor_model)}
         if self.policy.max_critic_loops:
             model_names["critic"] = get_model_name(self.policy.critic_model)
             for review_index in range(self.policy.max_critic_loops + 1):
                 review = _invoke_text(self.policy.critic_model, ARC_REVIEW_PROMPT,
-                                      prompt + "\nProposed update:\n" + update.model_dump_json(),
+                                      prompt + "\nProposed session arc:\n" + memory,
                                       token_counter=self.token_counter, usage=usage).strip()
-                approved = review == "APPROVE"
                 critiques.append(Critique(review))
-                if approved:
+                if critiques[-1].approved:
                     break
                 if review_index == self.policy.max_critic_loops:
-                    logging.getLogger(__name__).warning("Task arc review budget exhausted; using the latest revision.")
+                    logging.getLogger(__name__).warning("Session arc review budget exhausted; using the latest revision.")
                     break
-                update, raw, repairs = _synthesize_update(
-                    self, prompt + "\nPrevious update:\n" + update.model_dump_json()
-                    + "\nRequired fidelity corrections:\n" + review, turns, previous, usage,
-                )
-                revisions += 1 + repairs
+                revised = _invoke_text(
+                    self.policy.compactor_model, ARC_PROMPT,
+                    prompt + "\nPrevious draft:\n" + memory + "\nFidelity corrections:\n" + review,
+                    token_counter=self.token_counter, usage=usage,
+                ).strip()
+                revisions += 1
+                if not revised:
+                    logging.getLogger(__name__).warning("Session arc revision was empty; using the last nonempty draft.")
+                    break
+                memory = revised
 
-        all_arcs = dict(previous)
-        updated_arcs = []
-        for arc in update.arcs:
-            source_id = next((event.id for event in new_events if event.turn in arc.turns), "")
-            id = arc.arc_id or "arc-" + sha256(source_id.encode()).hexdigest()[:20]
-            prior = previous.get(id)
-            grounded = events_to_trajectory([event for event in new_events if event.turn in arc.turns]).lower()
-            keywords = list(dict.fromkeys(word for word in arc.keywords if word.strip() and word.lower() in grounded))
-            arc = arc.model_copy(update={"arc_id": id, "turns": sorted(set(arc.turns + (prior.turns if prior else []))),
-                                          "keywords": list(dict.fromkeys((prior.keywords if prior else []) + keywords))[:12]})
-            all_arcs[id] = arc
-            updated_arcs.append(arc)
-
+        # References and publication are harness-owned, independent of the model's prose.
         if bank is not None:
-            from core.trajectory_bank.archival import archive_trajectories
-
-            archive_trajectories(bank, manager, updated_arcs, new_events, turns, manifest)
-        memory = render_arc_memory(update.narrative, update.current_state, list(all_arcs.values()),
-                                   manager.session_id if manager else "", manifest)
+            bank.archive(records)
+        document = memory
+        if references:
+            document += "\n\nEvidence references:\n" + "\n".join(references)
         memory_event = SessionEvent(type=EventType.USER, turn=window.compacted[0].turn, payload={
-            "role": "user", "kind": "memory_restore", "content": memory_restore_message(memory),
-            "task_arcs": [arc.model_dump() for arc in all_arcs.values()], "trajectory_manifest": manifest,
-            "narrative": update.narrative, "current_state": update.current_state,
+            "role": "user", "kind": "memory_restore", "content": memory_restore_message(document),
+            "session_arc": memory, "trajectory_manifest": manifest,
             "compacted_event_count": len(window.compacted), "retained_event_count": len(window.retained),
         })
-        return CompactionResult(events=[memory_event, *window.retained], memory_document=memory, segmentation=raw,
+        return CompactionResult(events=[memory_event, *window.retained], memory_document=document, segmentation="",
                                 revisions=revisions, critiques=critiques, model_names=model_names, token_usage=usage.as_dict(),
-                                token_estimate_before=token_estimate if token_estimate is not None
-                                else self.token_counter.count_events(events),
-                                compacted_event_count=len(window.compacted), retained_event_count=len(window.retained))
-
-
-def _synthesize_update(
-    compactor: Compactor, prompt: str, turns: list[int], previous: dict[str, TaskArc], usage: _TokenUsage,
-) -> tuple[ArcUpdate, str, int]:
-    error = ""
-    for attempt in range(2):
-        raw = _invoke_text(compactor.policy.compactor_model, ARC_PROMPT, prompt + error,
-                           token_counter=compactor.token_counter, usage=usage)
-        try:
-            update = ArcUpdate.model_validate_json(raw)
-            assigned = [turn for arc in update.arcs for turn in arc.turns]
-            if sorted(assigned) != turns:
-                raise ValueError("Every new turn must be assigned exactly once; no tail or invented turns allowed")
-            ids = [arc.arc_id for arc in update.arcs if arc.arc_id]
-            if len(ids) != len(set(ids)):
-                raise ValueError("Existing arc IDs must be unique")
-            unknown = [id for id in ids if id not in previous]
-            if unknown:
-                raise ValueError(f"Invented arc IDs {unknown!r}. Every new task MUST use the literal field "
-                                 '\"arc_id\": \"\". The harness assigns IDs, not you.')
-            if any(not arc.turns and not arc.arc_id for arc in update.arcs):
-                raise ValueError("New arcs require source turns")
-            return update, raw, attempt
-        except ValueError as exc:
-            if attempt == 1:
-                raise
-            error = f"\nPrevious output failed validation: {exc}. Return corrected JSON, not commentary."
-
-    raise AssertionError("Unreachable synthesis retry state")
+                                token_estimate_before=estimated, compacted_event_count=len(window.compacted),
+                                retained_event_count=len(window.retained))
 
 
 def _invoke_text(

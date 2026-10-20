@@ -201,45 +201,34 @@ def add_turn(manager, turn, text):
     return events
 
 
-def arc(turns, *, id="", title="Filesystem"):
-    return dict(arc_id=id, title=title, status="completed", intent="Reduce tabs mismatch failures",
-                implementation="Updated filesystem.py", findings="Exact matching protects whitespace",
-                constraints="No fuzzy replacement", validation="Tests passed", remaining="None known",
-                turns=turns, keywords=["tabs", "invented-keyword"])
+def compact_model(memory="Tabs require exact matching. Updated filesystem.py; tests passed."):
+    return FakeMessagesListChatModel(responses=[AIMessage(content=memory)])
 
 
-def compact_model(arcs):
-    return FakeMessagesListChatModel(responses=[AIMessage(content=json.dumps({
-        "narrative": "Preserved safe edits before improving memory", "current_state": "Continue memory work", "arcs": arcs,
-    }))])
-
-
-def compactor(bank, manager, arcs, *, keep_last_turns=1):
-    model = compact_model(arcs)
+def compactor(bank, manager, memory="Tabs require exact matching. Updated filesystem.py; tests passed.", *, keep_last_turns=1):
+    model = compact_model(memory)
     return Compactor(policy=CompactionPolicy(keep_last_turns=keep_last_turns, compactor_model=model, max_critic_loops=0),
                      trajectory_bank=bank, session_manager=manager)
 
 
-def test_compaction_archives_groups_and_preserves_arcs_on_repeated_compaction(bank, manager):
+def test_compaction_archives_batches_and_preserves_references_on_repeated_compaction(bank, manager):
     for turn, text in enumerate(["tabs", "compaction", "tabs", "other pending"], 1):
         add_turn(manager, turn, text)
-    original = manager.read_curated()
-    result = compactor(bank, manager, [arc([1, 3]), arc([2], title="Memory")]).compact(original)
+    result = compactor(bank, manager).compact(manager.read_curated())
     payload = result.events[0].payload
-    ids = [item["arc_id"] for item in payload["task_arcs"]]
+    assert len(payload["trajectory_manifest"]) == 1
     assert len(bank.get()) == 3
-    assert "trajectory://test-session/" in result.memory_document
-    assert all("invented-keyword" not in item["keywords"] for item in payload["task_arcs"])
+    assert "trajectory://test-session/batch-" in result.memory_document
     assert [event.turn for event in result.events[1:]] == [4] * 4
     archived = bank.get()
-    assert all("Evidence for" in item.document for item in archived)
     manager.apply_compaction_result(result.events, snapshot_latest_turn=4)
     add_turn(manager, 5, "new tail")
-    updated = compactor(bank, manager, [arc([4], id=ids[0])]).compact(manager.read_curated())
-    assert [item["arc_id"] for item in updated.events[0].payload["task_arcs"]] == ids
-    assert updated.events[0].payload["task_arcs"][1] == payload["task_arcs"][1]
+    updated = compactor(bank, manager).compact(manager.read_curated())
+    assert len(updated.events[0].payload["trajectory_manifest"]) == 2
+    for group, ids in payload["trajectory_manifest"].items():
+        assert updated.events[0].payload["trajectory_manifest"][group] == ids
+        assert arc_ref(manager.session_id, group) in updated.memory_document
     assert len(bank.get()) == 4
-    assert {item.id for item in archived}.issubset({item.id for item in bank.get()})
     assert all(item in bank.get() for item in archived)
 
 
@@ -249,14 +238,12 @@ def test_arc_semantics_are_independent_of_archival(bank, manager):
     source = manager.read_curated()
     raw = manager.read_dump()
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, max_critic_loops=0,
-                                              compactor_model=compact_model([arc([1])])), session_manager=manager)
+                                              compactor_model=compact_model()), session_manager=manager)
     with patch.object(manager, "read_dump", side_effect=AssertionError("No archival reads when disabled")):
         without_bank = engine.compact(source)
     assert not bank.root.exists()
-    with_bank = compactor(bank, manager, [arc([1])]).compact(source)
-    assert without_bank.events[0].payload["task_arcs"] == with_bank.events[0].payload["task_arcs"]
-    assert without_bank.events[0].payload["narrative"] == with_bank.events[0].payload["narrative"]
-    assert without_bank.events[0].payload["current_state"] == with_bank.events[0].payload["current_state"]
+    with_bank = compactor(bank, manager).compact(source)
+    assert without_bank.events[0].payload["session_arc"] == with_bank.events[0].payload["session_arc"]
     assert without_bank.events[0].payload["trajectory_manifest"] == {}
     assert len(bank.get()) == 1
     assert manager.read_curated() == source and manager.read_dump() == raw
@@ -270,8 +257,7 @@ def test_archive_is_restricted_to_eviction_window(bank, manager, keep_last_turns
     original = manager.read_curated()
     retained = turns[-keep_last_turns:] if keep_last_turns else []
     evicted = [turn for turn in turns if turn not in retained]
-    assignments = [arc(evicted)] if evicted else []
-    result = compactor(bank, manager, assignments, keep_last_turns=keep_last_turns).compact(original)
+    result = compactor(bank, manager, keep_last_turns=keep_last_turns).compact(original)
     records = bank.get()
     assert {item.metadata["turn"] for item in records} == set(evicted)
     expected_tail = [event for event in original if event.turn in retained]
@@ -306,7 +292,7 @@ def test_archived_triplet_includes_corrections_and_final_response_without_noise(
     manager.append(events)
     add_turn(manager, 2, "RETAINED_TURN")
     with patch.object(bank.embedder, "embed_documents", wraps=bank.embedder.embed_documents) as embed:
-        compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+        compactor(bank, manager).compact(manager.read_curated())
     item = bank.get()[0]
     expected = ("User:\nFix parsing in parser.py\n\nKeep tabs intact\n\nTrajectory:\n"
                 f"{body}\n\nAssistant:\nPatched parser.py; 12 tests passed.")
@@ -336,15 +322,18 @@ def test_triplet_uses_text_context_only_and_marks_missing_responses():
     assert "(No user text recorded.)" in trajectory_document([], "I suspect tabs.")
 
 
-@pytest.mark.parametrize("assignments", [[arc([])], [arc([1, 1])], [arc([2])], [arc([1], id="fabricated")]])
-def test_compaction_rejects_uncovered_duplicate_tail_and_fabricated_ids(bank, manager, assignments):
+@pytest.mark.parametrize("memory", [
+    "Both tasks share turn 1. Exact editing and cancellation are complete.",
+    "## Findings\nTabs must match.\n\nNext: verify diagnostics.",
+    "Preserve tabs; tests passed. No fixed sections or turn map needed.",
+])
+def test_prose_needs_no_turn_assignments_to_archive_evicted_evidence(bank, manager, memory):
     add_turn(manager, 1, "tabs")
     add_turn(manager, 2, "tail")
-    original = manager.read_curated()
-    with pytest.raises(ValueError):
-        compactor(bank, manager, assignments).compact(original)
-    assert manager.read_curated() == original
-    assert bank.get() == []
+    result = compactor(bank, manager, memory).compact(manager.read_curated())
+    assert result.events[0].payload["session_arc"] == memory
+    assert result.token_usage["call_count"] == 1
+    assert {item.metadata["turn"] for item in bank.get()} == {1}
 
 
 def test_failed_archive_and_missing_references_never_replace_context(bank, manager):
@@ -353,14 +342,14 @@ def test_failed_archive_and_missing_references_never_replace_context(bank, manag
     before = manager.read_curated()
     with patch.object(bank, "archive", side_effect=OSError("disk full")):
         with pytest.raises(OSError):
-            compactor(bank, manager, [arc([1])]).compact(before)
+            compactor(bank, manager).compact(before)
     assert manager.read_curated() == before
-    result = compactor(bank, manager, [arc([1])]).compact(before)
+    result = compactor(bank, manager).compact(before)
     manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
     add_turn(manager, 3, "tail")
     with patch.object(bank, "get", return_value=[]):
         with pytest.raises(ValueError, match="references are missing"):
-            compactor(bank, manager, [arc([2])]).compact(manager.read_curated())
+            compactor(bank, manager).compact(manager.read_curated())
 
 
 class ToolModel(FakeMessagesListChatModel):
@@ -442,7 +431,7 @@ def test_real_graph_records_recall_once_and_defers_actions(bank, manager):
 def test_unpublished_compaction_is_not_retrievable(bank, manager):
     add_turn(manager, 1, "tabs")
     add_turn(manager, 2, "tail")
-    result = compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+    result = compactor(bank, manager).compact(manager.read_curated())
     item = bank.get()[0]
     retrieval = BankRetrieval(bank, manager)
     assert retrieval.retrieve(query="tabs", automatic=True)[1] == []
@@ -487,16 +476,18 @@ def test_stale_pending_trajectory_is_discarded_after_restart(manager, tmp_path):
     assert manager.read_curated()[0].payload["content"] == "new session arc"
 
 
-def test_legacy_memory_is_preserved_without_manufactured_references(bank, manager):
+def test_legacy_memory_is_supplied_without_manufactured_references(bank, manager):
+    from core.compaction.compactor import _invoke_text
+
     old = SessionEvent(type=EventType.USER, turn=1, payload={"kind": "memory_restore", "content": "Legacy task details"})
     manager.append([old])
     add_turn(manager, 2, "tabs")
     add_turn(manager, 3, "tail")
-    result = compactor(bank, manager, [arc([2])]).compact(manager.read_curated())
+    with patch("core.compaction.compactor._invoke_text", wraps=_invoke_text) as invoke:
+        result = compactor(bank, manager, "Legacy task details; tabs must match.").compact(manager.read_curated())
+    assert json.loads(invoke.call_args.args[2])["previous_session_arc"] == ["Legacy task details"]
     assert "Legacy task details" in result.memory_document
-    arcs = result.events[0].payload["task_arcs"]
-    assert arcs[0]["arc_id"].startswith("legacy-")
-    assert arcs[0]["arc_id"] not in result.events[0].payload["trajectory_manifest"]
+    assert {record.metadata["turn"] for record in bank.get()} == {2}
 
 
 @pytest.mark.parametrize("use_async", [False, True])
@@ -528,23 +519,20 @@ def test_recall_failure_does_not_abort_reasoning(bank, manager):
     assert result.content.startswith("checkpoint") and "recall unavailable" in result.content
 
 
-def test_invented_arc_id_is_repaired_and_schema_constrains_ids(bank, manager):
+def test_references_are_available_to_synthesis_and_survive_model_omission(bank, manager):
     from core.compaction.compactor import _invoke_text
 
     add_turn(manager, 1, "tabs")
     add_turn(manager, 2, "tail")
-    engine = compactor(bank, manager, [arc([1])])
-    engine.policy.compactor_model.responses = [
-        compact_model([arc([1], id="invented")]).responses[0],
-        compact_model([arc([1])]).responses[0],
-    ]
     with patch("core.compaction.compactor._invoke_text", wraps=_invoke_text) as invoke:
-        result = engine.compact(manager.read_curated())
-    schema = json.loads(invoke.call_args_list[0].args[2])["schema"]
-    assert schema["$defs"]["TaskArc"]["properties"]["arc_id"]["enum"] == [""]
-    assert "invented" in invoke.call_args_list[1].args[2]
-    assert result.revisions == 1 and result.token_usage["call_count"] == 2
-    assert len(bank.get()) == 1
+        result = compactor(bank, manager, "Keep exact matching.").compact(manager.read_curated())
+    prompt = json.loads(invoke.call_args.args[2])
+    item = bank.get()[0]
+    assert prompt["turn_references"] == {"1": record_ref(item.id)}
+    assert arc_ref(manager.session_id, item.metadata["arc_id"]) in result.memory_document
+    assert str(manager.dump_path) in result.memory_document
+    assert "task_arcs" not in result.events[0].payload
+    assert result.token_usage["call_count"] == 1
 
 
 def test_reasoning_fallback_and_empty_scope_avoid_embedding(bank, manager):
@@ -553,7 +541,7 @@ def test_reasoning_fallback_and_empty_scope_avoid_embedding(bank, manager):
                         "reasoning": "I confirmed tabs must match exactly; I will retain exact matching."}}),
                     SessionEvent(type=EventType.ASSISTANT, turn=1, payload={"content": "Checked source"})])
     add_turn(manager, 2, "tail")
-    compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+    compactor(bank, manager).compact(manager.read_curated())
     item = bank.get()[0]
     assert item.metadata["source_kind"] == "reasoning_chain"
     assert "I confirmed tabs must match exactly" in item.document
@@ -600,7 +588,7 @@ def test_unsynthesized_archive_embeds_reasoning_with_context_not_tool_logs(bank,
     add_turn(manager, 2, "tail")
     dump = manager.read_dump()
     with patch.object(bank.embedder, "embed_documents", wraps=bank.embedder.embed_documents) as embed:
-        result = compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+        result = compactor(bank, manager).compact(manager.read_curated())
     item = bank.get()[0]
     embedded = embed.call_args.args[0]
     assert embedded == [item.document]
@@ -622,7 +610,7 @@ def test_unsynthesized_archive_embeds_reasoning_with_context_not_tool_logs(bank,
     assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
 
 
-def test_no_reasoning_skips_vector_record_but_preserves_task_map(bank, manager):
+def test_no_reasoning_skips_vector_record_but_preserves_session_arc(bank, manager):
     manager.append([
         SessionEvent(type=EventType.USER, turn=1, payload={"content": "Inspect tabs"}),
         SessionEvent(type=EventType.TOOL_OUTPUT, turn=1, payload={"content": "NOISY_OUTPUT " * 1000}),
@@ -632,10 +620,10 @@ def test_no_reasoning_skips_vector_record_but_preserves_task_map(bank, manager):
     ])
     add_turn(manager, 2, "tail")
     original = manager.read_dump()
-    result = compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+    result = compactor(bank, manager).compact(manager.read_curated())
     assert bank.get() == []
     assert bank.embedder.calls == 0
-    assert result.events[0].payload["task_arcs"][0]["turns"] == [1]
+    assert "Tabs require exact matching" in result.events[0].payload["session_arc"]
     assert result.events[0].payload["trajectory_manifest"] == {}
     assert "trajectory://" not in result.memory_document
     assert manager.read_dump() == original
@@ -680,12 +668,10 @@ def test_fidelity_review_uses_latest_revision(bank, manager, caplog, approved, l
     add_turn(manager, 1, "Reread AGENTS.md each turn; do not cache stale instructions")
     add_turn(manager, 2, "tail")
     source = manager.read_curated()
-    incorrect = arc([1])
-    incorrect["findings"] = "Rereading is inefficient"
-    corrected = arc([1])
-    corrected["findings"] = "Reread AGENTS.md each turn; do not cache stale instructions"
-    synthesis = FakeMessagesListChatModel(responses=[compact_model([incorrect]).responses[0]]
-                                          + [compact_model([corrected]).responses[0]] * loops)
+    incorrect = "Rereading is inefficient"
+    corrected = "Reread AGENTS.md each turn; do not cache stale instructions"
+    synthesis = FakeMessagesListChatModel(responses=[compact_model(incorrect).responses[0]]
+                                          + [compact_model(corrected).responses[0]] * loops)
     final_review = "APPROVE" if approved else "Still missing source constraints"
     critic = FakeMessagesListChatModel(responses=[
         AIMessage(content="Remove invented inefficiency; preserve reread-each-turn requirement.")
@@ -700,7 +686,7 @@ def test_fidelity_review_uses_latest_revision(bank, manager, caplog, approved, l
     assert len(result.critiques) == loops + 1
     assert result.critiques[-1].approved is approved
     warnings = [record.message for record in caplog.records if record.levelno == logging.WARNING]
-    assert warnings == ([] if approved else ["Task arc review budget exhausted; using the latest revision."])
+    assert warnings == ([] if approved else ["Session arc review budget exhausted; using the latest revision."])
     assert len(bank.get()) == 1
     assert manager.read_curated() == source  # Publication is still the coordinator's job.
     manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
@@ -714,7 +700,7 @@ def test_fidelity_review_uses_latest_revision(bank, manager, caplog, approved, l
 def test_fidelity_review_skip_early_approval_and_strict_rejection(bank, manager, caplog, loops, review):
     add_turn(manager, 1, "tabs")
     add_turn(manager, 2, "tail")
-    engine = compactor(bank, manager, [arc([1])])
+    engine = compactor(bank, manager)
     from dataclasses import replace
     critic = FakeMessagesListChatModel(responses=[AIMessage(content=review)])
     engine.policy = replace(engine.policy, max_critic_loops=loops, critic_model=critic)
@@ -726,21 +712,29 @@ def test_fidelity_review_skip_early_approval_and_strict_rejection(bank, manager,
         assert result.critiques[-1].approved is (review == "APPROVE")
 
 
-def test_invalid_revision_still_aborts_instead_of_falling_back(bank, manager):
+def test_empty_revision_keeps_last_nonempty_draft(bank, manager, caplog):
     from dataclasses import replace
 
     add_turn(manager, 1, "tabs")
     add_turn(manager, 2, "tail")
-    before = manager.read_curated()
-    engine = compactor(bank, manager, [arc([1])])
-    invalid = compact_model([arc([2])]).responses[0]  # Attempts to archive the retained tail.
-    engine.policy.compactor_model.responses.extend([invalid, invalid])
+    engine = compactor(bank, manager)
+    engine.policy.compactor_model.responses.append(AIMessage(content=""))
     engine.policy = replace(engine.policy, max_critic_loops=1,
                             critic_model=FakeMessagesListChatModel(responses=[AIMessage(content="Revise")]))
-    with pytest.raises(ValueError, match="Every new turn"):
-        engine.compact(before)
-    assert manager.read_curated() == before
+    result = engine.compact(manager.read_curated())
+    assert "Tabs require exact matching" in result.memory_document
+    assert "using the last nonempty draft" in caplog.text
+    assert len(bank.get()) == 1
+
+
+def test_empty_initial_draft_never_archives_or_rewrites(bank, manager):
+    add_turn(manager, 1, "tabs")
+    add_turn(manager, 2, "tail")
+    before = manager.read_curated()
+    with pytest.raises(ValueError, match="Session arc is empty"):
+        compactor(bank, manager, "").compact(before)
     assert bank.get() == []
+    assert manager.read_curated() == before
 
 
 def test_local_embeddings_include_text_beyond_first_window(monkeypatch):
@@ -767,7 +761,7 @@ def test_bank_disabled_compaction_keeps_published_evidence_for_reenabling(bank, 
     item = record(manager)
     bank.archive([item])
     add_turn(manager, 2, "tail")
-    model = compact_model([arc([1])])
+    model = compact_model()
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, compactor_model=model, max_critic_loops=0),
                        session_manager=manager)
     with patch.object(bank, "archive", side_effect=AssertionError("Archival is disabled")):
@@ -776,38 +770,35 @@ def test_bank_disabled_compaction_keeps_published_evidence_for_reenabling(bank, 
     manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
     assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
     add_turn(manager, 3, "new tail")
-    resumed = compactor(bank, manager, [arc([2])]).compact(manager.read_curated())
+    resumed = compactor(bank, manager).compact(manager.read_curated())
     manager.apply_compaction_result(resumed.events, snapshot_latest_turn=3)
-    assert "Published evidence" in resumed.memory_document
-    assert result.events[0].payload["task_arcs"][1] in resumed.events[0].payload["task_arcs"]
+    assert "trajectory://test-session/arc-tabs" in resumed.memory_document
     assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
 
 
 def test_bank_toggle_preserves_arcs_and_only_archives_enabled_evictions(bank, manager):
     add_turn(manager, 1, "tabs")
     add_turn(manager, 2, "compaction")
-    first = compactor(bank, manager, [arc([1])]).compact(manager.read_curated())
+    first = compactor(bank, manager).compact(manager.read_curated())
     manager.apply_compaction_result(first.events, snapshot_latest_turn=2)
-    first_arc = first.events[0].payload["task_arcs"][0]
+    first_group = next(iter(first.events[0].payload["trajectory_manifest"]))
     record_id = bank.get()[0].id
 
     add_turn(manager, 3, "more tabs")
     disabled = Compactor(policy=CompactionPolicy(keep_last_turns=1, max_critic_loops=0,
-                                                compactor_model=compact_model([arc([2], title="Memory")])),
+                                                compactor_model=compact_model()),
                          session_manager=manager)
     second = disabled.compact(manager.read_curated())
     manager.apply_compaction_result(second.events, snapshot_latest_turn=3)
-    assert second.events[0].payload["task_arcs"][0] == first_arc
     assert second.events[0].payload["trajectory_manifest"] == first.events[0].payload["trajectory_manifest"]
-    assert arc_ref(manager.session_id, first_arc["arc_id"]) in second.memory_document
+    assert arc_ref(manager.session_id, first_group) in second.memory_document
     assert len(bank.get()) == 1
 
     add_turn(manager, 4, "tail")
     raw = manager.read_dump()
-    third = compactor(bank, manager, [arc([3], id=first_arc["arc_id"])]).compact(manager.read_curated())
+    third = compactor(bank, manager).compact(manager.read_curated())
     manager.apply_compaction_result(third.events, snapshot_latest_turn=4)
-    assert third.events[0].payload["task_arcs"][0]["turns"] == [1, 3]
-    assert third.events[0].payload["task_arcs"][1] == second.events[0].payload["task_arcs"][1]
+    assert len(third.events[0].payload["trajectory_manifest"]) == 2
     assert {item.metadata["turn"] for item in bank.get()} == {1, 3}
     assert BankRetrieval(bank, manager).retrieve(ref=record_ref(record_id))[1] == [record_id]
     assert manager.read_dump() == raw

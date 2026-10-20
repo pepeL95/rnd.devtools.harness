@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 
-from core.compaction.models import TaskArc
 from core.session.events import SessionEvent
 
 
@@ -31,8 +30,8 @@ def memory_restore_message(memory_document: str) -> str:
             "[MEMORY RESTORE]",
             "The following document was produced by a compaction process over your previous",
             "session trajectory. It was not written by you. Treat it as accurate.",
-            "The task map preserves prior work, decisions, and constraints.",
-            "Use the current working state and retained turns to continue without repeating work.",
+            "The session arc preserves prior work, decisions, and constraints.",
+            "Use it with the retained turns to continue without repeating completed work.",
             "",
             memory_document.strip(),
             "",
@@ -41,21 +40,4 @@ def memory_restore_message(memory_document: str) -> str:
             "Your task continues below.",
         ]
     )
-
-
-def render_arc_memory(
-    narrative: str, current: str, arcs: list[TaskArc], session: str, manifest: dict[str, list[str]],
-) -> str:
-    parts = ["# Session Arc", "## Direction", narrative, "## Task Map"]
-    for arc in arcs:
-        parts.append(f"### {arc.title} [{arc.status}]")
-        for label, value in (("Intent", arc.intent), ("Implementation", arc.implementation), ("Findings", arc.findings),
-                             ("Constraints", arc.constraints), ("Validation", arc.validation), ("Remaining", arc.remaining)):
-            parts.append(f"{label}: {value}")
-        if manifest.get(arc.arc_id):
-            reference = (f"trajectory://{session}/{arc.arc_id}" if session else
-                         ", ".join(f"trajectory-record://{id}" for id in manifest[arc.arc_id]))
-            parts.append(f"Evidence: {reference} ({len(manifest[arc.arc_id])} trajectories)")
-    parts.extend(["## Current Working State", current])
-    return "\n\n".join(parts)
 

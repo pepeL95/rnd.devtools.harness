@@ -67,6 +67,28 @@ def test_audit_reports_arc_publication_without_embedding_calls(archive):
     assert report["arcs"][manager.session_id]["arc-tabs"]["title"] == "Tabs"
 
 
+def test_audit_accepts_prose_session_with_batch_references(tmp_path):
+    from core.compaction.compactor import Compactor
+    from core.compaction.policy import CompactionPolicy
+
+    manager = SessionManager(session_id="prose", root=tmp_path / "sessions")
+    manager.append([
+        SessionEvent(type=EventType.USER, turn=1, payload={"content": "Keep tabs"}),
+        SessionEvent(type=EventType.REASONING, turn=1, payload={"content": "I confirmed exact matching preserves tabs."}),
+        SessionEvent(type=EventType.USER, turn=2, payload={"content": "Continue"}),
+    ])
+    bank = TrajectoryBank(tmp_path / "workspace", embedder=EmbeddingModel(), embedding_identity="test-original")
+    engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, max_critic_loops=0,
+        compactor_model=FakeMessagesListChatModel(responses=[AIMessage(content="Preserve exact tabs (turn 1).") ])),
+        trajectory_bank=bank, session_manager=manager)
+    result = engine.compact(manager.read_curated())
+    manager.apply_compaction_result(result.events, snapshot_latest_turn=2)
+    report = guard.inspect_bank(bank.root, manager.root)
+    assert not report["issues"]
+    assert report["records"][0]["published"]
+    assert "task_arcs" not in result.events[0].payload
+
+
 def test_audit_never_creates_missing_bank_or_session(archive, tmp_path):
     bank, _, _ = archive
     with pytest.raises(ValueError, match="No existing"):

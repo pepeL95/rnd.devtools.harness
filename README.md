@@ -149,11 +149,12 @@ use first-person introspective prose as durable memory, favoring high-signal
 findings and concrete keywords without a fixed template or length quota.
 Reasoning-only batches restore normal tool choice; lower settings are unchanged.
 
-Session compaction always maintains a cumulative session arc: direction, a detailed
-task map, and current working state. Unchanged tasks survive verbatim, including
-completed work; updated tasks retain stable IDs and prior context. One synthesis
-call assigns tasks and updates memory, followed by bounded review/revision. If review
-attempts run out, a warning is logged and the latest valid revision is used.
+Session compaction writes a cumulative prose arc from prior memory and newly evicted
+conversation. It preserves tasks, concrete progress, constraints, findings, and next
+actions with source references, without a JSON schema, fixed headings, or turn assignments.
+A bounded fidelity review checks for lost context, not formatting. If review attempts
+run out, a warning is logged and the latest nonempty revision is used. The harness
+retains an evidence index independently of the prose; archival and stale-session checks remain.
 The separate segmentation stage and `CompactionPolicy.task_extractor_model` are removed.
 
 Optional archival uses the nearest `.quasipilot/.trajectorybank` (cwd, then parents).
