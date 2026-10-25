@@ -26,6 +26,10 @@ from core.session.restore import normalize_tool_transcript
 from core.session.turns import agent_history_events, display_history_events, next_turn
 
 
+class StaleCompactionError(ValueError):
+    """The source window changed while compaction was running."""
+
+
 class SessionManager:
     """Owns session persistence in dump and curated JSONL streams."""
 
@@ -36,10 +40,12 @@ class SessionManager:
         self._write_lock = RLock()
 
     def read_dump(self) -> list[SessionEvent]:
-        return read_events(self.dump_path)
+        with self._write_lock:
+            return read_events(self.dump_path)
 
     def read_curated(self) -> list[SessionEvent]:
-        return read_events(self.curated_path)
+        with self._write_lock:
+            return read_events(self.curated_path)
 
     def append(self, events: Iterable[SessionEvent], curated: bool = True) -> None:
         materialized = list(events)
@@ -77,15 +83,16 @@ class SessionManager:
 
         Returns the removed turn number, or None if the session was empty.
         """
-        dump_events = self.read_dump()
-        if not dump_events:
-            return None
-        latest = max(event.turn for event in dump_events)
-        keep = [event for event in dump_events if event.turn != latest]
-        replace_events(self.dump_path, keep)
-        curated_events = self.read_curated()
-        replace_events(self.curated_path, [event for event in curated_events if event.turn != latest])
-        return latest
+        with self._write_lock:
+            dump_events = self.read_dump()
+            if not dump_events:
+                return None
+            latest = max(event.turn for event in dump_events)
+            keep = [event for event in dump_events if event.turn != latest]
+            replace_events(self.dump_path, keep)
+            curated_events = self.read_curated()
+            replace_events(self.curated_path, [event for event in curated_events if event.turn != latest])
+            return latest
 
     def replace_curated(self, events: Iterable[SessionEvent]) -> None:
         with self._write_lock:
@@ -104,9 +111,15 @@ class SessionManager:
         compacted_events: Iterable[SessionEvent],
         *,
         snapshot_latest_turn: int,
+        source_event_ids: list[str] | None = None,
     ) -> list[SessionEvent]:
         with self._write_lock:
             current = self.read_curated()
+            if source_event_ids is not None:
+                current_ids = [event.id for event in current
+                               if event.turn <= snapshot_latest_turn and not is_pinned_instruction(event)]
+                if current_ids != source_event_ids:
+                    raise StaleCompactionError("Compaction source changed; keeping the current session intact")
             preserved = [event for event in current if event.turn > snapshot_latest_turn]
             merged = self._pin_system_instructions([*list(compacted_events), *preserved])
             replace_events(self.curated_path, merged)
@@ -252,7 +265,7 @@ class SessionManager:
         return events
 
     def load_curated_messages(self) -> list[BaseMessage]:
-        return _reconstruct_agent_messages(agent_history_events(self.read_curated()))
+        return reconstruct_agent_messages(agent_history_events(self.read_curated()))
 
     def read_display_history(self) -> list[SessionEvent]:
         return display_history_events(self.read_dump())
@@ -279,7 +292,7 @@ def _compact_text(text: str, limit: int = 72) -> str:
     return compact[: limit - 1] + "…"
 
 
-def _reconstruct_agent_messages(events: list[SessionEvent]) -> list[BaseMessage]:
+def reconstruct_agent_messages(events: list[SessionEvent]) -> list[BaseMessage]:
     """Reconstruct a valid LangChain message sequence from stored session events.
 
     LangChain requires strict structural pairing: every AIMessage with tool_calls

@@ -11,6 +11,8 @@ preserves information an agent needs to resume accurately:
 - current state and validation status
 - durable codebase facts with confidence markers
 
+Scoring checks expected facts, not headings or document structure.
+
 Run the full eval:
 
 ```sh
@@ -52,5 +54,5 @@ Each run writes a timestamped bundle under `eval_results/` containing:
 - `metrics.json`
 - `summary.md`
 
-Compaction runs also emit `memory.md` and `segmentation.md`, while trajectory
+Compaction runs also emit `memory.md` and extracted task episodes in `segmentation.md`, while trajectory
 compression runs emit `syntheses.json`.

@@ -138,3 +138,19 @@ calls, using named tool choice (the model adapter must support it). Checkpoints
 use first-person introspective prose as durable memory, favoring high-signal
 findings and concrete keywords without a fixed template or length quota.
 Reasoning-only batches restore normal tool choice; lower settings are unchanged.
+
+Session compaction extracts rich task episodes from newly evicted conversation, then
+writes a cumulative prose arc using those episodes, original evidence, and prior memory.
+The [session-arc pipeline](core/compaction/README.md) preserves tasks, concrete progress,
+constraints, findings, and next actions without a rigid output schema. A bounded fidelity
+review checks for lost context; on exhaustion, a warning is logged and the latest
+nonempty revision is used. Extraction uses the compactor model, without new configuration.
+An optional evidence-provider interface lets storage middleware supply references and
+persist episodes. The standalone pipeline does not require archive storage or retrieval.
+
+The CLI start event shows estimated tokens selected for replacement. Completion shows
+`before -> injected` tokens and savings or growth. These estimates count restored
+message content, including tool calls and the memory wrapper, while excluding pinned
+instructions, retained turns, and duplicate bookkeeping. Structured compaction telemetry
+records that context breakdown separately from aggregate provider input/output tokens
+and estimated-call counts. The trigger policy is unchanged.

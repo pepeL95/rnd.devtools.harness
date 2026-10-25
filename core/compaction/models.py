@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
 from core.session.events import SessionEvent
 
 
@@ -21,19 +20,14 @@ class Critique:
 
     @property
     def approved(self) -> bool:
-        normalized = self.text.upper()
-        return (
-            "RECOMMENDED ACTION: APPROVE AS-IS" in normalized
-            or "RECOMMENDED ACTION: APPROVE" in normalized
-            or "VIOLATIONS FOUND: 0" in normalized
-        )
+        return self.text.strip() == "APPROVE"
 
 
 @dataclass(frozen=True)
 class CompactionResult:
     events: list[SessionEvent]
     memory_document: str
-    segmentation: str
+    segmentation: str  # Extracted task episodes; historical field name retained for callers.
     critiques: list[Critique] = field(default_factory=list)
     model_names: dict[str, str] = field(default_factory=dict)
     token_usage: dict[str, int] = field(default_factory=dict)

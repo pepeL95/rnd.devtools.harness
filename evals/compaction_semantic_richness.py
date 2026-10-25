@@ -15,21 +15,6 @@ from core.compaction.serialization import events_to_trajectory
 from core.session.events import EventType, SessionEvent
 
 
-SECTION_HEADINGS = [
-    "TASK REQUIREMENT SYNTHESIS",
-    "CURRENT STATE",
-    "WORK COMPLETED",
-    "FAILED APPROACHES",
-    "OPEN PROBLEMS",
-    "IMPLICIT TASKS DISCOVERED",
-    "NEXT STEPS",
-    "CODEBASE CHARACTERISTICS",
-    "TASK-APPROACH PAIRS",
-    "GENERALIZABLE INSIGHTS",
-    "SESSION NARRATIVE",
-]
-
-
 @dataclass(frozen=True)
 class AtomScore:
     id: str
@@ -43,17 +28,13 @@ class CaseScore:
     id: str
     title: str
     atom_score: float
-    section_score: float
     semantic_richness_score: float
     passed_atoms: int
     total_atoms: int
-    present_sections: int
-    total_sections: int
     revisions: int
     compacted_event_count: int
     retained_event_count: int
     atom_details: list[AtomScore]
-    missing_sections: list[str]
 
 
 def main() -> None:
@@ -84,8 +65,8 @@ def main() -> None:
             case_output = {
                 "case": {"id": case["id"], "title": case["title"]},
                 "score": _as_json(score),
-                "segmentation": result.segmentation,
                 "memory_document": result.memory_document,
+                "task_episodes": result.segmentation,
                 "critiques": [critique.text for critique in result.critiques],
                 "compacted_event_count": result.compacted_event_count,
                 "retained_event_count": result.retained_event_count,
@@ -141,27 +122,20 @@ def _parse_args() -> argparse.Namespace:
 
 def _score_case(case: dict[str, Any], memory_document: str, restored_context: str, result: Any) -> CaseScore:
     atom_details = [_score_atom(atom, restored_context) for atom in case["expected_atoms"]]
-    present_sections = [heading for heading in SECTION_HEADINGS if _has_heading(memory_document, heading)]
-    missing_sections = [heading for heading in SECTION_HEADINGS if heading not in present_sections]
     passed_atoms = sum(1 for atom in atom_details if atom.passed)
     atom_score = passed_atoms / len(atom_details)
-    section_score = len(present_sections) / len(SECTION_HEADINGS)
-    semantic_richness_score = round((atom_score * 0.75) + (section_score * 0.25), 4)
+    semantic_richness_score = round(atom_score, 4)
     return CaseScore(
         id=str(case["id"]),
         title=str(case["title"]),
         atom_score=round(atom_score, 4),
-        section_score=round(section_score, 4),
         semantic_richness_score=semantic_richness_score,
         passed_atoms=passed_atoms,
         total_atoms=len(atom_details),
-        present_sections=len(present_sections),
-        total_sections=len(SECTION_HEADINGS),
         revisions=result.revisions,
         compacted_event_count=result.compacted_event_count,
         retained_event_count=result.retained_event_count,
         atom_details=atom_details,
-        missing_sections=missing_sections,
     )
 
 
@@ -191,11 +165,6 @@ def _selected_cases(cases: list[dict[str, Any]], case_ids: set[str]) -> list[dic
     if missing:
         raise ValueError(f"Unknown case id(s): {', '.join(missing)}")
     return selected
-
-
-def _has_heading(memory_document: str, heading: str) -> bool:
-    pattern = rf"(?im)^\s*(?:#+\s*)?{re.escape(heading)}\b"
-    return re.search(pattern, memory_document) is not None
 
 
 def _normalize(value: str) -> str:
@@ -258,13 +227,13 @@ def _summary_markdown(summary: dict[str, Any]) -> str:
         f"Errors: {summary['run']['error_count']}",
         f"Average semantic richness score: {summary['aggregate']['average_semantic_richness_score']}",
         "",
-        "| Case | Score | Atoms | Sections | Revisions |",
-        "| --- | ---: | ---: | ---: | ---: |",
+        "| Case | Score | Atoms | Revisions |",
+        "| --- | ---: | ---: | ---: |",
     ]
     for score in summary["scores"]:
         lines.append(
             "| {id} | {semantic_richness_score:.4f} | {passed_atoms}/{total_atoms} | "
-            "{present_sections}/{total_sections} | {revisions} |".format(**score)
+            "{revisions} |".format(**score)
         )
     if summary["errors"]:
         lines.extend(["", "## Errors", ""])
@@ -283,7 +252,6 @@ def _case_markdown(case_output: dict[str, Any]) -> str:
         f"Case: `{case_output['case']['id']}`",
         f"Semantic richness score: {score['semantic_richness_score']}",
         f"Atoms: {score['passed_atoms']} / {score['total_atoms']}",
-        f"Sections: {score['present_sections']} / {score['total_sections']}",
         f"Revisions: {score['revisions']}",
         "",
         "## Missing Atoms",
@@ -294,21 +262,16 @@ def _case_markdown(case_output: dict[str, Any]) -> str:
         lines.extend(f"- {atom['id']}: {atom['label']}" for atom in missing)
     else:
         lines.append("- None")
-    lines.extend(["", "## Missing Sections", ""])
-    if score["missing_sections"]:
-        lines.extend(f"- {section}" for section in score["missing_sections"])
-    else:
-        lines.append("- None")
     lines.extend(
         [
-            "",
-            "## Segmentation",
-            "",
-            case_output["segmentation"],
             "",
             "## Memory Document",
             "",
             case_output["memory_document"],
+            "",
+            "## Extracted Task Episodes",
+            "",
+            case_output.get("task_episodes", ""),
             "",
             "## Critiques",
             "",

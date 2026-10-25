@@ -78,7 +78,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     )
     session_compaction_coordinator = config.session_compaction_coordinator or CompactionCoordinator(
         manager,
-        Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump())),
+        Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump()), session_manager=manager),
         on_compaction_event=config.on_compaction_event,
         telemetry_store=telemetry_store,
     )
