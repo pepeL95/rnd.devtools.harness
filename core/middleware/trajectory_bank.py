@@ -8,12 +8,15 @@ from langchain.tools import ToolRuntime
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
+from core.compaction.evidence import PreparedEvidence
+from core.session.events import SessionEvent
+from core.trajectory_bank.archival import prepare_trajectories
 from core.trajectory_bank.retrieval import BankRetrieval
 from core.utilities.messages import system_message_with_appended_text
 
 
 class TrajectoryBankMiddleware(AgentMiddleware):
-    """Return historical evidence after reasoning, inside SessionDump's wrapper."""
+    """Offload compaction evidence and recall it after reasoning when installed."""
 
     def __init__(self, retrieval: BankRetrieval) -> None:
         self.retrieval = retrieval
@@ -38,6 +41,27 @@ class TrajectoryBankMiddleware(AgentMiddleware):
                          "scope='workspace' searches other local sessions. For ref pagination, offset is a record "
                          "index for arc refs or character position for record refs. Do not batch retrieval with dependent actions."),
         )]
+
+    def validate(self, manifest: dict[str, list[str]]) -> None:
+        ids = {id for records in manifest.values() for id in records}
+        if ids and {record.id for record in self.retrieval.bank.get(ids=sorted(ids))} != ids:
+            raise ValueError("Previously archived trajectory references are missing; refusing to compact")
+
+    def prepare(
+        self, events: list[SessionEvent], turns: list[int], episodes: list[str],
+        manifest: dict[str, list[str]],
+    ) -> PreparedEvidence:
+        bank = self.retrieval.bank
+        records = prepare_trajectories(self.retrieval.manager, events, turns, episodes)
+        updated = {group: list(ids) for group, ids in manifest.items()}
+        for record in records:
+            group = record.metadata["arc_id"]
+            updated[group] = list(dict.fromkeys([*updated.get(group, []), record.id]))
+        return PreparedEvidence(
+            manifest=updated,
+            episode_references=[f"trajectory-record://{record.id}" for record in records],
+            persist=lambda: bank.archive(records),
+        )
 
     def wrap_model_call(self, request, handler):
         return handler(self._prepare(request))

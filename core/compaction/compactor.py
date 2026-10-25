@@ -8,6 +8,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from core.compaction.episodes import split_task_episodes
+from core.compaction.evidence import CompactionEvidenceProvider
 from core.compaction.models import CompactionResult, Critique
 from core.compaction.policy import CompactionPolicy
 from core.compaction.prompts import ARC_PROMPT, ARC_REVIEW_PROMPT, TASK_EPISODES_PROMPT
@@ -20,26 +21,23 @@ from core.utilities.defaults import get_model_name
 
 if TYPE_CHECKING:
     from core.session.manager import SessionManager
-    from core.trajectory_bank.store import TrajectoryBank
 
 
 class Compactor:
-    """Synthesize a cumulative session arc, optionally archiving evicted evidence."""
+    """Synthesize a cumulative session arc with optional evidence persistence."""
 
     def __init__(
         self,
         policy: CompactionPolicy | None = None,
         token_counter: TokenCounter | None = None,
         *,
-        trajectory_bank: TrajectoryBank | None = None,
+        evidence_provider: CompactionEvidenceProvider | None = None,
         session_manager: SessionManager | None = None,
     ) -> None:
         self.policy = policy or CompactionPolicy()
         self.policy.validate()
         self.token_counter = token_counter or TokenCounter()
-        if trajectory_bank is not None and session_manager is None:
-            raise ValueError("session_manager is required when trajectory_bank is supplied")
-        self.trajectory_bank = trajectory_bank
+        self.evidence_provider = evidence_provider
         self.session_manager = session_manager
 
     def compact(
@@ -67,10 +65,9 @@ class Compactor:
                                     retained_event_count=len(events), token_usage=usage.as_dict(),
                                     token_estimate_before=estimated)
 
-        bank, manager = self.trajectory_bank, self.session_manager
-        prior_ids = {id for ids in manifest.values() for id in ids}
-        if bank is not None and prior_ids and {record.id for record in bank.get(ids=sorted(prior_ids))} != prior_ids:
-            raise ValueError("Previously archived trajectory references are missing; refusing to compact")
+        provider, manager = self.evidence_provider, self.session_manager
+        if provider is not None:
+            provider.validate(manifest)
         sources = {
             "previous_session_arc": previous,
             "trajectory": events_to_trajectory(new_events),
@@ -82,14 +79,9 @@ class Compactor:
         if not extraction:
             raise ValueError("Task episodes are empty; keeping original session context")
         episodes = split_task_episodes(extraction)
-        records = []
-        if bank is not None:
-            from core.trajectory_bank.archival import prepare_trajectories
-
-            records = prepare_trajectories(manager, new_events, turns, episodes)
-            for record in records:
-                group = record.metadata["arc_id"]
-                manifest[group] = list(dict.fromkeys([*manifest.get(group, []), record.id]))
+        evidence = provider.prepare(new_events, turns, episodes, manifest) if provider is not None else None
+        if evidence is not None:
+            manifest = evidence.manifest
         references = []
         for group, ids in manifest.items():
             if manager:
@@ -100,7 +92,7 @@ class Compactor:
             references.append(f"Raw session: {manager.dump_path} (look up the cited turn numbers).")
         prompt = json.dumps({
             **sources,
-            "task_episodes": [{"content": episode, "reference": f"trajectory-record://{records[index].id}" if records else ""}
+            "task_episodes": [{"content": episode, "reference": evidence.episode_references[index] if evidence else ""}
                               for index, episode in enumerate(episodes)],
             "retained_tail_for_orientation_only": events_to_trajectory(window.retained),
             "evidence_references": references,
@@ -136,8 +128,8 @@ class Compactor:
                 memory = revised
 
         # References and publication are harness-owned, independent of the model's prose.
-        if bank is not None:
-            bank.archive(records)
+        if evidence is not None:
+            evidence.persist()
         document = memory
         if references:
             document += "\n\nEvidence references:\n" + "\n".join(references)

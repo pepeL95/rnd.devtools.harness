@@ -118,7 +118,7 @@ max_critic_loops = 1
 trigger_every_turns = 1
 
 [trajectory_bank]
-enabled = true
+enabled = false
 automatic_min_similarity = 0.72
 search_min_similarity = 0.35
 automatic_results = 2
@@ -157,6 +157,9 @@ A bounded fidelity review checks for lost context, not formatting. If review att
 run out, a warning is logged and the latest nonempty revision is used. The harness
 retains an evidence index independently of the prose; archival and stale-session checks remain.
 Extraction uses the compactor model (one additional call), without new configuration.
+The [session-arc pipeline](core/compaction/README.md) runs independently of archival.
+Its optional evidence-provider interface lets storage middleware supply references
+and persist episodes without changing the generation prompts or review loop.
 The CLI start event shows estimated tokens in the context selected for replacement,
 excluding retained turns and pinned instructions. Completion shows `before -> injected`
 tokens and the savings (or growth). Both sides estimate restored message content with
@@ -177,6 +180,8 @@ counts across extraction, synthesis, review, and revisions. `reported_calls` and
 Provider usage can include reasoning and cached input; retries not exposed by the
 provider are not independently counted. Trigger thresholds are unchanged.
 
+Trajectory-bank middleware is disabled by default. Set `[trajectory_bank] enabled = true`
+to enable offloading and recall. Existing explicit settings are preserved.
 Optional archival uses the nearest `.quasipilot/.trajectorybank` (cwd, then parents).
 Disabling it does not change compaction semantics. New archives store task episodes,
 not duplicate per-turn records; existing archives remain unchanged and available through

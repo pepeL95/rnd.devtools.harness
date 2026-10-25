@@ -58,9 +58,9 @@ Ensure to use the folder structure to employ good engineering principles.
 ## compaction
 
 > The compaction design below is historical. The current implementation uses one
-> cumulative task-arc pipeline with optional archival, not separate segmentation
-> and prose synthesis. See [the current behavior](../../README.md) and
-> [arc semantics](../../core/trajectory_bank/docs/v1.md#compaction-and-records).
+> pipeline of task-episode extraction, cumulative session-arc synthesis, and semantic
+> review. Optional storage plugs into an evidence-provider interface. See
+> [the current behavior](../../core/compaction/README.md).
 
 - There is a GOOGLE_API_KEY already under .env -- we will use gemini models for evaluating our compaction module.
 

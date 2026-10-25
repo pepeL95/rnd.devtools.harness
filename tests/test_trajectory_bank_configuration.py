@@ -25,7 +25,7 @@ def configure(root, enabled):
     return directory
 
 
-@pytest.mark.parametrize("setting,override,expected", [(None, None, True), (False, None, False),
+@pytest.mark.parametrize("setting,override,expected", [(None, None, False), (False, None, False),
     (True, None, True), (True, False, False), (False, True, True)])
 def test_driver_bank_toggle_controls_middleware_and_archival(tmp_path, setting, override, expected):
     if setting is not None:
@@ -37,8 +37,26 @@ def test_driver_bank_toggle_controls_middleware_and_archival(tmp_path, setting, 
     recall = [item for item in middleware if isinstance(item, TrajectoryBankMiddleware)]
     assert bool(recall) == expected
     compaction = next(item for item in middleware if type(item).__name__ == "CompactionMiddleware")
-    assert (compaction.coordinator.compactor.trajectory_bank is not None) == expected
+    assert (compaction.coordinator.compactor.evidence_provider is not None) == expected
+    if expected:
+        assert compaction.coordinator.compactor.evidence_provider is recall[0]
     assert not (tmp_path / ".quasipilot/.trajectorybank/chroma.sqlite3").exists()
+
+
+def test_default_cli_and_driver_do_not_construct_a_bank(tmp_path):
+    with patch("cli.run.Path.cwd", return_value=tmp_path), \
+         patch("cli.run.TrajectoryBank", side_effect=AssertionError("Bank is disabled")), \
+         patch("agents.driver.agent.TrajectoryBank", side_effect=AssertionError("Bank is disabled")), \
+         patch("langchain.agents.create_agent") as factory:
+        app = QuasipilotApp()
+        manager = SessionManager(root=tmp_path / "sessions")
+        coordinator = app._build_compaction_coordinator(manager)
+        create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager,
+                                              session_compaction_coordinator=coordinator))
+    assert app._trajectory_bank is None
+    assert coordinator.compactor.evidence_provider is None
+    assert not any(isinstance(item, TrajectoryBankMiddleware) for item in factory.call_args.kwargs["middleware"])
+    assert not (tmp_path / ".quasipilot/.trajectorybank").exists()
 
 
 def test_nearest_workspace_shared_by_cli_and_bank(tmp_path):
@@ -77,15 +95,16 @@ def test_cli_compaction_reads_parent_workspace_setting(tmp_path, enabled):
         app = QuasipilotApp()
     manager = SessionManager(root=tmp_path / "sessions")
     coordinator = app._build_compaction_coordinator(manager)
-    assert (coordinator.compactor.trajectory_bank is not None) == enabled
+    assert (coordinator.compactor.evidence_provider is not None) == enabled
     if enabled:
-        assert coordinator.compactor.trajectory_bank.root == directory
-        assert coordinator.compactor.trajectory_bank is app._trajectory_bank
+        assert coordinator.compactor.evidence_provider.retrieval.bank.root == directory
+        assert coordinator.compactor.evidence_provider.retrieval.bank is app._trajectory_bank
     assert not (child / ".quasipilot").exists()
     assert (directory / "chroma.sqlite3").exists() == enabled
 
 
-def test_cli_startup_initializes_by_default_without_embeddings(tmp_path):
+def test_enabled_cli_startup_initializes_without_embeddings(tmp_path):
+    configure(tmp_path, True)
     with patch("core.trajectory_bank.embeddings.LocalEmbeddings.embed_documents", side_effect=AssertionError("must stay lazy")) as embed:
         with patch("cli.run.Path.cwd", return_value=tmp_path):
             first = QuasipilotApp()
@@ -105,6 +124,7 @@ def test_disabled_cli_startup_does_not_open_chroma(tmp_path):
 
 
 def test_cli_reports_bank_initialization_failure(tmp_path):
+    configure(tmp_path, True)
     with patch("cli.run.Path.cwd", return_value=tmp_path), patch.object(TrajectoryBank, "initialize", side_effect=OSError("disk full")):
         with pytest.raises(OSError, match="disk full"):
             QuasipilotApp()
@@ -113,6 +133,7 @@ def test_cli_reports_bank_initialization_failure(tmp_path):
 def test_cli_and_driver_share_overridden_embedding_default(tmp_path):
     from langchain_core.embeddings import DeterministicFakeEmbedding
 
+    configure(tmp_path, True)
     model = DeterministicFakeEmbedding(size=3)
     with patch.object(defaults, "get_default_embedding_model", return_value=model) as factory, \
          patch.object(defaults, "DEFAULT_EMBEDDING_IDENTITY", "custom-default-v1"), \
@@ -124,7 +145,7 @@ def test_cli_and_driver_share_overridden_embedding_default(tmp_path):
             create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager,
                                                   session_compaction_coordinator=coordinator))
     recall = next(item for item in create.call_args.kwargs["middleware"] if isinstance(item, TrajectoryBankMiddleware))
-    assert coordinator.compactor.trajectory_bank is app._trajectory_bank
+    assert coordinator.compactor.evidence_provider is recall
     assert recall.retrieval.bank is app._trajectory_bank
     assert app._trajectory_bank.embedder is model
     assert app._trajectory_bank._collection.metadata["embedding_identity"] == "custom-default-v1"
@@ -133,7 +154,8 @@ def test_cli_and_driver_share_overridden_embedding_default(tmp_path):
 
 def test_disabled_driver_rejects_injected_archival_coordinator(tmp_path):
     manager = SessionManager(root=tmp_path / "sessions")
-    coordinator = CompactionCoordinator(manager, Compactor(trajectory_bank=TrajectoryBank(tmp_path), session_manager=manager),
+    provider = TrajectoryBankMiddleware(BankRetrieval(TrajectoryBank(tmp_path), manager))
+    coordinator = CompactionCoordinator(manager, Compactor(evidence_provider=provider, session_manager=manager),
                                        telemetry_store=TelemetryStore(tmp_path / "telemetry.jsonl"), repo_root=tmp_path)
     with pytest.raises(ValueError, match="supplied compaction coordinator"):
         create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager,
@@ -162,7 +184,7 @@ def test_all_retrieval_settings_reach_driver_and_direct_retrieval(tmp_path):
         create_driver_agent(DriverAgentConfig(cwd=child, session_manager=manager))
     middleware = next(item for item in factory.call_args.kwargs["middleware"]
                       if isinstance(item, TrajectoryBankMiddleware))
-    expected = BankPolicy(automatic_min_similarity=0.9, search_min_similarity=0.6,
+    expected = BankPolicy(enabled=True, automatic_min_similarity=0.9, search_min_similarity=0.6,
                           automatic_results=3, search_results=7, automatic_tokens=900, search_tokens=1800)
     assert middleware.retrieval.policy == expected
     assert BankRetrieval(TrajectoryBank(child), manager).policy == expected

@@ -70,6 +70,5 @@ Each run writes a timestamped bundle under `eval_results/` containing:
 - `metrics.json`
 - `summary.md`
 
-Compaction runs also emit `memory.md` and an empty legacy `segmentation.md`
-(there is no separate segmentation stage), while trajectory
+Compaction runs also emit `memory.md` and extracted task episodes in `segmentation.md`, while trajectory
 compression runs emit `syntheses.json`.

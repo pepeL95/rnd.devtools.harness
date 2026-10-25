@@ -210,7 +210,7 @@ def compactor(bank, manager, memory="Tabs require exact matching. Updated filesy
               episodes=None):
     model = compact_model(memory, episodes=episodes)
     return Compactor(policy=CompactionPolicy(keep_last_turns=keep_last_turns, compactor_model=model, max_critic_loops=0),
-                     trajectory_bank=bank, session_manager=manager)
+                     evidence_provider=TrajectoryBankMiddleware(BankRetrieval(bank, manager)), session_manager=manager)
 
 
 def test_task_episodes_span_turns_and_support_exact_and_semantic_recall(bank, manager):
@@ -705,7 +705,8 @@ def test_fidelity_review_uses_latest_revision(bank, manager, caplog, approved, l
         AIMessage(content="Remove invented inefficiency; preserve reread-each-turn requirement.")
     ] * loops + [AIMessage(content=final_review)])
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, compactor_model=synthesis, critic_model=critic,
-                                               max_critic_loops=loops), trajectory_bank=bank, session_manager=manager)
+                                               max_critic_loops=loops),
+                       evidence_provider=TrajectoryBankMiddleware(BankRetrieval(bank, manager)), session_manager=manager)
     raw = manager.read_dump()
     result = engine.compact(source)
     assert "Reread AGENTS.md each turn" in result.memory_document
