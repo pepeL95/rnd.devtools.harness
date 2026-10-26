@@ -46,7 +46,7 @@ def test_optional_evidence_preserves_the_arc_request_contract(enabled):
             assert episodes == ["## Matching\nTabs stay exact (turn 1)."]
             timeline.append("prepare")
             return PreparedEvidence({"batch": ["record-1"]}, ["trajectory-record://record-1"],
-                                    lambda: timeline.append("persist"))
+                                    lambda result: timeline.append("persist"))
 
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, compactor_model=model, critic_model=model),
                        evidence_provider=Provider() if enabled else None)

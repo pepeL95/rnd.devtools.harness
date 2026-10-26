@@ -49,10 +49,12 @@ class Compactor:
         usage = _TokenUsage()
         previous = []
         manifest: dict[str, list[str]] = {}
+        archive_references: list[str] = []
         new_events = []
         for event in window.compacted:
             if event.payload.get("kind") == "memory_restore":
                 previous.append(event.payload.get("session_arc", event.payload.get("content", "")))
+                archive_references.extend(event.payload.get("evidence_references", []))
                 for group, ids in event.payload.get("trajectory_manifest", {}).items():
                     manifest[group] = list(dict.fromkeys([*manifest.get(group, []), *ids]))
             else:
@@ -82,7 +84,9 @@ class Compactor:
         evidence = provider.prepare(new_events, turns, episodes, manifest) if provider is not None else None
         if evidence is not None:
             manifest = evidence.manifest
-        references = []
+            archive_references.extend(evidence.references)
+        archive_references = list(dict.fromkeys(archive_references))
+        references = list(archive_references)
         for group, ids in manifest.items():
             if manager:
                 references.append(f"trajectory://{manager.session_id}/{group} ({len(ids)} trajectories)")
@@ -128,20 +132,22 @@ class Compactor:
                 memory = revised
 
         # References and publication are harness-owned, independent of the model's prose.
-        if evidence is not None:
-            evidence.persist()
         document = memory
         if references:
             document += "\n\nEvidence references:\n" + "\n".join(references)
         memory_event = SessionEvent(type=EventType.USER, turn=window.compacted[0].turn, payload={
             "role": "user", "kind": "memory_restore", "content": memory_restore_message(document),
             "session_arc": memory, "trajectory_manifest": manifest,
+            "evidence_references": archive_references,
             "compacted_event_count": len(window.compacted), "retained_event_count": len(window.retained),
         })
-        return CompactionResult(events=[memory_event, *window.retained], memory_document=document, segmentation=extraction,
+        result = CompactionResult(events=[memory_event, *window.retained], memory_document=document, segmentation=extraction,
                                 revisions=revisions, critiques=critiques, model_names=model_names, token_usage=usage.as_dict(),
                                 token_estimate_before=estimated, compacted_event_count=len(window.compacted),
                                 retained_event_count=len(window.retained))
+        if evidence is not None:
+            evidence.persist(result)
+        return result
 
 
 def _invoke_text(

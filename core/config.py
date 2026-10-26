@@ -35,6 +35,7 @@ class TrajectoryCompactionConfig(BaseModel):
 class CompactionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    offloading: Literal["lfs", "none"] = "lfs"
     session: SessionCompactionConfig = Field(default_factory=SessionCompactionConfig)
     trajectory: TrajectoryCompactionConfig = Field(default_factory=TrajectoryCompactionConfig)
 
@@ -57,6 +58,7 @@ def ensure_config(cwd: Path) -> Path:
         with path.open("x", encoding="utf-8") as handle:
             handle.write(
                 f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n\n'
+                f'[compaction]\noffloading = "{defaults.compaction.offloading}"\n\n'
                 f"[compaction.session]\ntrigger_tokens = {session.trigger_tokens}\n"
                 f"keep_last_turns = {session.keep_last_turns}\n"
                 f"max_critic_loops = {session.max_critic_loops}\n\n"

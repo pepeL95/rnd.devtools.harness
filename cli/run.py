@@ -31,6 +31,7 @@ from cli.utilities.models import ModelSummary, default_models
 from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
+from core.compaction.lfs import LfsEvidenceProvider
 from core.compaction.policy import CompactionPolicy
 from core.config import ensure_config, load_config
 from core.preferences.coordinator import PreferencesCoordinator
@@ -331,7 +332,10 @@ class QuasipilotApp(App[None]):
         settings = load_config(self._cwd)
         return CompactionCoordinator(
             manager,
-            Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump()), session_manager=manager),
+            Compactor(
+                policy=CompactionPolicy(**settings.compaction.session.model_dump()), session_manager=manager,
+                evidence_provider=LfsEvidenceProvider(manager) if settings.compaction.offloading == "lfs" else None,
+            ),
             on_compaction_event=self._post_compaction_event,
             telemetry_store=TelemetryStore(telemetry_session_path(manager.session_id)),
         )

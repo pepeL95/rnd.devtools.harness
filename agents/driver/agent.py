@@ -11,6 +11,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
+from core.compaction.lfs import LfsEvidenceProvider
 from core.compaction.policy import CompactionPolicy
 from core.config import ReasoningEagerness, load_config
 from core.live_steering import LiveSteeringController
@@ -78,7 +79,10 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     )
     session_compaction_coordinator = config.session_compaction_coordinator or CompactionCoordinator(
         manager,
-        Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump()), session_manager=manager),
+        Compactor(
+            policy=CompactionPolicy(**settings.compaction.session.model_dump()), session_manager=manager,
+            evidence_provider=LfsEvidenceProvider(manager) if settings.compaction.offloading == "lfs" else None,
+        ),
         on_compaction_event=config.on_compaction_event,
         telemetry_store=telemetry_store,
     )

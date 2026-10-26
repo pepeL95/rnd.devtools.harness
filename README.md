@@ -109,6 +109,9 @@ Configure reasoning and compaction in the nearest workspace's `.quasipilot/confi
 [reasoning]
 eagerness = "high" # low, medium, or high (default)
 
+[compaction]
+offloading = "lfs" # lfs (default) or none
+
 [compaction.session]
 trigger_tokens = 80000
 keep_last_turns = 2
@@ -145,8 +148,22 @@ The [session-arc pipeline](core/compaction/README.md) preserves tasks, concrete 
 constraints, findings, and next actions without a rigid output schema. A bounded fidelity
 review checks for lost context; on exhaustion, a warning is logged and the latest
 nonempty revision is used. Extraction uses the compactor model, without new configuration.
-An optional evidence-provider interface lets storage middleware supply references and
-persist episodes. The standalone pipeline does not require archive storage or retrieval.
+By default, local-filesystem (`lfs`) offloading saves the final reviewed arc and the
+exact intermediate task clusters, without extra model calls:
+
+```text
+~/.quasipilot/sessions/memories/<session-id>/
+  arcs/<uuid>.md
+  trajectories/<uuid>.md
+```
+
+Each compaction adds a matching UUID pair. Both files have YAML frontmatter with
+`date: "yyyy-mm-dd-hh-mm-ss"` in UTC. Trajectories describe only newly evicted work;
+arcs are cumulative. File references survive later compactions and can be read with
+the existing filesystem tools. Custom session roots also relocate `memories/`.
+Set `compaction.offloading = "none"` to disable new archives without changing the
+arc pipeline or deleting existing files. Chroma/`trajectorybank` remains on its
+feature branch, not a mode available on `main`.
 
 The CLI start event shows estimated tokens selected for replacement. Completion shows
 `before -> injected` tokens and savings or growth. These estimates count restored

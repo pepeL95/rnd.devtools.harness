@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
+from core.compaction.models import CompactionResult
 from core.session.events import SessionEvent
 
 
@@ -13,7 +14,8 @@ class PreparedEvidence:
 
     manifest: dict[str, list[str]]
     episode_references: list[str]
-    persist: Callable[[], None]
+    persist: Callable[[CompactionResult], None]
+    references: list[str] = field(default_factory=list)
 
 
 class CompactionEvidenceProvider(Protocol):
