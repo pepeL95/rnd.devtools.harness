@@ -4,7 +4,7 @@ import tomllib
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core.utilities.workspace import workspace_directory
 
@@ -35,9 +35,16 @@ class TrajectoryCompactionConfig(BaseModel):
 class CompactionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    offloading: Literal["lfs", "none"] = "lfs"
+    offloading: Literal["lfs", "none"] | list[Literal["lfs"]] = "lfs"
     session: SessionCompactionConfig = Field(default_factory=SessionCompactionConfig)
     trajectory: TrajectoryCompactionConfig = Field(default_factory=TrajectoryCompactionConfig)
+
+    @field_validator("offloading")
+    @classmethod
+    def unique_offloading_destinations(cls, value: str | list[str]) -> str | list[str]:
+        if isinstance(value, list) and len(value) != len(set(value)):
+            raise ValueError("Offloading destinations must not be repeated")
+        return value
 
 
 class HarnessConfig(BaseModel):

@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from typing import Any, TYPE_CHECKING
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from core.compaction.episodes import split_task_episodes
-from core.compaction.evidence import CompactionEvidenceProvider
 from core.compaction.models import CompactionResult, Critique
+from core.compaction.offloading import BaseCompactionOffloadingStrategy, CompactionOffloadingStack
 from core.compaction.policy import CompactionPolicy
 from core.compaction.prompts import ARC_PROMPT, ARC_REVIEW_PROMPT, TASK_EPISODES_PROMPT
 from core.compaction.serialization import events_to_trajectory, memory_restore_message
@@ -31,13 +32,16 @@ class Compactor:
         policy: CompactionPolicy | None = None,
         token_counter: TokenCounter | None = None,
         *,
-        evidence_provider: CompactionEvidenceProvider | None = None,
+        offloading: BaseCompactionOffloadingStrategy | Sequence[BaseCompactionOffloadingStrategy] | None = None,
         session_manager: SessionManager | None = None,
     ) -> None:
         self.policy = policy or CompactionPolicy()
         self.policy.validate()
         self.token_counter = token_counter or TokenCounter()
-        self.evidence_provider = evidence_provider
+        self.offloading = (
+            offloading if offloading is None or isinstance(offloading, BaseCompactionOffloadingStrategy)
+            else CompactionOffloadingStack(offloading)
+        )
         self.session_manager = session_manager
 
     def compact(
@@ -67,9 +71,9 @@ class Compactor:
                                     retained_event_count=len(events), token_usage=usage.as_dict(),
                                     token_estimate_before=estimated)
 
-        provider, manager = self.evidence_provider, self.session_manager
-        if provider is not None:
-            provider.validate(manifest)
+        strategy, manager = self.offloading, self.session_manager
+        if strategy is not None:
+            strategy.validate(manifest)
         sources = {
             "previous_session_arc": previous,
             "trajectory": events_to_trajectory(new_events),
@@ -81,7 +85,7 @@ class Compactor:
         if not extraction:
             raise ValueError("Task episodes are empty; keeping original session context")
         episodes = split_task_episodes(extraction)
-        evidence = provider.prepare(new_events, turns, episodes, manifest) if provider is not None else None
+        evidence = strategy.prepare(new_events, turns, episodes, manifest) if strategy is not None else None
         if evidence is not None:
             manifest = evidence.manifest
             archive_references.extend(evidence.references)

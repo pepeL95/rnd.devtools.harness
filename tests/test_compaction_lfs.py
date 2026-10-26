@@ -9,7 +9,7 @@ import pytest
 
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
-from core.compaction.lfs import LfsEvidenceProvider
+from core.compaction.lfs import LfsCompactionOffloadingStrategy
 from core.compaction.policy import CompactionPolicy
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager
@@ -37,7 +37,7 @@ def engine(manager, responses):
     model = Model(responses)
     return Compactor(
         policy=CompactionPolicy(keep_last_turns=1, compactor_model=model, critic_model=model),
-        evidence_provider=LfsEvidenceProvider(manager), session_manager=manager,
+        offloading=LfsCompactionOffloadingStrategy(manager), session_manager=manager,
     ), model
 
 
@@ -79,7 +79,7 @@ def test_repeated_compactions_append_pairs_and_preserve_previous_references(tmp_
     manager = SessionManager(root=tmp_path)
     compactor, model = engine(manager, [EPISODES, "Arc one", "APPROVE", "New episode", "Arc two", "APPROVE"])
     first = compactor.compact([event(1, "First task"), event(2, "Second task")])
-    root = compactor.evidence_provider.root
+    root = compactor.offloading.root
     original = {path: path.read_bytes() for path in root.rglob("*.md")}
     second = compactor.compact([*first.events, event(3, "Current task")])
     assert len(list(root.glob("arcs/*.md"))) == 2
@@ -97,14 +97,14 @@ def test_model_failure_does_not_create_archives(tmp_path, responses):
     compactor, _ = engine(SessionManager(root=tmp_path), responses)
     with pytest.raises(ValueError, match="empty"):
         compactor.compact([event(1, "Task"), event(2, "Tail")])
-    assert not compactor.evidence_provider.root.exists()
+    assert not compactor.offloading.root.exists()
 
 
 def test_noop_does_not_create_archives_or_call_model(tmp_path):
     compactor, model = engine(SessionManager(root=tmp_path), [])
     source = [event(1, "Retained")]
     assert compactor.compact(source).events == source
-    assert not compactor.evidence_provider.root.exists()
+    assert not compactor.offloading.root.exists()
     assert not model.calls
 
 
@@ -132,25 +132,25 @@ def test_write_failure_removes_partial_pair_and_keeps_session(tmp_path):
     assert notifications[-1][0] == "error"
     assert notifications[-1][1]["error"] == "Disk full"
     assert manager.curated_path.read_bytes() == original
-    assert not list(compactor.evidence_provider.root.rglob("*.md"))
+    assert not list(compactor.offloading.root.rglob("*.md"))
 
 
 def test_existing_files_are_never_overwritten(tmp_path):
     manager = SessionManager(root=tmp_path)
     compactor, _ = engine(manager, [EPISODES, "Arc", "APPROVE"])
-    existing = compactor.evidence_provider.root / "trajectories/fixed-id.md"
+    existing = compactor.offloading.root / "trajectories/fixed-id.md"
     existing.parent.mkdir(parents=True)
     existing.write_text("Previous archive", encoding="utf-8")
     with patch("core.compaction.lfs.uuid4", return_value="fixed-id"):
         with pytest.raises(FileExistsError):
             compactor.compact([event(1, "Task"), event(2, "Tail")])
     assert existing.read_text() == "Previous archive"
-    assert list(compactor.evidence_provider.root.rglob("*.md")) == [existing]
+    assert list(compactor.offloading.root.rglob("*.md")) == [existing]
 
 
 def test_default_root_is_under_home_sessions(tmp_path):
     with patch("core.session.io.Path.home", return_value=tmp_path):
-        provider = LfsEvidenceProvider(SessionManager(session_id="example"))
+        provider = LfsCompactionOffloadingStrategy(SessionManager(session_id="example"))
     assert provider.root == tmp_path / ".quasipilot/sessions/memories/example"
 
 

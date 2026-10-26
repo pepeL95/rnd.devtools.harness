@@ -110,7 +110,7 @@ Configure reasoning and compaction in the nearest workspace's `.quasipilot/confi
 eagerness = "high" # low, medium, or high (default)
 
 [compaction]
-offloading = "lfs" # lfs (default) or none
+offloading = "lfs" # also accepts ["lfs"]; "none" or [] disables offloading
 
 [compaction.session]
 trigger_tokens = 80000
@@ -164,6 +164,12 @@ the existing filesystem tools. Custom session roots also relocate `memories/`.
 Set `compaction.offloading = "none"` to disable new archives without changing the
 arc pipeline or deleting existing files. Chroma/`trajectorybank` remains on its
 feature branch, not a mode available on `main`.
+
+Storage implementations subclass `BaseCompactionOffloadingStrategy`. Python callers
+can pass one strategy or an ordered list to `Compactor(offloading=...)`; all receive
+the same reviewed result. Stacks merge references and persist before session
+publication. Any failure prevents publication, though earlier destinations may
+already contain unreferenced archives. See the [strategy lifecycle](core/compaction/README.md#offloading-strategies).
 
 The CLI start event shows estimated tokens selected for replacement. Completion shows
 `before -> injected` tokens and savings or growth. These estimates count restored

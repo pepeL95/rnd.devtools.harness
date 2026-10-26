@@ -5,18 +5,16 @@ from uuid import uuid4
 
 from core.compaction.evidence import PreparedEvidence
 from core.compaction.models import CompactionResult
+from core.compaction.offloading import BaseCompactionOffloadingStrategy
 from core.session.events import SessionEvent
 from core.session.manager import SessionManager
 
 
-class LfsEvidenceProvider:
+class LfsCompactionOffloadingStrategy(BaseCompactionOffloadingStrategy):
     """Archive reviewed session arcs and their extracted task clusters as Markdown."""
 
     def __init__(self, manager: SessionManager) -> None:
         self.root = manager.dump_path.parent.parent / "memories" / manager.session_id
-
-    def validate(self, manifest: dict[str, list[str]]) -> None:
-        pass
 
     def prepare(
         self, events: list[SessionEvent], turns: list[int], episodes: list[str],

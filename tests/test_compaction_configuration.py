@@ -7,7 +7,7 @@ from agents.driver.agent import DriverAgentConfig, create_driver_agent
 from cli.run import QuasipilotApp
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
-from core.compaction.lfs import LfsEvidenceProvider
+from core.compaction.lfs import LfsCompactionOffloadingStrategy
 from core.compaction.policy import CompactionPolicy
 from core.config import HarnessConfig, ensure_config, load_config
 from core.middleware.compaction import CompactionMiddleware
@@ -104,7 +104,7 @@ def test_python_driver_uses_compaction_settings(tmp_path):
     with patch("langchain.agents.create_agent") as factory:
         create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager))
     assert_custom_policies(*coordinators(factory))
-    assert isinstance(coordinators(factory)[0].compactor.evidence_provider, LfsEvidenceProvider)
+    assert isinstance(coordinators(factory)[0].compactor.offloading.strategies[0], LfsCompactionOffloadingStrategy)
 
 
 def test_cli_uses_parent_config_for_both_compaction_policies(tmp_path):
@@ -120,7 +120,7 @@ def test_cli_uses_parent_config_for_both_compaction_policies(tmp_path):
         app._build_agent(manager.session_id)
     session, trajectory = coordinators(factory)
     assert session is app._compaction_coordinator
-    assert isinstance(session.compactor.evidence_provider, LfsEvidenceProvider)
+    assert isinstance(session.compactor.offloading.strategies[0], LfsCompactionOffloadingStrategy)
     assert_custom_policies(session, trajectory)
     assert not (child / ".quasipilot").exists()
 
@@ -155,19 +155,36 @@ def test_new_config_exposes_lfs_default(tmp_path):
     assert load_config(tmp_path).compaction.offloading == "lfs"
 
 
-def test_offloading_can_be_disabled_in_driver_and_cli(tmp_path):
-    configure(tmp_path, '[compaction]\noffloading = "none"\n')
+@pytest.mark.parametrize("disabled", ['"none"', '[]'])
+def test_offloading_can_be_disabled_in_driver_and_cli(tmp_path, disabled):
+    configure(tmp_path, f'[compaction]\noffloading = {disabled}\n')
     manager = SessionManager(root=tmp_path / "sessions")
     with patch("langchain.agents.create_agent") as factory:
         create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager))
-    assert coordinators(factory)[0].compactor.evidence_provider is None
+    assert coordinators(factory)[0].compactor.offloading.strategies == ()
     with patch("cli.run.Path.cwd", return_value=tmp_path):
         app = QuasipilotApp()
-    assert app._build_compaction_coordinator(manager).compactor.evidence_provider is None
+    assert app._build_compaction_coordinator(manager).compactor.offloading.strategies == ()
     assert not (tmp_path / "sessions/memories").exists()
 
 
-def test_unknown_offloading_mode_is_rejected(tmp_path):
-    configure(tmp_path, '[compaction]\noffloading = "unknown"\n')
+@pytest.mark.parametrize("invalid", ['"unknown"', '["lfs", "unknown"]', '["lfs", "lfs"]', '["none", "lfs"]'])
+def test_invalid_offloading_modes_are_rejected(tmp_path, invalid):
+    configure(tmp_path, f'[compaction]\noffloading = {invalid}\n')
     with pytest.raises(ValueError, match="Invalid harness configuration"):
         load_config(tmp_path)
+
+
+def test_offloading_array_is_supported_in_driver_and_cli(tmp_path):
+    configure(tmp_path, '[compaction]\noffloading = ["lfs"]\n')
+    manager = SessionManager(root=tmp_path / "sessions")
+    with patch("langchain.agents.create_agent") as factory:
+        create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager))
+    strategies = coordinators(factory)[0].compactor.offloading.strategies
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], LfsCompactionOffloadingStrategy)
+    with patch("cli.run.Path.cwd", return_value=tmp_path):
+        app = QuasipilotApp()
+    strategies = app._build_compaction_coordinator(manager).compactor.offloading.strategies
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], LfsCompactionOffloadingStrategy)
