@@ -1,5 +1,38 @@
 # Evaluations
 
+## Trajectory Compaction A/B
+
+Five short synthetic coding turns cover whitespace diagnosis, same-turn cancellation,
+config precedence, stale publication, and a blocked embedding migration. Each has
+five preservation checks and three memory-only continuation checks. The fixtures are
+not captured production sessions; expected answers never enter synthesis or probes.
+
+```sh
+conda activate quasipilot-harness
+python evals/trajectory_compaction_ab.py --repeats 2
+```
+
+This uses the configured trajectory model and incurs 40 model requests: two prompts,
+five cases, two repeats, with one continuation probe per synthesis. Both variants use
+identical inputs, temperature, and thinking settings; request order alternates.
+`--case-id exact_whitespace --repeats 1` runs a four-request pilot. The baseline is
+frozen in `trajectory_compaction_baseline.txt`; `--candidate` selects an experimental
+prompt without changing production. No extra review stage or input-selection change
+is introduced into the harness.
+
+Timestamped `eval_results/trajectory_compaction_ab/` bundles retain fixtures, prompt
+texts/hashes, source events, raw requests/responses, memories, continuation answers,
+provider usage, and restored-context token estimates. Failures are included as zero
+coverage with unchanged session context, and cause a nonzero exit. A failed synthesis
+has no continuation answer. Provider retries hidden by the SDK are not independently
+metered. Automatic checks require all listed patterns but cannot prove causality or
+detect every hallucination; inspect outputs against source before adopting a prompt.
+Continuation answers are a resumability proxy, not measured coding-task performance.
+Repeated temperature-zero outputs are not independent statistical evidence. Track
+format failures and per-case regressions, not just aggregate scores or smaller notes.
+See [the initial A/B findings](trajectory_compaction_findings.md). The candidate
+remains experimental; production synthesis instructions have not changed.
+
 ## Trajectory Bank Retrieval
 
 Run the real local embedding model against positive and close-topic negative

@@ -1,0 +1,132 @@
+{
+  "name": "trajectory_compaction_ab",
+  "version": 1,
+  "description": "Five synthetic harness-shaped turns. Facts and continuation probes are evaluation-only, never synthesis input.",
+  "cases": [
+    {
+      "id": "exact_whitespace",
+      "user": "Fix the failed replacement in parser.py without changing how Python indentation behaves.",
+      "steps": [
+        {"reasoning": "I initially suspected a stale line number. I will inspect the exact string instead of repeating the replacement."},
+        {"command": "python inspect_match.py parser.py", "output": "edit_file: old_string not found. Line lookup succeeds. repr(source) = '\\treturn item'; repr(old_string) = '    return item'. Source indentation is U+0009, not four spaces."},
+        {"reasoning": "The line number is not the cause. U+0009 explains the exact-match failure. Normalizing tabs to spaces would change source indentation, so I reject fuzzy normalization. I should pass the original tabbed text and add diagnostics, not loosen matching."},
+        {"command": "git diff -- core/middleware/filesystem.py", "output": "_edit_diagnostic now includes repr(old_string) and repr(candidate) on a failed exact match. The actual matching operation is unchanged. parser.py was edited using old_string='\\treturn item', new_string='\\treturn result'."},
+        {"command": "conda run -n quasipilot-harness python -m pytest tests/test_edit_diagnostics.py", "output": "18 passed. Checks cover tabs and spaces separately, but no mixed-indentation fixture exists yet."},
+        {"reasoning": "The diagnostics explain the mismatch without modifying matching semantics. A mixed tabs/spaces fixture is still the useful next check; I should not retry fuzzy replacement."}
+      ],
+      "assistant": "The replacement and diagnostics are fixed. Focused checks passed; one edge case remains.",
+      "checks": [
+        {"id": "diagnosis", "patterns": ["U\\+0009|\\\\t", "spaces?", "exact"]},
+        {"id": "rejected_fix", "patterns": ["normaliz|fuzzy", "indentation"]},
+        {"id": "code_anchor", "patterns": ["_edit_diagnostic", "repr\\(old_string\\)"]},
+        {"id": "verification", "patterns": ["quasipilot-harness", "tests/test_edit_diagnostics\\.py", "18"]},
+        {"id": "remaining", "patterns": ["mixed", "fixture|test"]}
+      ],
+      "probe": "Another replacement fails. What diagnosis and exact implementation anchor should I reuse, what fix should I avoid and why, and what verification remains?",
+      "probe_checks": [
+        {"id": "diagnosis", "patterns": ["U\\+0009|\\\\t", "spaces?"]},
+        {"id": "implementation", "patterns": ["_edit_diagnostic", "repr\\(old_string\\)"]},
+        {"id": "safe_continuation", "patterns": ["normaliz|fuzzy", "indentation", "mixed"]}
+      ]
+    },
+    {
+      "id": "cancel_same_turn",
+      "user": "Make Escape cancel the active request while keeping resumption in the same semantic turn.",
+      "steps": [
+        {"command": "python cancellation_probe.py --worker-thread", "output": "The awaiting task cancelled, but the synchronous provider worker continued sending tokens for another 8 seconds."},
+        {"reasoning": "Cancelling a wrapper around a synchronous worker does not stop that worker. I reject that approach and will cancel the native async request task instead. Existing filesystem writes must survive interruption."},
+        {"command": "git diff -- core/live_steering.py cli/run.py", "output": "action_cancel_turn calls active_task.cancel(). LiveSteeringController keeps paused_turn_id and consumes it on resume instead of allocating a new turn. The interruption hint is an assistant introspection rendered as a muted event; the user's steering remains a user message."},
+        {"command": "conda run -n quasipilot-harness python -m pytest tests/test_live_steering.py", "output": "9 passed with a mocked provider. No live provider cancellation test was run."},
+        {"reasoning": "The mock establishes same-turn resumption and role handling, not that the provider actually stops generation. Next I need a live cancellation probe. The patch is uncommitted; cancellation does not roll back completed tool effects."}
+      ],
+      "assistant": "Async cancellation and same-turn resumption are implemented locally. Live verification is still pending.",
+      "checks": [
+        {"id": "failed_approach", "patterns": ["thread|worker", "continued|continues|continuing|does not stop|did not stop|kept|still"]},
+        {"id": "code_anchor", "patterns": ["active_task\\.cancel\\(\\)", "paused_turn_id"]},
+        {"id": "message_roles", "patterns": ["assistant", "muted", "user message"]},
+        {"id": "verification", "patterns": ["tests/test_live_steering\\.py", "mock", "live"]},
+        {"id": "state", "patterns": ["uncommitted", "effects|writes", "roll.?back|not.*undo|preserv|survive"]}
+      ],
+      "probe": "The user resumes after interrupting a tool batch. Which state and cancellation operation matter, what must not be undone, and what can we truthfully claim about provider verification?",
+      "probe_checks": [
+        {"id": "resume_state", "patterns": ["paused_turn_id", "same"]},
+        {"id": "cancellation", "patterns": ["active_task\\.cancel\\(\\)", "effects|writes"]},
+        {"id": "verification_limit", "patterns": ["mock", "live", "not|pending|unverified|yet"]}
+      ]
+    },
+    {
+      "id": "explicit_offloading",
+      "user": "Keep local-file offloading as the default and make the bank opt-in without breaking older configs.",
+      "steps": [
+        {"command": "python inspect_config.py", "output": "Old config: [trajectory_bank] enabled=true, no compaction table. New config: [compaction] offloading=[\"lfs\"]. The schema default alone cannot tell omission from an explicit LFS-only selection."},
+        {"reasoning": "Unconditionally honoring the old enabled flag would activate Chroma even with an explicit LFS-only list. I need field presence, not just the value, to preserve legacy opt-in without overriding an explicit choice."},
+        {"command": "git diff -- core/config.py", "output": "HarnessConfig.offloading_modes checks: if \"offloading\" not in self.compaction.model_fields_set and self.trajectory_bank.enabled: modes.append(\"trajectorybank\"). Explicit [] means no new archives. ensure_config backfill materializes [\"lfs\", \"trajectorybank\"] for a legacy enabled=true config lacking compaction, so startup does not erase its opt-in."},
+        {"command": "conda run -n quasipilot-harness python -m pytest -q", "output": "585 passed, 1 failed. test_default_driver_model_uses_reasoning_profile expected low, got minimal. The failure predates this patch and comes from the user's unrelated core/utilities/defaults.py edit."},
+        {"reasoning": "Explicit offloading wins; backfill must preserve missing-field semantics. I left the user's defaults.py edit untouched. The integration is committed as 219849e and pushed to feature/trajectory-bank, not main."}
+      ],
+      "assistant": "The integration is complete on the feature branch. Local-file offloading remains the default.",
+      "checks": [
+        {"id": "precedence", "patterns": ["offloading_modes", "model_fields_set", "explicit"]},
+        {"id": "migration", "patterns": ["backfill", "legacy", "trajectorybank"]},
+        {"id": "disabled", "patterns": ["\\[\\]", "no|disabl|none"]},
+        {"id": "baseline_failure", "patterns": ["585", "low", "minimal", "unrelated|pre.existing|predat|baseline"]},
+        {"id": "publication", "patterns": ["219849e", "feature/trajectory-bank", "push"]}
+      ],
+      "probe": "An older workspace unexpectedly stops archiving after startup. Which precise condition and migration behavior should I inspect, and should the reported full-suite failure be fixed as part of this work?",
+      "probe_checks": [
+        {"id": "condition", "patterns": ["model_fields_set", "offloading", "enabled"]},
+        {"id": "backfill", "patterns": ["backfill", "trajectorybank"]},
+        {"id": "unrelated_failure", "patterns": ["low", "minimal", "unrelated|pre.existing|baseline", "not|leave|preserv|avoid"]}
+      ]
+    },
+    {
+      "id": "stale_snapshot",
+      "user": "A live correction disappears when background compaction finishes. Fix that without losing archived evidence.",
+      "steps": [
+        {"command": "python reproduce_snapshot.py", "output": "Compaction captured turn 7. A live correction changed turn 7 without changing the latest turn number. Publication based only on snapshot_latest_turn=7 overwrote that correction."},
+        {"reasoning": "The turn number is not a source identity. I need to compare the captured source event IDs with the current curated prefix before replacing it, while allowing genuinely newer turns to remain."},
+        {"command": "git diff -- core/session/manager.py", "output": "apply_compaction_result now receives source_event_ids=[event.id for event in source]. A mismatched source raises StaleCompactionError; newer turns and pinned instructions are preserved. Archive persistence still precedes session publication."},
+        {"command": "python -m pytest tests/test_compaction_snapshots.py", "output": "6 passed. In the stale case, Chroma contains the prepared records but the curated trajectory_manifest does not publish their IDs. Exact retrieval rejects them as 'not published'."},
+        {"reasoning": "A successful archive write is not a successful session publication. I should discard the stale result and resnapshot; not retry publication blindly or delete potentially published records. The original curated context remains authoritative."}
+      ],
+      "assistant": "The race is fixed and the regression checks pass. Unpublished archive records may remain after rejection.",
+      "checks": [
+        {"id": "cause", "patterns": ["same|unchanged|without changing", "turn", "event"]},
+        {"id": "code_anchor", "patterns": ["source_event_ids", "StaleCompactionError", "apply_compaction_result"]},
+        {"id": "publication", "patterns": ["trajectory_manifest", "not published|unpublished"]},
+        {"id": "preservation", "patterns": ["newer", "pinned"]},
+        {"id": "continuation", "patterns": ["resnapshot|fresh snapshot|new snapshot", "tests/test_compaction_snapshots\\.py"]}
+      ],
+      "probe": "The bank contains records after a compaction was rejected. Are they sufficient to resume from that arc? Explain the authority check, the race mechanism, and the next safe action.",
+      "probe_checks": [
+        {"id": "authority", "patterns": ["trajectory_manifest", "not published|unpublished"]},
+        {"id": "identity", "patterns": ["source_event_ids", "turn"]},
+        {"id": "next", "patterns": ["resnapshot|fresh snapshot|new snapshot", "not|avoid|cannot|don't"]}
+      ]
+    },
+    {
+      "id": "blocked_embedding",
+      "user": "Check whether the bank's embedding configuration can be upgraded safely. Do not modify the live bank.",
+      "steps": [
+        {"command": "python inspect_bank.py --read-only", "output": "Live collection embedding_identity=local-minilm-v1, vectors have 384 dimensions. Proposed provider identity=remote-embed-v2, vectors have 768 dimensions."},
+        {"reasoning": "The vectors cannot be mixed by swapping the factory; the embedding identity and dimensionality change. A separate candidate index and an explicit activation are needed. This is a proposal, not an implemented migration."},
+        {"command": "python probe_candidate_embeddings.py --dry-run", "output": "DNS resolution failed before the provider received a request. No candidate index was written. The live bank was opened read-only and unchanged."},
+        {"reasoning": "The network block establishes neither poor embedding quality nor an incompatible provider API. After connectivity is restored I should validate vector shape and retrieval probes in a separate candidate directory. I have no benchmark or successful migration to report."}
+      ],
+      "assistant": "The investigation is blocked by connectivity. No migration was performed and the live bank is unchanged.",
+      "checks": [
+        {"id": "identity", "patterns": ["local-minilm-v1", "remote-embed-v2"]},
+        {"id": "dimension", "patterns": ["384", "768"]},
+        {"id": "blocker", "patterns": ["DNS", "before|never|no request"]},
+        {"id": "safe_migration", "patterns": ["separate|candidate", "explicit", "activation|activate"]},
+        {"id": "verification_limit", "patterns": ["retrieval", "quality|benchmark", "not|no|untested|unknown"]}
+      ],
+      "probe": "Connectivity is restored. What evidence already rules out a direct switch, what should I do next, and what quality conclusions are still unsupported?",
+      "probe_checks": [
+        {"id": "incompatibility", "patterns": ["384", "768", "identity|identit"]},
+        {"id": "safe_next", "patterns": ["candidate|separate", "retrieval", "activation|activate"]},
+        {"id": "uncertainty", "patterns": ["DNS|network", "quality", "not|no|unknown|unsupported"]}
+      ]
+    }
+  ]
+}
