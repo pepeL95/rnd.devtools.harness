@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 import pytest
@@ -7,6 +8,8 @@ from cli.run import QuasipilotApp
 from cli.utilities.workspace import WorkspaceStore
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
+from core.compaction.lfs import LfsCompactionOffloadingStrategy
+from core.compaction.offloading import CompactionOffloadingStack, build_compaction_offloading
 from core.config import ensure_config, load_config
 from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.session.manager import SessionManager
@@ -15,6 +18,7 @@ from core.trajectory_bank.store import TrajectoryBank
 from core.trajectory_bank import defaults
 from core.trajectory_bank.policy import BankPolicy
 from core.trajectory_bank.retrieval import BankRetrieval
+from core.trajectory_bank.offloading import ChromaCompactionOffloadingStrategy, find_bank_strategy
 from core.utilities.workspace import workspace_directory
 
 
@@ -37,16 +41,18 @@ def test_driver_bank_toggle_controls_middleware_and_archival(tmp_path, setting, 
     recall = [item for item in middleware if isinstance(item, TrajectoryBankMiddleware)]
     assert bool(recall) == expected
     compaction = next(item for item in middleware if type(item).__name__ == "CompactionMiddleware")
-    assert (compaction.coordinator.compactor.evidence_provider is not None) == expected
+    strategy = find_bank_strategy(compaction.coordinator.compactor.offloading)
+    assert (strategy is not None) == expected
     if expected:
-        assert compaction.coordinator.compactor.evidence_provider is recall[0]
+        assert strategy.bank is recall[0].retrieval.bank
+    assert isinstance(compaction.coordinator.compactor.offloading.strategies[0], LfsCompactionOffloadingStrategy)
     assert not (tmp_path / ".quasipilot/.trajectorybank/chroma.sqlite3").exists()
 
 
 def test_default_cli_and_driver_do_not_construct_a_bank(tmp_path):
     with patch("cli.run.Path.cwd", return_value=tmp_path), \
          patch("cli.run.TrajectoryBank", side_effect=AssertionError("Bank is disabled")), \
-         patch("agents.driver.agent.TrajectoryBank", side_effect=AssertionError("Bank is disabled")), \
+         patch("core.trajectory_bank.store.TrajectoryBank", side_effect=AssertionError("Bank is disabled")), \
          patch("langchain.agents.create_agent") as factory:
         app = QuasipilotApp()
         manager = SessionManager(root=tmp_path / "sessions")
@@ -54,7 +60,8 @@ def test_default_cli_and_driver_do_not_construct_a_bank(tmp_path):
         create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager,
                                               session_compaction_coordinator=coordinator))
     assert app._trajectory_bank is None
-    assert coordinator.compactor.evidence_provider is None
+    assert find_bank_strategy(coordinator.compactor.offloading) is None
+    assert isinstance(coordinator.compactor.offloading.strategies[0], LfsCompactionOffloadingStrategy)
     assert not any(isinstance(item, TrajectoryBankMiddleware) for item in factory.call_args.kwargs["middleware"])
     assert not (tmp_path / ".quasipilot/.trajectorybank").exists()
 
@@ -95,10 +102,11 @@ def test_cli_compaction_reads_parent_workspace_setting(tmp_path, enabled):
         app = QuasipilotApp()
     manager = SessionManager(root=tmp_path / "sessions")
     coordinator = app._build_compaction_coordinator(manager)
-    assert (coordinator.compactor.evidence_provider is not None) == enabled
+    strategy = find_bank_strategy(coordinator.compactor.offloading)
+    assert (strategy is not None) == enabled
     if enabled:
-        assert coordinator.compactor.evidence_provider.retrieval.bank.root == directory
-        assert coordinator.compactor.evidence_provider.retrieval.bank is app._trajectory_bank
+        assert strategy.bank.root == directory
+        assert strategy.bank is app._trajectory_bank
     assert not (child / ".quasipilot").exists()
     assert (directory / "chroma.sqlite3").exists() == enabled
 
@@ -145,7 +153,7 @@ def test_cli_and_driver_share_overridden_embedding_default(tmp_path):
             create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager,
                                                   session_compaction_coordinator=coordinator))
     recall = next(item for item in create.call_args.kwargs["middleware"] if isinstance(item, TrajectoryBankMiddleware))
-    assert coordinator.compactor.evidence_provider is recall
+    assert find_bank_strategy(coordinator.compactor.offloading).bank is recall.retrieval.bank
     assert recall.retrieval.bank is app._trajectory_bank
     assert app._trajectory_bank.embedder is model
     assert app._trajectory_bank._collection.metadata["embedding_identity"] == "custom-default-v1"
@@ -154,8 +162,8 @@ def test_cli_and_driver_share_overridden_embedding_default(tmp_path):
 
 def test_disabled_driver_rejects_injected_archival_coordinator(tmp_path):
     manager = SessionManager(root=tmp_path / "sessions")
-    provider = TrajectoryBankMiddleware(BankRetrieval(TrajectoryBank(tmp_path), manager))
-    coordinator = CompactionCoordinator(manager, Compactor(evidence_provider=provider, session_manager=manager),
+    strategy = ChromaCompactionOffloadingStrategy(TrajectoryBank(tmp_path), manager)
+    coordinator = CompactionCoordinator(manager, Compactor(offloading=strategy, session_manager=manager),
                                        telemetry_store=TelemetryStore(tmp_path / "telemetry.jsonl"), repo_root=tmp_path)
     with pytest.raises(ValueError, match="supplied compaction coordinator"):
         create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager,
@@ -260,3 +268,80 @@ def test_existing_bank_settings_survive_startup_backfill(tmp_path):
     assert path.read_bytes() == after_first_start
     assert path.read_text().startswith(content)
     assert load_config(tmp_path).trajectory_bank.search_results == 9
+
+
+@pytest.mark.parametrize("modes,legacy", [
+    (["lfs"], False), (["lfs"], True), ([], True),
+    (["trajectorybank"], False), (["lfs", "trajectorybank"], False),
+    (["trajectorybank", "lfs"], True), ("trajectorybank", False),
+])
+def test_explicit_modes_control_cli_storage_and_driver_recall(tmp_path, modes, legacy):
+    directory = configure(tmp_path, legacy)
+    with (directory.parent / "config.toml").open("a") as handle:
+        handle.write(f'\n[compaction]\noffloading = {json.dumps(modes)}\n')
+    expected = [modes] if isinstance(modes, str) else modes
+    settings = load_config(tmp_path)
+    assert settings.offloading_modes() == expected
+    child = tmp_path / "src"
+    child.mkdir()
+    with patch("cli.run.Path.cwd", return_value=child):
+        app = QuasipilotApp()
+    manager = SessionManager(root=tmp_path / "sessions")
+    coordinator = app._build_compaction_coordinator(manager)
+    types = {"lfs": LfsCompactionOffloadingStrategy, "trajectorybank": ChromaCompactionOffloadingStrategy}
+    assert [type(item) for item in coordinator.compactor.offloading.strategies] == [types[name] for name in expected]
+    with patch("langchain.agents.create_agent") as factory:
+        create_driver_agent(DriverAgentConfig(cwd=child, session_manager=manager,
+                                              session_compaction_coordinator=coordinator))
+    recall = [item for item in factory.call_args.kwargs["middleware"] if isinstance(item, TrajectoryBankMiddleware)]
+    assert bool(recall) == ("trajectorybank" in expected)
+    assert (directory / "chroma.sqlite3").exists() == bool(recall)
+    if recall:
+        assert recall[0].retrieval.bank is app._trajectory_bank
+        assert find_bank_strategy(coordinator.compactor.offloading).bank is app._trajectory_bank
+
+
+@pytest.mark.parametrize("has_compaction", [False, True])
+def test_legacy_opt_in_survives_backfill_without_duplicate_bank(tmp_path, has_compaction):
+    directory = configure(tmp_path, True)
+    path = directory.parent / "config.toml"
+    if has_compaction:
+        with path.open("a") as handle:
+            handle.write("\n[compaction.session]\nkeep_last_turns = 4\n")
+    assert load_config(tmp_path).offloading_modes() == ["lfs", "trajectorybank"]
+    ensure_config(tmp_path)
+    first = path.read_bytes()
+    ensure_config(tmp_path)
+    assert path.read_bytes() == first
+    assert load_config(tmp_path).offloading_modes() == ["lfs", "trajectorybank"]
+
+
+@pytest.mark.parametrize("override,expected", [(False, ["lfs"]), (True, ["lfs", "trajectorybank"])])
+def test_python_override_controls_explicit_stack(tmp_path, override, expected):
+    directory = configure(tmp_path, False)
+    (directory.parent / "config.toml").write_text('[compaction]\noffloading = ["lfs", "trajectorybank"]\n')
+    manager = SessionManager(root=tmp_path / "sessions")
+    with patch("langchain.agents.create_agent") as factory:
+        create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager, trajectory_bank_enabled=override))
+    middleware = factory.call_args.kwargs["middleware"]
+    compaction = next(item for item in middleware if type(item).__name__ == "CompactionMiddleware")
+    strategies = compaction.coordinator.compactor.offloading.strategies
+    assert len(strategies) == len(expected)
+    assert (find_bank_strategy(compaction.coordinator.compactor.offloading) is not None) == override
+
+
+def test_nested_supplied_stack_reuses_bank_and_rejects_multiple_banks(tmp_path):
+    manager = SessionManager(root=tmp_path / "sessions")
+    strategy = ChromaCompactionOffloadingStrategy(TrajectoryBank(tmp_path), manager)
+    stack = CompactionOffloadingStack([LfsCompactionOffloadingStrategy(manager), CompactionOffloadingStack([strategy])])
+    assert find_bank_strategy(stack) is strategy
+    with pytest.raises(ValueError, match="single trajectory-bank destination"):
+        find_bank_strategy(CompactionOffloadingStack([stack, strategy]))
+
+
+def test_lfs_factory_never_imports_bank(tmp_path):
+    import sys
+
+    with patch.dict(sys.modules, {"core.trajectory_bank.offloading": None, "chromadb": None}):
+        strategies = build_compaction_offloading(["lfs"], SessionManager(root=tmp_path))
+    assert isinstance(strategies[0], LfsCompactionOffloadingStrategy)

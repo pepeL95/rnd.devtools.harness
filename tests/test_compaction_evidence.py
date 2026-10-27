@@ -7,6 +7,7 @@ import pytest
 
 from core.compaction.compactor import Compactor
 from core.compaction.evidence import PreparedEvidence
+from core.compaction.offloading import BaseCompactionOffloadingStrategy
 from core.compaction.policy import CompactionPolicy
 from core.compaction.prompts import ARC_PROMPT, ARC_REVIEW_PROMPT, TASK_EPISODES_PROMPT
 from core.compaction.serialization import events_to_trajectory
@@ -36,7 +37,7 @@ def test_optional_evidence_preserves_the_arc_request_contract(enabled):
     events = [SessionEvent(type=EventType.USER, turn=turn, payload={"content": content})
               for turn, content in [(1, "Keep tabs"), (2, "Retained tail")]]
 
-    class Provider:
+    class Provider(BaseCompactionOffloadingStrategy):
         def validate(self, manifest):
             assert manifest == {}
             timeline.append("validate")
@@ -46,10 +47,10 @@ def test_optional_evidence_preserves_the_arc_request_contract(enabled):
             assert episodes == ["## Matching\nTabs stay exact (turn 1)."]
             timeline.append("prepare")
             return PreparedEvidence({"batch": ["record-1"]}, ["trajectory-record://record-1"],
-                                    lambda: timeline.append("persist"))
+                                    lambda result: timeline.append("persist"))
 
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, compactor_model=model, critic_model=model),
-                       evidence_provider=Provider() if enabled else None)
+                       offloading=Provider() if enabled else None)
     with patch.dict(sys.modules, {"core.trajectory_bank": None, "chromadb": None}):
         result = engine.compact(events)
     source = {"previous_session_arc": [], "trajectory": events_to_trajectory(events[:1])}
@@ -74,12 +75,15 @@ def test_evidence_validation_failure_precedes_model_calls():
     timeline = []
     model = RecordingModel(timeline)
 
-    class MissingEvidence:
+    class MissingEvidence(BaseCompactionOffloadingStrategy):
         def validate(self, manifest):
             raise ValueError("Missing evidence")
 
+        def prepare(self, events, turns, episodes, manifest):
+            raise AssertionError("Validation must run first")
+
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=0, compactor_model=model, critic_model=model),
-                       evidence_provider=MissingEvidence())
+                       offloading=MissingEvidence())
     with pytest.raises(ValueError, match="Missing evidence"):
         engine.compact([SessionEvent(type=EventType.USER, turn=1, payload={"content": "Task"})])
     assert model.calls == []

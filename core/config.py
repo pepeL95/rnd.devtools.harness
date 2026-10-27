@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core.trajectory_bank.policy import BankPolicy
 from core.utilities.workspace import workspace_directory
@@ -36,8 +37,16 @@ class TrajectoryCompactionConfig(BaseModel):
 class CompactionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    offloading: Literal["lfs", "trajectorybank", "none"] | list[Literal["lfs", "trajectorybank"]] = Field(default_factory=lambda: ["lfs"])
     session: SessionCompactionConfig = Field(default_factory=SessionCompactionConfig)
     trajectory: TrajectoryCompactionConfig = Field(default_factory=TrajectoryCompactionConfig)
+
+    @field_validator("offloading")
+    @classmethod
+    def unique_offloading_destinations(cls, value: str | list[str]) -> str | list[str]:
+        if isinstance(value, list) and len(value) != len(set(value)):
+            raise ValueError("Offloading destinations must not be repeated")
+        return value
 
 
 class HarnessConfig(BaseModel):
@@ -46,6 +55,18 @@ class HarnessConfig(BaseModel):
     reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     trajectory_bank: BankPolicy = Field(default_factory=BankPolicy)
+
+    def offloading_modes(self, *, trajectory_bank_enabled: bool | None = None) -> list[str]:
+        """Explicit destinations win over the legacy bank flag; Python overrides win last."""
+        modes = self.compaction.offloading
+        modes = ([] if modes == "none" else [modes]) if isinstance(modes, str) else list(modes)
+        if "offloading" not in self.compaction.model_fields_set and self.trajectory_bank.enabled:
+            modes.append("trajectorybank")
+        if trajectory_bank_enabled is True and "trajectorybank" not in modes:
+            modes.append("trajectorybank")
+        elif trajectory_bank_enabled is False:
+            modes = [mode for mode in modes if mode != "trajectorybank"]
+        return modes
 
 
 def ensure_config(cwd: Path) -> Path:
@@ -60,6 +81,7 @@ def ensure_config(cwd: Path) -> Path:
     sections = {
         "reasoning": f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n',
         "compaction": (
+            f'[compaction]\noffloading = {json.dumps(defaults.compaction.offloading)}\n\n'
             f"[compaction.session]\ntrigger_tokens = {session.trigger_tokens}\n"
             f"keep_last_turns = {session.keep_last_turns}\n"
             f"max_critic_loops = {session.max_critic_loops}\n\n"
@@ -78,8 +100,13 @@ def ensure_config(cwd: Path) -> Path:
             handle.write("\n".join(sections.values()))
     except FileExistsError:
         # Validate before adding anything; malformed user settings must remain untouched.
-        load_config(cwd)
+        settings = load_config(cwd)
         document = tomllib.loads(path.read_text(encoding="utf-8"))
+        if "compaction" not in document:
+            # Preserve explicit legacy opt-in when materializing the new list default.
+            sections["compaction"] = sections["compaction"].replace(
+                json.dumps(defaults.compaction.offloading), json.dumps(settings.offloading_modes()), 1,
+            )
         missing = [text for name, text in sections.items() if name not in document]
         if missing:
             with path.open("a", encoding="utf-8") as handle:

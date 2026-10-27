@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class BankPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    enabled: bool = False
+    enabled: bool = False  # Legacy opt-in, used only when compaction.offloading is omitted.
     # Conservative starting points, not probabilities; see the retrieval calibration eval.
     automatic_min_similarity: float = Field(default=0.72, ge=0, le=1)
     search_min_similarity: float = Field(default=0.35, ge=0, le=1)

@@ -109,6 +109,9 @@ Configure reasoning, compaction, and trajectory recall in the nearest workspace'
 [reasoning]
 eagerness = "high" # low, medium, or high (default)
 
+[compaction]
+offloading = ["lfs"] # ordered destinations; [] disables offloading
+
 [compaction.session]
 trigger_tokens = 80000
 keep_last_turns = 2
@@ -151,15 +154,33 @@ Reasoning-only batches restore normal tool choice; lower settings are unchanged.
 
 Session compaction extracts rich task episodes from newly evicted conversation, then
 writes a cumulative prose arc using those episodes, original evidence, and prior memory.
-It preserves tasks, concrete progress, constraints, findings, and next
-actions with source references, without a JSON schema, fixed headings, or turn assignments.
-A bounded fidelity review checks for lost context, not formatting. If review attempts
-run out, a warning is logged and the latest nonempty revision is used. The harness
-retains an evidence index independently of the prose; archival and stale-session checks remain.
-Extraction uses the compactor model (one additional call), without new configuration.
-The [session-arc pipeline](core/compaction/README.md) runs independently of archival.
-Its optional evidence-provider interface lets storage middleware supply references
-and persist episodes without changing the generation prompts or review loop.
+The [session-arc pipeline](core/compaction/README.md) preserves tasks, concrete progress,
+constraints, findings, and next actions without a rigid output schema. A bounded fidelity
+review checks for lost context; on exhaustion, a warning is logged and the latest
+nonempty revision is used. Extraction uses the compactor model, without new configuration.
+By default, local-filesystem (`lfs`) offloading saves the final reviewed arc and the
+exact intermediate task clusters, without extra model calls:
+
+```text
+~/.quasipilot/sessions/memories/<session-id>/
+  arcs/<uuid>.md
+  trajectories/<uuid>.md
+```
+
+Each compaction adds a matching UUID pair. Both files have YAML frontmatter with
+`date: "yyyy-mm-dd-hh-mm-ss"` in UTC. Trajectories describe only newly evicted work;
+arcs are cumulative. File references survive later compactions and can be read with
+the existing filesystem tools. Custom session roots also relocate `memories/`.
+Set `compaction.offloading = []` to disable new archives without changing the
+arc pipeline or deleting existing files. On this feature branch, opt into Chroma with
+`offloading = ["lfs", "trajectorybank"]`, or use `["trajectorybank"]` for Chroma only.
+
+Storage implementations subclass `BaseCompactionOffloadingStrategy`. Python callers
+can pass one strategy or an ordered list to `Compactor(offloading=...)`; all receive
+the same reviewed result. Stacks merge references and persist before session
+publication. Any failure prevents publication, though earlier destinations may
+already contain unreferenced archives. See the [strategy lifecycle](core/compaction/README.md#offloading-strategies).
+
 The CLI start event shows estimated tokens in the context selected for replacement,
 excluding retained turns and pinned instructions. Completion shows `before -> injected`
 tokens and the savings (or growth). Both sides estimate restored message content with
@@ -180,8 +201,9 @@ counts across extraction, synthesis, review, and revisions. `reported_calls` and
 Provider usage can include reasoning and cached input; retries not exposed by the
 provider are not independently counted. Trigger thresholds are unchanged.
 
-Trajectory-bank middleware is disabled by default. Set `[trajectory_bank] enabled = true`
-to enable offloading and recall. Existing explicit settings are preserved.
+Trajectory-bank storage and recall are opt-in: include `"trajectorybank"` in
+`[compaction] offloading`. The legacy `[trajectory_bank] enabled = true` flag still
+opts in when `compaction.offloading` is omitted; an explicit destination list takes precedence.
 Optional archival uses the nearest `.quasipilot/.trajectorybank` (cwd, then parents).
 Disabling it does not change compaction semantics. New archives store task episodes,
 not duplicate per-turn records; existing archives remain unchanged and available through
@@ -189,8 +211,8 @@ exact references, the `trajectory_bank` tool, and conservative post-reasoning
 recall. Enabled CLI startup initializes or reopens the database; the local
 embedding model still downloads only on first embedding use.
 See [trajectory bank v1](core/trajectory_bank/docs/v1.md) for configuration,
-thresholds, provenance checks, and evaluation commands. It is enabled by default;
-set `[trajectory_bank] enabled = false` in workspace `config.toml` and restart to disable it.
+thresholds, provenance checks, and evaluation commands. To disable the bank, use
+`offloading = ["lfs"]` (local archives only) or `[]` (no new archives), then restart.
 If you have the old `.trajectorybank/config.toml`, move its settings into this
 section and remove that old config file (not the database). Legacy files raise
 a migration error rather than being silently ignored.

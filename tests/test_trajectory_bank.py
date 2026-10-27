@@ -16,6 +16,8 @@ from langchain_core.tools import tool
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from core.compaction.compactor import Compactor
+from core.compaction.lfs import LfsCompactionOffloadingStrategy
+from core.compaction.offloading import CompactionOffloadingStack
 from core.compaction.policy import CompactionPolicy
 from core.middleware.reasoning import reasoning_tool
 from core.middleware.session_dump import SessionDumpMiddleware
@@ -24,6 +26,7 @@ from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager, StaleCompactionError
 from core.trajectory_bank.evidence import content_hash, fingerprint
 from core.trajectory_bank.models import Hit, TrajectoryRecord, arc_ref, record_ref
+from core.trajectory_bank.offloading import ChromaCompactionOffloadingStrategy
 from core.trajectory_bank.policy import BankPolicy
 from core.trajectory_bank.retrieval import BankRetrieval
 from core.trajectory_bank.store import TrajectoryBank
@@ -210,7 +213,7 @@ def compactor(bank, manager, memory="Tabs require exact matching. Updated filesy
               episodes=None):
     model = compact_model(memory, episodes=episodes)
     return Compactor(policy=CompactionPolicy(keep_last_turns=keep_last_turns, compactor_model=model, max_critic_loops=0),
-                     evidence_provider=TrajectoryBankMiddleware(BankRetrieval(bank, manager)), session_manager=manager)
+                     offloading=ChromaCompactionOffloadingStrategy(bank, manager), session_manager=manager)
 
 
 def test_task_episodes_span_turns_and_support_exact_and_semantic_recall(bank, manager):
@@ -253,6 +256,46 @@ def test_task_episodes_span_turns_and_support_exact_and_semantic_recall(bank, ma
     bank.archive(records)
     assert bank.embedder.calls == calls
     assert manager.read_dump() == source
+
+
+@pytest.mark.parametrize("bank_first", [False, True])
+def test_real_chroma_and_lfs_stack_archive_same_extraction_and_preserve_recall(bank, manager, bank_first):
+    from core.compaction.compactor import _invoke_text
+
+    add_turn(manager, 1, "tabs")
+    add_turn(manager, 2, "PRIVATE_TAIL")
+    source = manager.read_curated()
+    episodes = "## Exact matching\nTurn 1: preserve tabs.\n\n## Verification\nTurn 1: tests passed."
+    engine = compactor(bank, manager, episodes=episodes)
+    lfs = LfsCompactionOffloadingStrategy(manager)
+    strategies = [engine.offloading, lfs] if bank_first else [lfs, engine.offloading]
+    engine.offloading = CompactionOffloadingStack(strategies)
+    with patch("core.compaction.compactor._invoke_text", wraps=_invoke_text) as invoke:
+        result = engine.compact(source)
+    assert invoke.call_count == 2
+    records = sorted(bank.get(), key=lambda item: item.metadata["episode_index"])
+    assert len(records) == 2
+    arc, = (lfs.root / "arcs").glob("*.md")
+    trajectory = lfs.root / "trajectories" / arc.name
+    assert arc.read_text().endswith(result.memory_document + "\n")
+    assert trajectory.read_text().endswith(episodes + "\n")
+    synthesis = json.loads(invoke.call_args_list[1].args[2])
+    for item, episode in zip(records, synthesis["task_episodes"], strict=True):
+        assert item.document == episode["content"]
+        assert record_ref(item.id) in episode["reference"]
+        assert str(trajectory) in episode["reference"]
+        assert json.loads(item.metadata["source_turns"]) == [1]
+    with pytest.raises(ValueError, match="not published"):
+        BankRetrieval(bank, manager).retrieve(ref=record_ref(records[0].id))
+    manager.apply_compaction_result(result.events, snapshot_latest_turn=2, source_event_ids=[event.id for event in source])
+    for item in records:
+        assert BankRetrieval(bank, manager).retrieve(ref=record_ref(item.id))[1] == [item.id]
+    assert manager.read_dump() == source
+    add_turn(manager, 3, "Continue")
+    next_result = engine.compact(manager.read_curated())
+    assert str(trajectory) in next_result.memory_document
+    assert all(record.id in {id for ids in next_result.events[0].payload["trajectory_manifest"].values() for id in ids}
+               for record in records)
 
 
 def test_empty_extraction_never_archives_or_replaces_context(bank, manager):
@@ -706,7 +749,7 @@ def test_fidelity_review_uses_latest_revision(bank, manager, caplog, approved, l
     ] * loops + [AIMessage(content=final_review)])
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, compactor_model=synthesis, critic_model=critic,
                                                max_critic_loops=loops),
-                       evidence_provider=TrajectoryBankMiddleware(BankRetrieval(bank, manager)), session_manager=manager)
+                       offloading=ChromaCompactionOffloadingStrategy(bank, manager), session_manager=manager)
     raw = manager.read_dump()
     result = engine.compact(source)
     assert "Reread AGENTS.md each turn" in result.memory_document

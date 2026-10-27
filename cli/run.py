@@ -31,11 +31,10 @@ from cli.utilities.models import ModelSummary, default_models
 from cli.utilities.streaming import iter_agent_turn
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
+from core.compaction.offloading import build_compaction_offloading
 from core.compaction.policy import CompactionPolicy
 from core.config import ensure_config, load_config
 from core.trajectory_bank.store import TrajectoryBank
-from core.trajectory_bank.retrieval import BankRetrieval
-from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.preferences.coordinator import PreferencesCoordinator
 from core.live_steering import CancellationInterrupt, LiveSteeringController, LiveSteeringInterrupt
 from core.session.events import EventType, RuntimeSnapshot, SessionMetadata
@@ -117,7 +116,7 @@ class QuasipilotApp(App[None]):
         self._workspace.ensure()
         ensure_config(self._cwd)
         self._trajectory_bank: TrajectoryBank | None = None
-        if load_config(self._cwd).trajectory_bank.enabled:
+        if "trajectorybank" in load_config(self._cwd).offloading_modes():
             self._trajectory_bank = TrajectoryBank(self._cwd)
             self._trajectory_bank.initialize()
         self._startup_session_id = self._workspace.load().session_id
@@ -337,19 +336,16 @@ class QuasipilotApp(App[None]):
     def _build_compaction_coordinator(self, manager: SessionManager) -> CompactionCoordinator:
         settings = load_config(self._cwd)
         telemetry = TelemetryStore(telemetry_session_path(manager.session_id))
-        bank_middleware = None
-        if settings.trajectory_bank.enabled:
-            if self._trajectory_bank is None:
-                self._trajectory_bank = TrajectoryBank(self._cwd)
-                self._trajectory_bank.initialize()
-            bank_middleware = TrajectoryBankMiddleware(BankRetrieval(
-                self._trajectory_bank, manager, policy=settings.trajectory_bank, telemetry=telemetry,
-            ))
+        modes = settings.offloading_modes()
+        if "trajectorybank" in modes and self._trajectory_bank is None:
+            self._trajectory_bank = TrajectoryBank(self._cwd)
+            self._trajectory_bank.initialize()
         return CompactionCoordinator(
             manager,
-            Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump()),
-                      evidence_provider=bank_middleware,
-                      session_manager=manager),
+            Compactor(
+                policy=CompactionPolicy(**settings.compaction.session.model_dump()), session_manager=manager,
+                offloading=build_compaction_offloading(modes, manager, cwd=self._cwd, bank=self._trajectory_bank),
+            ),
             on_compaction_event=self._post_compaction_event,
             telemetry_store=telemetry,
         )

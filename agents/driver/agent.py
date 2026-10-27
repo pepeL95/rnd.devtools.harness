@@ -11,6 +11,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from core.compaction.compactor import Compactor
 from core.compaction.coordinator import CompactionCoordinator
+from core.compaction.offloading import CompactionOffloadingStack, build_compaction_offloading
 from core.compaction.policy import CompactionPolicy
 from core.config import ReasoningEagerness, load_config
 from core.live_steering import LiveSteeringController
@@ -37,7 +38,7 @@ from core.telemetry.store import TelemetryStore, telemetry_session_path
 from core.trajectory.compactor import TrajectoryCompactor
 from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 from core.trajectory.policy import TrajectoryCompactionPolicy
-from core.trajectory_bank.store import TrajectoryBank
+from core.trajectory_bank.offloading import find_bank_strategy
 from core.trajectory_bank.retrieval import BankRetrieval
 from core.utilities.defaults import get_default_driver_model
 
@@ -76,18 +77,17 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     manager = config.session_manager or SessionManager(session_id=config.session_id)
     telemetry_store = TelemetryStore(telemetry_session_path(manager.session_id))
     bank_policy = settings.trajectory_bank
-    bank_enabled = bank_policy.enabled if config.trajectory_bank_enabled is None else config.trajectory_bank_enabled
-    bank_middleware = None
+    modes = settings.offloading_modes(trajectory_bank_enabled=config.trajectory_bank_enabled)
     if config.session_compaction_coordinator is not None:
-        provider = config.session_compaction_coordinator.compactor.evidence_provider
-        if isinstance(provider, TrajectoryBankMiddleware):
-            bank_middleware = provider
-        if bank_enabled != (bank_middleware is not None):
-            raise ValueError("Trajectory bank setting disagrees with the supplied compaction coordinator middleware")
-    elif bank_enabled:
-        bank_middleware = TrajectoryBankMiddleware(BankRetrieval(
-            TrajectoryBank(cwd), manager, policy=bank_policy, telemetry=telemetry_store,
-        ))
+        offloading = config.session_compaction_coordinator.compactor.offloading
+    else:
+        offloading = CompactionOffloadingStack(build_compaction_offloading(modes, manager, cwd=cwd))
+    bank_strategy = find_bank_strategy(offloading)
+    if ("trajectorybank" in modes) != (bank_strategy is not None):
+        raise ValueError("Trajectory bank setting disagrees with the supplied compaction coordinator strategies")
+    bank_middleware = TrajectoryBankMiddleware(BankRetrieval(
+        bank_strategy.bank, manager, policy=bank_policy, telemetry=telemetry_store,
+    )) if bank_strategy is not None else None
     backend = _local_shell_backend(
         LocalShellBackend,
         cwd,
@@ -95,9 +95,10 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
     )
     session_compaction_coordinator = config.session_compaction_coordinator or CompactionCoordinator(
         manager,
-        Compactor(policy=CompactionPolicy(**settings.compaction.session.model_dump()),
-                  evidence_provider=bank_middleware,
-                  session_manager=manager),
+        Compactor(
+            policy=CompactionPolicy(**settings.compaction.session.model_dump()), session_manager=manager,
+            offloading=offloading,
+        ),
         on_compaction_event=config.on_compaction_event,
         telemetry_store=telemetry_store,
     )

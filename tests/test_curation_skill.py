@@ -12,13 +12,12 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from core.middleware.skills import SkillsMiddleware, create_read_skill_tool, discover_skills
-from core.middleware.trajectory_bank import TrajectoryBankMiddleware
 from core.session.events import EventType, SessionEvent
 from core.session.manager import SessionManager
 from core.trajectory_bank.evidence import content_hash, fingerprint
 from core.trajectory_bank.models import TaskArc, TrajectoryRecord
+from core.trajectory_bank.offloading import ChromaCompactionOffloadingStrategy
 from core.trajectory_bank.store import TrajectoryBank
-from core.trajectory_bank.retrieval import BankRetrieval
 
 SKILL = Path(__file__).resolve().parents[1] / "skills/trajectory-bank-curation"
 spec = importlib.util.spec_from_file_location("bank_guard", SKILL / "scripts/bank_guard.py")
@@ -83,7 +82,7 @@ def test_audit_accepts_prose_session_with_batch_references(tmp_path):
     bank = TrajectoryBank(tmp_path / "workspace", embedder=EmbeddingModel(), embedding_identity="test-original")
     engine = Compactor(policy=CompactionPolicy(keep_last_turns=1, max_critic_loops=0,
         compactor_model=FakeMessagesListChatModel(responses=[AIMessage(content="Preserve exact tabs (turn 1).") ])),
-        evidence_provider=TrajectoryBankMiddleware(BankRetrieval(bank, manager)), session_manager=manager)
+        offloading=ChromaCompactionOffloadingStrategy(bank, manager), session_manager=manager)
     result = engine.compact(manager.read_curated())
     manager.apply_compaction_result(result.events, snapshot_latest_turn=3)
     report = guard.inspect_bank(bank.root, manager.root)

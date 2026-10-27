@@ -91,7 +91,7 @@ def main() -> None:
 def live_compaction(run_dir: Path) -> dict:
     from core.compaction.compactor import Compactor
     from core.compaction.policy import CompactionPolicy
-    from core.middleware.trajectory_bank import TrajectoryBankMiddleware
+    from core.trajectory_bank.offloading import ChromaCompactionOffloadingStrategy
     from core.session.events import EventType, SessionEvent
     from core.session.manager import SessionManager
     from core.trajectory_bank.models import record_ref
@@ -111,7 +111,7 @@ def live_compaction(run_dir: Path) -> dict:
     manager.append([SessionEvent(type=EventType.USER, turn=7, payload={"role": "user", "content": "Continue investigating recall."})])
     source = manager.read_curated()
     result = Compactor(policy=CompactionPolicy(keep_last_turns=1), session_manager=manager,
-                       evidence_provider=TrajectoryBankMiddleware(BankRetrieval(bank, manager))).compact(source)
+                       offloading=ChromaCompactionOffloadingStrategy(bank, manager)).compact(source)
     manager.apply_compaction_result(result.events, snapshot_latest_turn=7, source_event_ids=[event.id for event in source])
     reopened = TrajectoryBank(run_dir)
     records = reopened.get()
