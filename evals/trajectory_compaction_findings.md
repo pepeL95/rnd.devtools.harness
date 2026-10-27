@@ -1,79 +1,76 @@
 # Trajectory Compaction A/B: 2026-10-27
 
-Decision: retain the production prompt. The candidate is experimental, not promoted.
+Referee judgment: prefer the candidate overall in these five examples, with a mixed
+result on stale-snapshot recovery. Production remains unchanged pending a focused
+refinement and a small captured-session check, not a larger scoring framework.
+
+This direct source-backed review supersedes the original keyword-count verdict.
+Equivalent wording is not lost knowledge; retaining a method name is less useful
+than retaining its decisive condition. The earlier scores obscured both distinctions.
 
 ## Setup
 
 Five synthetic turns in `trajectory_compaction_set.json`; no production session data.
 Both variants use `gemini-3.1-flash-lite`, temperature 0, minimal thinking, identical
-events and parser, and one synthesis call. A separate evaluation-only continuation
-call receives only the compressed memory and retained user/final messages. Neither
-model receives the checks or answers. Order alternates. The frozen baseline matches
-the production prompt at commit `219849e`.
+events and parser, and one synthesis call. A continuation call receives only the
+memory and retained user/final messages, not raw events. Order alternates. The frozen
+baseline matches production at `219849e`. Cases used for tuning are not held out.
 
-Each case has five regex-group preservation checks and three continuation checks.
-These measure anchor coverage, not semantic correctness or actual avoided tool calls.
-Manual source comparisons supplement them. Cases used for tuning are not held out.
+I compared every source, both memories, and both continuation answers directly.
+This is a labeled review by the candidate's author, not an independent blind trial.
+Text-only continuation answers indicate resumability, not measured coding success.
+Final bundle: `eval_results/trajectory_compaction_ab/20261027T220818Z/` (gitignored).
+The runner now generates `comparison.md`; it does not assign semantic scores.
 
-## Final Paired Pass
+## Case Judgments
 
-Bundle: `eval_results/trajectory_compaction_ab/20261027T220818Z/` (local, gitignored).
-One paired run per case; no synthesis or probe failures.
+- **Whitespace: candidate.** Both explain tabs versus spaces and reject fuzzy
+  normalization. The candidate also preserves the exact replacement literals, full
+  `conda run -n quasipilot-harness python -m pytest tests/test_edit_diagnostics.py`
+  command, and 18 passing tests. Both retain the mixed-indentation follow-up.
+- **Cancellation: candidate, modestly.** Both distinguish failed synchronous-worker
+  cancellation from native async cancellation and preserve `paused_turn_id` plus the
+  mock-only verification limit. The candidate additionally retains `active_task.cancel()`,
+  muted assistant introspection, uncommitted state, and non-rollback of completed tool
+  effects. Its extra tokens carry useful state, not merely longer prose.
+- **Explicit offloading: candidate.** The actual `model_fields_set` predicate survives,
+  as does explicit `[]`. This is more actionable than a method name. The baseline
+  invents possible merge work. Both blur runtime resolution versus persisted backfill
+  and omit pushed status and the precise unrelated `low`/`minimal` test mismatch.
+- **Stale snapshot: mixed.** The candidate better explains a correction changing the
+  same turn and the captured-event-ID/current-prefix check. Exclusion from publication
+  correctly conveys nonauthority. But the baseline explicitly preserves discard-and-
+  resnapshot recovery, absent from the candidate memory. Conversely, the baseline
+  invents orphan cleanup, which its continuation promotes to a background task. The
+  candidate avoids that invention, though its continuation imprecisely describes the
+  resnapshot source. Both lose newer-turn/pinned-instruction preservation guarantees.
+- **Blocked embedding: candidate.** It keeps the model identities, 384/768 mismatch,
+  read-only boundary, and separate-index continuation in fewer tokens. It explicitly
+  preserves that no provider request was dispatched. Both identify the safe broad
+  direction but omit explicit activation; neither establishes retrieval quality.
+
+## Cost and Next Step
 
 | Metric, summed over five turns | Baseline | Candidate |
 | --- | ---: | ---: |
 | Original restored-context estimate | 1,817 | 1,817 |
 | Resulting restored-context estimate | 1,268 | 1,244 |
 | Memory tokens, including wrapper/live edge | 994 | 972 |
-| Preservation checks | 11/25 | 13/25 |
-| Memory-only continuation checks | 6/15 | 8/15 |
 | Provider synthesis input tokens | 6,443 | 8,638 |
 | Provider synthesis output tokens | 1,196 | 1,176 |
+| Synthesis / continuation failures | 0 / 0 | 0 / 0 |
 
-| Case | Memory tokens A/B | Preservation A/B | Continuation A/B |
-| --- | ---: | ---: | ---: |
-| Exact whitespace | 190 / 184 | 2 / 3 | 2 / 2 |
-| Same-turn cancellation | 200 / 228 | 3 / 4 | 1 / 3 |
-| Explicit offloading | 212 / 209 | 1 / 2 | 1 / 2 |
-| Stale snapshot | 203 / 199 | 2 / 1 | 2 / 1 |
-| Blocked embedding | 189 / 152 | 3 / 3 | 0 / 0 |
+The candidate saves 2.2% of memory tokens and 1.9% of resulting context but costs
+34.1% more synthesis input. The quality preference is semantic, not a token-count win.
+Next: preserve conditional recovery and safety invariants even for completed tasks,
+without inventing pending work. Recheck the mixed case and a few captured turns
+before promotion. Do not add another judge model or keyword gate.
 
-The candidate saves 2.2% of memory tokens, 1.9% of resulting context, and costs 34.1%
-more synthesis input tokens. This is not a demonstrated production-quality win.
-
-## Observations and Iterations
-
-- The final candidate retains the exact named-environment test invocation in the
-  whitespace case and the actual `model_fields_set` condition in the config case.
-  It separates the failed worker wrapper from native async cancellation and retains
-  uncommitted state and the non-rollback boundary.
-- The stale-snapshot note loses the explicit resnapshot continuation. Both variants
-  omit some newer-turn/pinned-instruction guarantees. The baseline invents a future
-  orphan-cleanup task; the candidate avoids that but does not retain every useful fact.
-- Both omit pushed status and the `low`/`minimal` baseline-failure details in the
-  config case, and explicit activation and some verification limits in the embedding
-  case. Smaller notes alone are not adequate evidence for adoption.
-- Regex checks under-credit valid paraphrases: "excluded from publication" does not
-  match "unpublished", and a correct condition can survive without its method name.
-  They also cannot detect all wrong causal relationships. Scores are coverage proxies.
-- An earlier candidate (`20261027T215754Z`, two repeats) used 16.8% fewer memory
-  tokens, but conflated an omitted offloading field with an absent compaction block
-  and blurred the failed cancellation approach with the implementation. Repeats at
-  temperature zero were identical, not independent statistical confirmation.
-- The next candidate (`20261027T220429Z`) produced invalid JSON in one of five cases.
-  Explicit quote/backslash/newline escaping fixed that case in the final pass, but
-  one successful pass does not establish a general formatting guarantee.
-- The initial one-case pilot is `20261027T134002Z`. Across four experiments there
-  were 42 synthesis requests and 41 continuation requests; the malformed synthesis
-  skipped its probe. SDK-hidden retries are not independently counted. Early bundles
-  retain notes/errors; the final runner also retains raw calls and counts failed
-  compactions as zero coverage with unchanged context.
-
-Next experiment: protect exact conditions, reproducible verification, publication
-state, and conditional recovery steps before polishing prose. Keep checks fixed,
-audit causal claims against sources, and validate on held-out captured turns before
-promotion. The separate live-steering input omission remains outside this prompt-only
-experiment; instructions cannot preserve a directive absent from the request.
+No new model requests were needed for this review. Historical bundles remain intact:
+the pilot `20261027T134002Z`, two-repeat pass `20261027T215754Z`, malformed-JSON
+iteration `20261027T220429Z`, and final pass `20261027T220818Z`. Together these used
+42 synthesis and 41 continuation requests; SDK retries are not independently counted.
+Earlier identical temperature-zero repeats are not independent statistical evidence.
 
 Final prompt SHA-256:
 

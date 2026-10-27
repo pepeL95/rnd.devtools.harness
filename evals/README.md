@@ -4,8 +4,9 @@
 
 Five short synthetic coding turns cover whitespace diagnosis, same-turn cancellation,
 config precedence, stale publication, and a blocked embedding migration. Each has
-five preservation checks and three memory-only continuation checks. The fixtures are
-not captured production sessions; expected answers never enter synthesis or probes.
+a memory-only continuation question. The fixtures are not captured production
+sessions. The assistant referees semantic quality directly against the source;
+there is no regex rubric, numeric semantic score, or additional judge-model call.
 
 ```sh
 conda activate quasipilot-harness
@@ -22,16 +23,19 @@ is introduced into the harness.
 
 Timestamped `eval_results/trajectory_compaction_ab/` bundles retain fixtures, prompt
 texts/hashes, source events, raw requests/responses, memories, continuation answers,
-provider usage, and restored-context token estimates. Failures are included as zero
-coverage with unchanged session context, and cause a nonzero exit. A failed synthesis
+provider usage, and restored-context token estimates. `comparison.md` brings each
+source, both memories, and continuation answers together for direct review.
+Failures retain unchanged session context and cause a nonzero exit. A failed synthesis
 has no continuation answer. Provider retries hidden by the SDK are not independently
-metered. Automatic checks require all listed patterns but cannot prove causality or
-detect every hallucination; inspect outputs against source before adopting a prompt.
+metered. Read each pair against its source: which preserves the causal mechanism,
+useful implementation details, uncertainty, and safe next action? Cite concrete
+omissions or inventions, accept equivalent wording, and allow mixed verdicts.
 Continuation answers are a resumability proxy, not measured coding-task performance.
 Repeated temperature-zero outputs are not independent statistical evidence. Track
-format failures and per-case regressions, not just aggregate scores or smaller notes.
+format failures and per-case weaknesses, not just smaller notes.
 See [the initial A/B findings](trajectory_compaction_findings.md). The candidate
-remains experimental; production synthesis instructions have not changed.
+remains experimental; production synthesis instructions have not changed. The
+semantic review supersedes the original keyword-count interpretation.
 
 ## Trajectory Bank Retrieval
 

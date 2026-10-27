@@ -1,7 +1,7 @@
 {
   "name": "trajectory_compaction_ab",
   "version": 1,
-  "description": "Five synthetic harness-shaped turns. Facts and continuation probes are evaluation-only, never synthesis input.",
+  "description": "Five synthetic harness-shaped turns. Review source evidence, paired memories, and continuation answers directly; no keyword scoring.",
   "cases": [
     {
       "id": "exact_whitespace",
@@ -15,19 +15,7 @@
         {"reasoning": "The diagnostics explain the mismatch without modifying matching semantics. A mixed tabs/spaces fixture is still the useful next check; I should not retry fuzzy replacement."}
       ],
       "assistant": "The replacement and diagnostics are fixed. Focused checks passed; one edge case remains.",
-      "checks": [
-        {"id": "diagnosis", "patterns": ["U\\+0009|\\\\t", "spaces?", "exact"]},
-        {"id": "rejected_fix", "patterns": ["normaliz|fuzzy", "indentation"]},
-        {"id": "code_anchor", "patterns": ["_edit_diagnostic", "repr\\(old_string\\)"]},
-        {"id": "verification", "patterns": ["quasipilot-harness", "tests/test_edit_diagnostics\\.py", "18"]},
-        {"id": "remaining", "patterns": ["mixed", "fixture|test"]}
-      ],
-      "probe": "Another replacement fails. What diagnosis and exact implementation anchor should I reuse, what fix should I avoid and why, and what verification remains?",
-      "probe_checks": [
-        {"id": "diagnosis", "patterns": ["U\\+0009|\\\\t", "spaces?"]},
-        {"id": "implementation", "patterns": ["_edit_diagnostic", "repr\\(old_string\\)"]},
-        {"id": "safe_continuation", "patterns": ["normaliz|fuzzy", "indentation", "mixed"]}
-      ]
+      "probe": "Another replacement fails. What diagnosis and exact implementation anchor should I reuse, what fix should I avoid and why, and what verification remains?"
     },
     {
       "id": "cancel_same_turn",
@@ -40,19 +28,7 @@
         {"reasoning": "The mock establishes same-turn resumption and role handling, not that the provider actually stops generation. Next I need a live cancellation probe. The patch is uncommitted; cancellation does not roll back completed tool effects."}
       ],
       "assistant": "Async cancellation and same-turn resumption are implemented locally. Live verification is still pending.",
-      "checks": [
-        {"id": "failed_approach", "patterns": ["thread|worker", "continued|continues|continuing|does not stop|did not stop|kept|still"]},
-        {"id": "code_anchor", "patterns": ["active_task\\.cancel\\(\\)", "paused_turn_id"]},
-        {"id": "message_roles", "patterns": ["assistant", "muted", "user message"]},
-        {"id": "verification", "patterns": ["tests/test_live_steering\\.py", "mock", "live"]},
-        {"id": "state", "patterns": ["uncommitted", "effects|writes", "roll.?back|not.*undo|preserv|survive"]}
-      ],
-      "probe": "The user resumes after interrupting a tool batch. Which state and cancellation operation matter, what must not be undone, and what can we truthfully claim about provider verification?",
-      "probe_checks": [
-        {"id": "resume_state", "patterns": ["paused_turn_id", "same"]},
-        {"id": "cancellation", "patterns": ["active_task\\.cancel\\(\\)", "effects|writes"]},
-        {"id": "verification_limit", "patterns": ["mock", "live", "not|pending|unverified|yet"]}
-      ]
+      "probe": "The user resumes after interrupting a tool batch. Which state and cancellation operation matter, what must not be undone, and what can we truthfully claim about provider verification?"
     },
     {
       "id": "explicit_offloading",
@@ -65,19 +41,7 @@
         {"reasoning": "Explicit offloading wins; backfill must preserve missing-field semantics. I left the user's defaults.py edit untouched. The integration is committed as 219849e and pushed to feature/trajectory-bank, not main."}
       ],
       "assistant": "The integration is complete on the feature branch. Local-file offloading remains the default.",
-      "checks": [
-        {"id": "precedence", "patterns": ["offloading_modes", "model_fields_set", "explicit"]},
-        {"id": "migration", "patterns": ["backfill", "legacy", "trajectorybank"]},
-        {"id": "disabled", "patterns": ["\\[\\]", "no|disabl|none"]},
-        {"id": "baseline_failure", "patterns": ["585", "low", "minimal", "unrelated|pre.existing|predat|baseline"]},
-        {"id": "publication", "patterns": ["219849e", "feature/trajectory-bank", "push"]}
-      ],
-      "probe": "An older workspace unexpectedly stops archiving after startup. Which precise condition and migration behavior should I inspect, and should the reported full-suite failure be fixed as part of this work?",
-      "probe_checks": [
-        {"id": "condition", "patterns": ["model_fields_set", "offloading", "enabled"]},
-        {"id": "backfill", "patterns": ["backfill", "trajectorybank"]},
-        {"id": "unrelated_failure", "patterns": ["low", "minimal", "unrelated|pre.existing|baseline", "not|leave|preserv|avoid"]}
-      ]
+      "probe": "An older workspace unexpectedly stops archiving after startup. Which precise condition and migration behavior should I inspect, and should the reported full-suite failure be fixed as part of this work?"
     },
     {
       "id": "stale_snapshot",
@@ -90,19 +54,7 @@
         {"reasoning": "A successful archive write is not a successful session publication. I should discard the stale result and resnapshot; not retry publication blindly or delete potentially published records. The original curated context remains authoritative."}
       ],
       "assistant": "The race is fixed and the regression checks pass. Unpublished archive records may remain after rejection.",
-      "checks": [
-        {"id": "cause", "patterns": ["same|unchanged|without changing", "turn", "event"]},
-        {"id": "code_anchor", "patterns": ["source_event_ids", "StaleCompactionError", "apply_compaction_result"]},
-        {"id": "publication", "patterns": ["trajectory_manifest", "not published|unpublished"]},
-        {"id": "preservation", "patterns": ["newer", "pinned"]},
-        {"id": "continuation", "patterns": ["resnapshot|fresh snapshot|new snapshot", "tests/test_compaction_snapshots\\.py"]}
-      ],
-      "probe": "The bank contains records after a compaction was rejected. Are they sufficient to resume from that arc? Explain the authority check, the race mechanism, and the next safe action.",
-      "probe_checks": [
-        {"id": "authority", "patterns": ["trajectory_manifest", "not published|unpublished"]},
-        {"id": "identity", "patterns": ["source_event_ids", "turn"]},
-        {"id": "next", "patterns": ["resnapshot|fresh snapshot|new snapshot", "not|avoid|cannot|don't"]}
-      ]
+      "probe": "The bank contains records after a compaction was rejected. Are they sufficient to resume from that arc? Explain the authority check, the race mechanism, and the next safe action."
     },
     {
       "id": "blocked_embedding",
@@ -114,19 +66,7 @@
         {"reasoning": "The network block establishes neither poor embedding quality nor an incompatible provider API. After connectivity is restored I should validate vector shape and retrieval probes in a separate candidate directory. I have no benchmark or successful migration to report."}
       ],
       "assistant": "The investigation is blocked by connectivity. No migration was performed and the live bank is unchanged.",
-      "checks": [
-        {"id": "identity", "patterns": ["local-minilm-v1", "remote-embed-v2"]},
-        {"id": "dimension", "patterns": ["384", "768"]},
-        {"id": "blocker", "patterns": ["DNS", "before|never|no request"]},
-        {"id": "safe_migration", "patterns": ["separate|candidate", "explicit", "activation|activate"]},
-        {"id": "verification_limit", "patterns": ["retrieval", "quality|benchmark", "not|no|untested|unknown"]}
-      ],
-      "probe": "Connectivity is restored. What evidence already rules out a direct switch, what should I do next, and what quality conclusions are still unsupported?",
-      "probe_checks": [
-        {"id": "incompatibility", "patterns": ["384", "768", "identity|identit"]},
-        {"id": "safe_next", "patterns": ["candidate|separate", "retrieval", "activation|activate"]},
-        {"id": "uncertainty", "patterns": ["DNS|network", "quality", "not|no|unknown|unsupported"]}
-      ]
+      "probe": "Connectivity is restored. What evidence already rules out a direct switch, what should I do next, and what quality conclusions are still unsupported?"
     }
   ]
 }

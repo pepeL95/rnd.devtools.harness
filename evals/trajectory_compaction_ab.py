@@ -1,4 +1,4 @@
-"""Small prompt-only trajectory A/B; coverage checks are proxies, not semantic judges."""
+"""Small prompt-only trajectory A/B with source-backed comparisons for direct review."""
 from __future__ import annotations
 
 import argparse
@@ -6,7 +6,6 @@ from dataclasses import asdict
 from hashlib import sha256
 import json
 from pathlib import Path
-import re
 import sys
 from time import perf_counter
 from unittest.mock import patch
@@ -71,11 +70,6 @@ def case_events(case):
             for index, (kind, payload) in enumerate(rows)]
 
 
-def score_checks(checks, text):
-    return {check["id"]: all(re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-                             for pattern in check["patterns"]) for check in checks}
-
-
 def run_case(case, events, prompt, model, counter):
     started = perf_counter()
     with patch("core.trajectory.compactor.SYNTHESIS_PROMPT", prompt):
@@ -87,9 +81,8 @@ def run_case(case, events, prompt, model, counter):
         "context_before": counter.count_context(events), "context_after": counter.count_context(result.events),
         "memory_tokens": counter.count_text(memory), "synthesis_usage": result.token_usage,
         "synthesis_seconds": round(perf_counter() - started, 3),
-        "checks": score_checks(case["checks"], memory),
     }
-    # No raw events, answer keys, or checks reach the continuation model.
+    # Only the retained conversation and memory reach the continuation model.
     request = json.dumps({"user": case["user"], "assistant": case["assistant"],
                           "memory": memory, "question": case["probe"]}, ensure_ascii=False)
     try:
@@ -98,8 +91,7 @@ def run_case(case, events, prompt, model, counter):
         usage = TokenUsage()
         usage.call_count = 1
         usage.record(response, PROBE_PROMPT + "\n\n" + request, answer, counter)
-        row.update(probe_answer=answer, probe_checks=score_checks(case["probe_checks"], answer),
-                   probe_usage=usage.as_dict())
+        row.update(probe_answer=answer, probe_usage=usage.as_dict())
     except Exception as error:
         row["probe_error"] = {"type": type(error).__name__, "message": str(error)}
     return row
@@ -110,21 +102,42 @@ def summarize(rows, variants):
     for variant in variants:
         selected = [row for row in rows if row["variant"] == variant]
         good = [row for row in selected if "error" not in row]
-        probes = [row for row in good if "probe_checks" in row]
+        probes = [row for row in good if "probe_answer" in row]
         summary[variant] = {
             "runs": len(selected), "errors": len(selected) - len(good),
             "probe_errors": len(good) - len(probes),
             "context_before": sum(row["context_before"] for row in selected),
             "context_after": sum(row.get("context_after", row["context_before"]) for row in selected),
             "memory_tokens": sum(row["memory_tokens"] for row in good),
-            "passed_checks": sum(sum(row["checks"].values()) for row in good),
-            "total_checks": sum(row["check_count"] for row in selected),
-            "passed_probe_checks": sum(sum(row["probe_checks"].values()) for row in probes),
-            "total_probe_checks": sum(row["probe_check_count"] for row in selected),
             "synthesis_input_tokens": sum(row.get("synthesis_usage", {}).get("input_tokens", 0) for row in selected),
             "synthesis_output_tokens": sum(row.get("synthesis_usage", {}).get("output_tokens", 0) for row in selected),
         }
     return summary
+
+
+def render_comparison(cases, rows):
+    lines = ["# Trajectory A/B Comparison", "",
+             "Judge each memory and continuation against the source: what useful meaning survives,",
+             "what is lost or invented, and what would cause unnecessary or unsafe work?",
+             "Accept equivalent wording. Choose baseline, candidate, or mixed, with a concrete reason.",
+             "Token counts describe size, not quality. These comparisons are labeled, not blinded.", ""]
+    for case in cases:
+        source = {key: case[key] for key in ("user", "steps", "assistant")}
+        lines.extend([f"## {case['id']}", "", "### Source", "", "```json",
+                      json.dumps(source, ensure_ascii=False, indent=2), "```", "",
+                      f"Continuation question: {case['probe']}", ""])
+        selected = sorted((row for row in rows if row["case_id"] == case["id"]),
+                          key=lambda row: (row["repeat"], row["variant"]))
+        for row in selected:
+            lines.extend([f"### {row['variant']} / repeat {row['repeat'] + 1}", ""])
+            if "error" in row:
+                lines.extend([f"Synthesis failed; original context retained: {row['error']}", ""])
+                continue
+            lines.extend([f"Memory tokens: {row['memory_tokens']}; context: "
+                          f"{row['context_before']} -> {row['context_after']}.", "",
+                          row["memory"], "", "#### Continuation", "",
+                          row.get("probe_answer", f"Probe failed: {row.get('probe_error')}"), ""])
+    return "\n".join(lines)
 
 
 def main():
@@ -163,8 +176,7 @@ def main():
             order = list(prompts) if (case_index + repeat) % 2 == 0 else list(reversed(prompts))
             for variant in order:
                 row = {"case_id": case["id"], "repeat": repeat, "variant": variant,
-                       "context_before": counter.count_context(events),
-                       "check_count": len(case["checks"]), "probe_check_count": len(case["probe_checks"])}
+                       "context_before": counter.count_context(events)}
                 recorded = RecordedModel(model, counter)
                 try:
                     row.update(run_case(case, events, prompts[variant], recorded, counter))
@@ -176,9 +188,10 @@ def main():
                 rows.append(row)
                 write_json(directory / f"{case['id']}.{repeat}.{variant}.json", row)
                 write_json(directory / "results.json", {"summary": summarize(rows, prompts), "runs": rows})
+                (directory / "comparison.md").write_text(render_comparison(cases, rows), encoding="utf-8")
                 print(f"{case['id']} {repeat} {variant}: " +
                       (str(row["error"]) if "error" in row else
-                       f"{row['memory_tokens']} memory tokens; {sum(row['checks'].values())}/{len(row['checks'])} checks"),
+                       f"{row['memory_tokens']} memory tokens"),
                       flush=True)
     print(directory, flush=True)
     print(json.dumps(summarize(rows, prompts), indent=2), flush=True)
