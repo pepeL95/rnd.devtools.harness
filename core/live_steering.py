@@ -38,11 +38,10 @@ class LiveSteeringController:
 
 
 STEERING_INTROSPECTION = (
-    "The user has interrupted me with new guidance. I should first decide whether they are "
-    "replacing the task or steering the current one. Unless they clearly abandoned the "
-    "original task, I should preserve it and treat the new message as refinement or "
-    "constraint. I should keep both the original objective and the new guidance in mind, "
-    "carry forward useful work, and continue without restarting unnecessarily."
+    "The user has provided new direction. I must call `reasoning` before any other action "
+    "to briefly acknowledge the request, infer whether to act now, adjust the current work, "
+    "or defer it as requested, and state my next step. "
+    "I should preserve the original objective unless the user changes or abandons it."
 )
 
 

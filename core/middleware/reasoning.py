@@ -70,6 +70,7 @@ class ReasoningMiddleware(AgentMiddleware):
             raise ValueError("Reasoning eagerness must be one of: low, medium, high.")
         self.eagerness = eagerness
         self._pending_reminder: str | None = None
+        self._steering_checkpoint_pending = False
 
     def wrap_model_call(
         self,
@@ -81,20 +82,29 @@ class ReasoningMiddleware(AgentMiddleware):
         requires_checkpoint = self.eagerness == "high" and _completed_action_batch(request.messages)
         if requires_checkpoint:
             reminder = BATCH_REASONING_REMINDER
+        if self._steering_checkpoint_pending:
+            reminder = (
+                "The user provided new direction. Call `reasoning` alone before any other action: "
+                "briefly acknowledge the request, infer its timing, and state the next step. "
+                "Preserve the original objective unless the user changes or abandons it."
+            )
         if reminder:
             prompt = "\n\n".join([prompt, reminder])
         self._pending_reminder = None
         updated = request.override(
             system_message=system_message_with_appended_text(request.system_message, prompt)
         )
-        if requires_checkpoint:
+        if requires_checkpoint or self._steering_checkpoint_pending:
             updated = updated.override(tool_choice="reasoning")
-        return handler(updated)
+        response = handler(updated)
+        self._steering_checkpoint_pending = False
+        return response
 
     def wrap_tool_call(self, request: Any, handler: Any) -> Any:
         try:
             result = handler(request)
         except LiveSteeringInterrupt:
+            self._steering_checkpoint_pending = True
             raise
         except Exception:
             self._pending_reminder = TOOL_FAILURE_REASONING_REMINDER

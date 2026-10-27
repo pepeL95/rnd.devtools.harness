@@ -32,6 +32,7 @@ class FakeModelRequest:
     model: Any = None
     state: dict[str, Any] | None = None
     runtime: Any = None
+    tool_choice: Any = None
 
     def override(self, **changes: Any) -> "FakeModelRequest":
         return replace(self, **changes)
@@ -90,6 +91,19 @@ class MiddlewareTests(TestCase):
 
         response = middleware.wrap_model_call(request, lambda updated: updated.system_message)
         self.assertEqual(str(response.content).count("A tool just failed."), 0)
+
+    def test_live_steering_requires_one_reasoning_checkpoint(self) -> None:
+        middleware = ReasoningMiddleware(eagerness="low")
+        request = FakeModelRequest(system_message=SystemMessage(content="Base"), messages=[])
+
+        with self.assertRaises(LiveSteeringInterrupt):
+            middleware.wrap_tool_call(object(), lambda _: (_ for _ in ()).throw(LiveSteeringInterrupt("redirect")))
+
+        resumed = middleware.wrap_model_call(request, lambda updated: updated)
+        self.assertEqual(resumed.tool_choice, "reasoning")
+        self.assertIn("acknowledge the request", str(resumed.system_message.content))
+        next_request = middleware.wrap_model_call(request, lambda updated: updated)
+        self.assertIsNone(next_request.tool_choice)
 
     def test_reasoning_tool_returns_visible_tool_output(self) -> None:
         self.assertIsInstance(reasoning_tool, BaseTool)
@@ -565,6 +579,14 @@ class MiddlewareTests(TestCase):
                 ),
                 "expected REASONING introspection event on the active turn",
             )
+            steering_reasoning = next(
+                event.payload["content"]
+                for event in dump
+                if event.type == EventType.REASONING
+                and event.payload.get("reasoning_format") == "live_steering"
+            )
+            self.assertIn("adjust the current work, or defer it as requested", steering_reasoning)
+            self.assertIn("call `reasoning` before any other action", steering_reasoning)
 
             # Turn must NOT be closed — the turn continues after re-entry
             self.assertFalse(
