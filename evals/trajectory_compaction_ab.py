@@ -159,7 +159,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", type=Path, default=Path("evals/trajectory_compaction_set.json"))
     parser.add_argument("--baseline", type=Path, default=Path("evals/trajectory_compaction_baseline.txt"))
-    parser.add_argument("--candidate", type=Path, default=Path("evals/trajectory_compaction_candidate.txt"))
+    parser.add_argument("--candidate", type=Path, required=True, help="Path to the proposed synthesis prompt.")
     parser.add_argument("--case-id", action="append", default=[])
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--synthesis-thinking", choices=["minimal", "low", "medium", "high"],

@@ -68,8 +68,8 @@ must not be read as a compression ratio; the original failed turn remained intac
 These trials made 34 synthesis and 33 continuation requests, without extra judge
 calls; one SDK-alias setup error made no requests. Hidden provider retries are not
 independently counted. The calibration example did not solve evidence fidelity, so
-further prompt expansion was stopped. The candidate file retains that last rejected
-prompt for reproducibility, not deployment.
+further prompt expansion was stopped. The rejected candidate file was subsequently
+removed; its exact prompts remain in experiment bundles and Git history.
 
 Provider-reported synthesis usage totaled 106,036 input and 8,301 output tokens;
 continuation usage is recorded separately in each bundle.

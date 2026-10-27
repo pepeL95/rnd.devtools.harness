@@ -164,7 +164,8 @@ def test_cli_records_effort_and_lossless_structured_input(monkeypatch, tmp_path)
         return model
 
     monkeypatch.setattr(evaluation, "get_default_trajectory_compactor_model", factory)
-    monkeypatch.setattr("sys.argv", ["eval", "--case-id", "exact_whitespace", "--synthesis-thinking", "low",
+    monkeypatch.setattr("sys.argv", ["eval", "--candidate", str(FIXTURE.with_name("trajectory_compaction_baseline.txt")),
+                                     "--case-id", "exact_whitespace", "--synthesis-thinking", "low",
                                      "--structured-events", "--output-root", str(tmp_path)])
     evaluation.main()
     directory = next(tmp_path.iterdir())
@@ -182,3 +183,13 @@ def test_cli_records_effort_and_lossless_structured_input(monkeypatch, tmp_path)
         request = json.loads(row["calls"][0]["messages"][1]["content"])
         assert request["turns"][0]["internal_trajectory"] == expected
     assert compactor.events_to_internal_trajectory is evaluation.events_to_internal_trajectory
+
+
+def test_cli_requires_explicit_candidate_before_model_setup(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["eval"])
+    monkeypatch.setattr(evaluation, "get_default_trajectory_compactor_model",
+                        lambda: pytest.fail("Missing candidate must fail before model setup"))
+    with pytest.raises(SystemExit) as error:
+        evaluation.main()
+    assert error.value.code == 2
+    assert "--candidate" in capsys.readouterr().err
