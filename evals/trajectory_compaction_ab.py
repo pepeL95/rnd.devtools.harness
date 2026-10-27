@@ -1,4 +1,4 @@
-"""Small prompt-only trajectory A/B with source-backed comparisons for direct review."""
+"""Small trajectory A/B with source-backed comparisons for direct review."""
 from __future__ import annotations
 
 import argparse
@@ -17,11 +17,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from core.compaction.token_counter import TokenCounter
 from core.compaction.usage import TokenUsage
 from core.session.events import EventType, SessionEvent
-from core.trajectory.compactor import TrajectoryCompactor, _stringify_content
+from core.trajectory.compactor import TrajectoryCompactor, _stringify_content, _turn_assistant_message, _turn_user_message
 from core.trajectory.llms import get_default_trajectory_compactor_model
 from core.trajectory.policy import TrajectoryCompactionPolicy
-from core.trajectory.serialization import trajectory_memory_message
-from evals.common import timestamp_slug, write_json, write_jsonl
+from core.trajectory.serialization import events_to_internal_trajectory, trajectory_memory_message
+from evals.common import load_session, timestamp_slug, write_json, write_jsonl
 
 
 PROBE_PROMPT = """Answer a continuation question using only the supplied user message,
@@ -53,6 +53,12 @@ class RecordedModel:
 
 
 def case_events(case):
+    if "source_session" in case:
+        events = [event for event in load_session(Path(case["source_session"]))
+                  if event.turn == case["source_turn"]]
+        if not events or not any(event.type == EventType.TURN_END for event in events):
+            raise ValueError(f"Missing completed source turn for {case['id']}")
+        return events
     rows = [(EventType.USER, {"role": "user", "content": case["user"]})]
     for index, step in enumerate(case["steps"]):
         if "reasoning" in step:
@@ -70,9 +76,16 @@ def case_events(case):
             for index, (kind, payload) in enumerate(rows)]
 
 
-def run_case(case, events, prompt, model, counter):
+def structured_events(events):
+    return [{"timestamp": event.timestamp, "type": event.type.value,
+             "turn": event.turn, "payload": event.payload} for event in events]
+
+
+def run_case(case, events, prompt, model, counter, *, probe_model=None, structured=False):
     started = perf_counter()
-    with patch("core.trajectory.compactor.SYNTHESIS_PROMPT", prompt):
+    with (patch("core.trajectory.compactor.SYNTHESIS_PROMPT", prompt),
+          patch("core.trajectory.compactor.events_to_internal_trajectory",
+                structured_events if structured else events_to_internal_trajectory)):
         result = TrajectoryCompactor(policy=TrajectoryCompactionPolicy(compactor_model=model),
                                      token_counter=counter).compact(events)
     memory = trajectory_memory_message(result.turn_syntheses[0])
@@ -83,10 +96,10 @@ def run_case(case, events, prompt, model, counter):
         "synthesis_seconds": round(perf_counter() - started, 3),
     }
     # Only the retained conversation and memory reach the continuation model.
-    request = json.dumps({"user": case["user"], "assistant": case["assistant"],
+    request = json.dumps({"user": _turn_user_message(events), "assistant": _turn_assistant_message(events),
                           "memory": memory, "question": case["probe"]}, ensure_ascii=False)
     try:
-        response = model.invoke([SystemMessage(content=PROBE_PROMPT), HumanMessage(content=request)])
+        response = (probe_model or model).invoke([SystemMessage(content=PROBE_PROMPT), HumanMessage(content=request)])
         answer = _stringify_content(response.content)
         usage = TokenUsage()
         usage.call_count = 1
@@ -122,7 +135,9 @@ def render_comparison(cases, rows):
              "Accept equivalent wording. Choose baseline, candidate, or mixed, with a concrete reason.",
              "Token counts describe size, not quality. These comparisons are labeled, not blinded.", ""]
     for case in cases:
-        source = {key: case[key] for key in ("user", "steps", "assistant")}
+        source = ({"events": [event.to_json_dict() for event in case_events(case)]}
+                  if "source_session" in case else
+                  {key: case[key] for key in ("user", "steps", "assistant")})
         lines.extend([f"## {case['id']}", "", "### Source", "", "```json",
                       json.dumps(source, ensure_ascii=False, indent=2), "```", "",
                       f"Continuation question: {case['probe']}", ""])
@@ -146,7 +161,11 @@ def main():
     parser.add_argument("--baseline", type=Path, default=Path("evals/trajectory_compaction_baseline.txt"))
     parser.add_argument("--candidate", type=Path, default=Path("evals/trajectory_compaction_candidate.txt"))
     parser.add_argument("--case-id", action="append", default=[])
-    parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument("--synthesis-thinking", choices=["minimal", "low", "medium", "high"],
+                        help="Override synthesis effort only; continuation probes keep the configured default.")
+    parser.add_argument("--structured-events", action="store_true",
+                        help="Test native event objects instead of nested serialized strings, for both prompts.")
     parser.add_argument("--output-root", type=Path, default=Path("eval_results/trajectory_compaction_ab"))
     args = parser.parse_args()
     if args.repeats < 1:
@@ -160,9 +179,13 @@ def main():
     directory = args.output_root / timestamp_slug()
     directory.mkdir(parents=True, exist_ok=False)
     model = get_default_trajectory_compactor_model()
+    probe_model = get_default_trajectory_compactor_model()
+    if args.synthesis_thinking:
+        model.reasoning_effort = args.synthesis_thinking
     counter = TokenCounter()
     metadata = {"fixture": fixture, "model": model.model, "temperature": model.temperature,
-                "thinking_level": model.thinking_level, "repeats": args.repeats,
+                "thinking_level": model.thinking_level, "probe_thinking_level": probe_model.thinking_level,
+                "repeats": args.repeats, "structured_events": args.structured_events,
                 "prompts": prompts, "prompt_sha256": {name: sha256(text.encode()).hexdigest()
                                                        for name, text in prompts.items()},
                 "token_basis": "cl100k_base restored content estimates; provider usage separate"}
@@ -178,11 +201,13 @@ def main():
                 row = {"case_id": case["id"], "repeat": repeat, "variant": variant,
                        "context_before": counter.count_context(events)}
                 recorded = RecordedModel(model, counter)
+                recorded_probe = RecordedModel(probe_model, counter)
                 try:
-                    row.update(run_case(case, events, prompts[variant], recorded, counter))
+                    row.update(run_case(case, events, prompts[variant], recorded, counter,
+                                        probe_model=recorded_probe, structured=args.structured_events))
                 except Exception as error:
                     row["error"] = {"type": type(error).__name__, "message": str(error)}
-                row["calls"] = recorded.calls
+                row["calls"] = recorded.calls + recorded_probe.calls
                 if recorded.calls and "usage" in recorded.calls[0]:
                     row["synthesis_usage"] = recorded.calls[0]["usage"]
                 rows.append(row)

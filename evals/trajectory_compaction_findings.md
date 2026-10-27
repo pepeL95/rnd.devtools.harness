@@ -1,5 +1,8 @@
 # Trajectory Compaction A/B: 2026-10-27
 
+Historical synthetic-set review. The [captured-session follow-up](trajectory_compaction_transfer_findings.md)
+found unresolved evidence-fidelity failures and did not approve promotion.
+
 Referee judgment: prefer the candidate overall in these five examples, with a mixed
 result on stale-snapshot recovery. Production remains unchanged pending a focused
 refinement and a small captured-session check, not a larger scoring framework.
