@@ -23,6 +23,8 @@ def iter_agent_turn(
     assistant_text = ""
     seen_message_ids: set[str] = set()
     pending_tools: dict[str, tuple[str, str]] = {}
+    steering_checkpoint_pending = user_text is None
+    steering_checkpoint_ids: set[str] = set()
 
     for item in agent.stream(inputs, stream_mode=["updates"]):
         if isinstance(item, tuple) and len(item) == 2:
@@ -60,6 +62,12 @@ def iter_agent_turn(
                     for call in message_tool_calls(message):
                         name, input_text = format_tool_input(call)
                         tool_call_id = str(call.get("id") or "")
+                        if steering_checkpoint_pending and name == "reasoning":
+                            steering_checkpoint_pending = False
+                            if tool_call_id:
+                                steering_checkpoint_ids.add(tool_call_id)
+                            on_event("reason", {"text": input_text})
+                            continue
                         if tool_call_id:
                             pending_tools[tool_call_id] = (name, input_text)
                         on_event(
@@ -78,6 +86,9 @@ def iter_agent_turn(
                         assistant_text = text
                 elif isinstance(message, ToolMessage):
                     tool_call_id = str(getattr(message, "tool_call_id", "") or "")
+                    if tool_call_id in steering_checkpoint_ids:
+                        steering_checkpoint_ids.remove(tool_call_id)
+                        continue
                     name, input_text = pending_tools.get(tool_call_id, ("tool", ""))
                     on_event(
                         "tool_output",

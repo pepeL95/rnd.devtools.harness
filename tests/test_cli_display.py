@@ -675,6 +675,30 @@ class RuntimeConfigTests(TestCase):
 
 
 class StreamingTests(TestCase):
+    def test_steering_checkpoint_is_displayed_as_reasoning(self) -> None:
+        from langchain_core.messages import AIMessage, ToolMessage
+        from cli.utilities.streaming import iter_agent_turn
+
+        checkpoint = AIMessage(
+            content="",
+            tool_calls=[{"name": "reasoning", "args": {"reasoning": "Understood, I will adjust the tests."}, "id": "r1"}],
+            id="checkpoint",
+        )
+        result = ToolMessage(content="Reasoning checkpoint recorded.", tool_call_id="r1", id="result")
+        stream = iter([
+            ("updates", {"agent": {"messages": [checkpoint]}}),
+            ("updates", {"tools": {"messages": [result]}}),
+        ])
+        events: list[tuple[str, dict]] = []
+
+        iter_agent_turn(
+            type("FakeAgent", (), {"stream": lambda self, inputs, stream_mode: stream})(),
+            None,
+            lambda kind, payload: events.append((kind, payload)),
+        )
+
+        self.assertEqual(events, [("reason", {"text": "Understood, I will adjust the tests."})])
+
     def test_iter_agent_turn_skips_restored_history_chunk(self) -> None:
         """Messages in a chunk that contains RemoveMessage must not be rendered."""
         from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
