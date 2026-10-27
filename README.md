@@ -93,6 +93,15 @@ For an existing workspace, rename `.quasipilot/DEVPROFILE.md` to
 migration error rather than silently losing preferences. If both exist, the new
 file wins, including when empty; neither file is automatically merged or rewritten.
 
+The optional [profile skill](skills/profile/SKILL.md) guides engineer-directed
+preferences curation through this workflow. To make the versioned skill discoverable
+globally (the repository's `skills/` directory is not searched automatically):
+
+```bash
+mkdir -p ~/.quasipilot/skills/profile
+rsync -a skills/profile/ ~/.quasipilot/skills/profile/
+```
+
 Configure steering and executable hooks in global or workspace
 `.quasipilot/.hooks/hooks.toml`. See the [hooks v1 reference](core/hooks/docs/v1.md)
 for triggers, matching, and completion-checklist examples.
