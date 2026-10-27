@@ -1,0 +1,25 @@
+{
+  "name": "trajectory_compaction_captured",
+  "version": 1,
+  "description": "Three unmodified turns from one captured session, selected before candidate generation to contrast partial investigation, code explanation, and a completed environment check. A small transfer check, not an independent benchmark.",
+  "cases": [
+    {
+      "id": "captured_partial_investigation",
+      "source_session": "evals/trajectories/c2d0dc29c65a43ac94484c9c24fe0b23.jsonl",
+      "source_turn": 2,
+      "probe": "Continue the investigation without committing. What is established about the implementation and working-tree state, what is still unverified, and which concrete source location should I inspect next?"
+    },
+    {
+      "id": "captured_sanitization",
+      "source_session": "evals/trajectories/c2d0dc29c65a43ac94484c9c24fe0b23.jsonl",
+      "source_turn": 3,
+      "probe": "A memory document still contains revision commentary. What mechanism and code anchors have we actually observed, and what must I inspect before claiming how the commentary is removed?"
+    },
+    {
+      "id": "captured_environment",
+      "source_session": "evals/trajectories/c2d0dc29c65a43ac94484c9c24fe0b23.jsonl",
+      "source_turn": 4,
+      "probe": "I need to run a Python check next. What environment evidence and executable location can I reuse, and what should I not claim about activation or persistence?"
+    }
+  ]
+}
