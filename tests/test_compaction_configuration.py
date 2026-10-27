@@ -151,8 +151,18 @@ def test_explicit_coordinators_keep_their_policies(tmp_path):
 
 def test_new_config_exposes_lfs_default(tmp_path):
     path = ensure_config(tmp_path)
-    assert '[compaction]\noffloading = "lfs"' in path.read_text()
-    assert load_config(tmp_path).compaction.offloading == "lfs"
+    assert '[compaction]\noffloading = ["lfs"]' in path.read_text()
+    assert load_config(tmp_path).compaction.offloading == ["lfs"]
+
+
+def test_omitted_offloading_uses_independent_list_defaults(tmp_path):
+    first = HarnessConfig()
+    second = HarnessConfig()
+    assert first.compaction.offloading == second.compaction.offloading == ["lfs"]
+    assert first.compaction.offloading is not second.compaction.offloading
+    assert load_config(tmp_path).compaction.offloading == ["lfs"]
+    configure(tmp_path, CUSTOM_CONFIG)
+    assert load_config(tmp_path).compaction.offloading == ["lfs"]
 
 
 @pytest.mark.parametrize("disabled", ['"none"', '[]'])
@@ -175,8 +185,9 @@ def test_invalid_offloading_modes_are_rejected(tmp_path, invalid):
         load_config(tmp_path)
 
 
-def test_offloading_array_is_supported_in_driver_and_cli(tmp_path):
-    configure(tmp_path, '[compaction]\noffloading = ["lfs"]\n')
+@pytest.mark.parametrize("enabled", ['"lfs"', '["lfs"]'])
+def test_offloading_scalar_and_array_are_supported_in_driver_and_cli(tmp_path, enabled):
+    configure(tmp_path, f'[compaction]\noffloading = {enabled}\n')
     manager = SessionManager(root=tmp_path / "sessions")
     with patch("langchain.agents.create_agent") as factory:
         create_driver_agent(DriverAgentConfig(cwd=tmp_path, session_manager=manager))

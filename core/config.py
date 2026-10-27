@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 from typing import Literal
@@ -35,7 +36,7 @@ class TrajectoryCompactionConfig(BaseModel):
 class CompactionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    offloading: Literal["lfs", "none"] | list[Literal["lfs"]] = "lfs"
+    offloading: Literal["lfs", "none"] | list[Literal["lfs"]] = Field(default_factory=lambda: ["lfs"])
     session: SessionCompactionConfig = Field(default_factory=SessionCompactionConfig)
     trajectory: TrajectoryCompactionConfig = Field(default_factory=TrajectoryCompactionConfig)
 
@@ -65,7 +66,7 @@ def ensure_config(cwd: Path) -> Path:
         with path.open("x", encoding="utf-8") as handle:
             handle.write(
                 f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n\n'
-                f'[compaction]\noffloading = "{defaults.compaction.offloading}"\n\n'
+                f'[compaction]\noffloading = {json.dumps(defaults.compaction.offloading)}\n\n'
                 f"[compaction.session]\ntrigger_tokens = {session.trigger_tokens}\n"
                 f"keep_last_turns = {session.keep_last_turns}\n"
                 f"max_critic_loops = {session.max_critic_loops}\n\n"

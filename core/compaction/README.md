@@ -53,8 +53,9 @@ Persistence is ordered and fail-fast: a failure prevents session publication and
 skips later destinations. Earlier successful writes can remain unreferenced; there
 is no cross-backend rollback. Storage strategies must handle their own write cleanup.
 The shared `build_compaction_offloading` factory resolves CLI and driver config.
-`offloading = "lfs"` and `["lfs"]` are equivalent; `"none"` and `[]` disable new
-offloading. Unknown or duplicate configured destinations are rejected. Chroma is
+The default is `offloading = ["lfs"]`; `[]` disables new offloading.
+Scalar `"lfs"` and `"none"` remain supported for existing configurations.
+Unknown or duplicate configured destinations are rejected. Chroma is
 not implemented on main; its feature-branch adapter should inherit this base and
 return a `persist(result)` callback. Retrieval middleware remains independent.
 For Python callers, `offloading=` replaces the former `evidence_provider=` argument;
@@ -74,7 +75,7 @@ the live session. There is no automatic deletion or indexing.
 memory-event bookkeeping and appended to the arc without relying on model copying.
 Every episode in a batch references its shared trajectory file. No raw tool output
 is archived separately, no additional model calls are made, and the generation and
-review prompts are unchanged. Set `[compaction] offloading = "none"` to opt out.
+review prompts are unchanged. Set `[compaction] offloading = []` to opt out.
 
 The coordinator rejects stale source snapshots and preserves pinned instructions
 and newer turns. CLI status compares estimated replaced context with injected

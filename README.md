@@ -110,7 +110,7 @@ Configure reasoning and compaction in the nearest workspace's `.quasipilot/confi
 eagerness = "high" # low, medium, or high (default)
 
 [compaction]
-offloading = "lfs" # also accepts ["lfs"]; "none" or [] disables offloading
+offloading = ["lfs"] # ordered destinations; [] disables offloading
 
 [compaction.session]
 trigger_tokens = 80000
@@ -161,7 +161,7 @@ Each compaction adds a matching UUID pair. Both files have YAML frontmatter with
 `date: "yyyy-mm-dd-hh-mm-ss"` in UTC. Trajectories describe only newly evicted work;
 arcs are cumulative. File references survive later compactions and can be read with
 the existing filesystem tools. Custom session roots also relocate `memories/`.
-Set `compaction.offloading = "none"` to disable new archives without changing the
+Set `compaction.offloading = []` to disable new archives without changing the
 arc pipeline or deleting existing files. Chroma/`trajectorybank` remains on its
 feature branch, not a mode available on `main`.
 
