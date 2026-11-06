@@ -111,6 +111,18 @@ The local filesystem toolset remains `read_file`, `make_file`, `edit_file`, and
 paths; discovery and search use shell commands through `execute`. Skills retain
 the harness's explicit `read_skill` activation.
 
+For noisy commands, the agent can use `execute(command="pytest", output_mode="stash")`.
+The default `auto` mode is unchanged. Stash waits for completion, captures combined
+stdout/stderr to a private log under the nearest workspace's
+`.quasipilot/artifacts/execute/`, and returns its path and exit code. Each log keeps
+up to 10 MiB; excess output is drained and flagged as truncated. Failures include
+the last 4 KiB of output, even if it falls beyond the saved prefix. Timeouts and
+async cancellation terminate the command's process group on POSIX and retain the
+partial log. Logs remain until manually removed; there is no automatic retention
+policy. Stash requires the local, non-virtual shell backend used by the driver.
+Use targeted `rg`, `jq`, or `tail` queries to inspect logs rather than dumping them
+back into context.
+
 Configure reasoning and compaction in the nearest workspace's `.quasipilot/config.toml`
 (defaults shown):
 

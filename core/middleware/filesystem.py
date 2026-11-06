@@ -6,8 +6,9 @@ import os
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+from deepagents.backends import LocalShellBackend
 from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.utils import validate_path
 from deepagents.middleware.filesystem import (
@@ -22,6 +23,10 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
+from pydantic import Field, create_model
+
+from core.utilities.execution import STASH_TAIL_BYTES, stash_command
+from core.utilities.workspace import workspace_directory
 
 MAKE_FILE_TOOL_NAME = "make_file"
 HARNESS_FILESYSTEM_TOOLS = ("read_file", "write_file", "edit_file", "execute")
@@ -33,6 +38,11 @@ EDIT_FILE_TOOL_DESCRIPTION = """Replaces an exact, non-empty string in an existi
 Read first; match the verbatim file content, including whitespace, not the read status header.
 Use the smallest unique substring; omit surrounding indentation unless needed to identify the match.
 For ambiguous matches, include more context or use replace_all=True to replace every match."""
+
+EXECUTE_TOOL_DESCRIPTION = """Runs a shell command locally and waits for completion, returning its exit code.
+Use output_mode='stash' for noisy builds, tests, or installs: save output to a bounded log and return its path, with a short tail on failure.
+Prefer targeted rg/jq/tail extraction when you know what signal you need; use read_file for source files.
+Quote paths with spaces; use && for dependent commands. The optional timeout overrides the command time limit."""
 
 HARNESS_FILESYSTEM_SYSTEM_PROMPT = """## Filesystem Conventions
 
@@ -63,6 +73,7 @@ class HarnessFilesystemMiddleware(FilesystemMiddleware):
         descriptions = {
             "write_file": MAKE_FILE_TOOL_DESCRIPTION,
             "edit_file": EDIT_FILE_TOOL_DESCRIPTION,
+            "execute": EXECUTE_TOOL_DESCRIPTION,
             **dict(custom_tool_descriptions or {}),
         }
         resolved_system_prompt = self.default_system_prompt if system_prompt is None else system_prompt
@@ -80,6 +91,76 @@ class HarnessFilesystemMiddleware(FilesystemMiddleware):
             self._create_make_file_tool(tool) if getattr(tool, "name", None) == "write_file" else tool
             for tool in self.tools
         ]
+        self.tools = [self._with_stash_mode(tool) if tool.name == "execute" else tool for tool in self.tools]
+
+    def _with_stash_mode(self, tool: StructuredTool) -> StructuredTool:
+        schema = create_model(
+            "HarnessExecuteSchema", __base__=tool.args_schema,
+            output_mode=(Literal["auto", "stash"], Field(
+                default="auto", description="auto returns output normally; stash saves it and returns a log path.",
+            )),
+        )
+
+        async def execute_stashed(command: str, runtime: ToolRuntime, timeout: int | None) -> ToolMessage:
+            def error(text: str) -> ToolMessage:
+                return ToolMessage(content=f"Error: {text}", status="error", name="execute", tool_call_id=runtime.tool_call_id)
+
+            backend = self.backend
+            if not isinstance(backend, LocalShellBackend) or backend.virtual_mode:
+                return error("stash requires a local shell backend with virtual_mode=False")
+            if not command.strip():
+                return error("command must be non-empty")
+            if timeout is not None and not 0 < timeout <= self._max_execute_timeout:
+                return error(f"timeout must be between 1 and {self._max_execute_timeout} seconds")
+            try:
+                result = await stash_command(
+                    command, cwd=backend.cwd, env=backend._env,
+                    timeout=timeout if timeout is not None else backend._default_timeout,
+                    directory=workspace_directory(backend.cwd) / "artifacts" / "execute",
+                )
+            except (OSError, ValueError) as exc:
+                return error(str(exc))
+            status = "timed out" if result.timed_out else "succeeded" if result.exit_code == 0 else "failed"
+            content = (
+                f"Command {status} (exit code {result.exit_code}).\nOutput saved to: {result.path}\n"
+                f"Captured {result.captured_bytes} bytes."
+            )
+            if result.truncated:
+                content += " Log is incomplete: capture limit reached; later output was not saved."
+            if result.timed_out:
+                content += " Log is incomplete: command timed out."
+            if result.exit_code and result.tail:
+                content += f"\nFailure tail (up to {STASH_TAIL_BYTES} bytes):\n{result.tail}"
+            return ToolMessage(
+                content=content, name="execute", tool_call_id=runtime.tool_call_id,
+                artifact={
+                    "exit_code": result.exit_code, "output_file": str(result.path),
+                    "truncated": result.truncated, "captured_bytes": result.captured_bytes,
+                    "timed_out": result.timed_out,
+                },
+            )
+
+        def execute(
+            command: str, runtime: ToolRuntime, timeout: int | None = None,
+            output_mode: Literal["auto", "stash"] = "auto",
+        ) -> ToolMessage:
+            if output_mode == "auto":
+                return tool.func(command=command, runtime=runtime, timeout=timeout)
+            return asyncio.run(execute_stashed(command, runtime, timeout))
+
+        async def aexecute(
+            command: str, runtime: ToolRuntime, timeout: int | None = None,
+            output_mode: Literal["auto", "stash"] = "auto",
+        ) -> ToolMessage:
+            if output_mode == "auto":
+                return await tool.coroutine(command=command, runtime=runtime, timeout=timeout)
+            return await execute_stashed(command, runtime, timeout)
+
+        return StructuredTool.from_function(
+            func=execute, coroutine=aexecute, name=tool.name, description=tool.description,
+            args_schema=schema, infer_schema=False, return_direct=tool.return_direct,
+            response_format=tool.response_format,
+        )
 
     def _create_make_file_tool(self, tool: StructuredTool) -> StructuredTool:
         def make_file(file_path: str, content: str, runtime: ToolRuntime) -> ToolMessage:
