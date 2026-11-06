@@ -8,6 +8,8 @@ from pathlib import Path
 import signal
 from tempfile import NamedTemporaryFile
 
+from core.utilities.execution_artifacts import execution_log_prefix, lock_execution_log
+
 STASH_MAX_BYTES = 10 * 1024 * 1024
 STASH_TAIL_BYTES = 4096
 
@@ -40,7 +42,8 @@ async def stash_command(
 ) -> StashedExecution:
     """Capture a foreground command without buffering its full output in memory."""
     directory.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(mode="wb", prefix="execute-", suffix=".log", dir=directory, delete=False) as log:
+    with NamedTemporaryFile(mode="wb", prefix=execution_log_prefix(), suffix=".log", dir=directory, delete=False) as log:
+        lock_execution_log(log)
         process = await asyncio.create_subprocess_shell(
             command, cwd=cwd, env=env, stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,

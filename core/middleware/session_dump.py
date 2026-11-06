@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+import logging
+from typing import Any, Callable
 from pathlib import Path
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
@@ -16,8 +17,12 @@ from core.utilities.git import git_branch, git_dirty
 class SessionDumpMiddleware(AgentMiddleware):
     """Append full-fidelity agent state to dump and curated session streams."""
 
-    def __init__(self, manager: SessionManager, python_interpreter: str | Path | None = None) -> None:
+    def __init__(
+        self, manager: SessionManager, python_interpreter: str | Path | None = None,
+        *, on_turn_complete: Callable[[str], None] | None = None,
+    ) -> None:
         self.manager = manager
+        self.on_turn_complete = on_turn_complete
         self.python_interpreter = (
             Path(python_interpreter).expanduser().resolve() if python_interpreter else None
         )
@@ -52,10 +57,16 @@ class SessionDumpMiddleware(AgentMiddleware):
         return None
 
     def after_agent(self, state: AgentState, runtime: Any) -> dict[str, Any] | None:
+        completed_turn = self._active_turn is not None and not self._interrupted
         turn = self._active_turn or self.manager.next_turn()
         self._dump_new_messages(state)
-        self._end_turn(turn)
+        completed_at = self._end_turn(turn)
         self._active_turn = None
+        if completed_turn and self.on_turn_complete is not None:
+            try:
+                self.on_turn_complete(completed_at)
+            except Exception as exc:
+                logging.getLogger(__name__).warning("Post-turn cleanup failed: %s", exc)
         return None
 
     def wrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse:
@@ -194,8 +205,10 @@ class SessionDumpMiddleware(AgentMiddleware):
         # Turn stays open; _active_turn is preserved for re-entry via before_agent.
         self._interrupted = True
 
-    def _end_turn(self, turn: int) -> None:
-        self.manager.append([SessionEvent(type=EventType.TURN_END, turn=turn, payload={})])
+    def _end_turn(self, turn: int) -> str:
+        event = SessionEvent(type=EventType.TURN_END, turn=turn, payload={})
+        self.manager.append([event])
+        return event.timestamp
 
     def _runtime_event(self, runtime: Any) -> SessionEvent:
         cwd = self._resolve_cwd(runtime)

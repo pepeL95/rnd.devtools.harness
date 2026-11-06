@@ -113,15 +113,25 @@ the harness's explicit `read_skill` activation.
 
 For noisy commands, the agent can use `execute(command="pytest", output_mode="stash")`.
 The default `auto` mode is unchanged. Stash waits for completion, captures combined
-stdout/stderr to a private log under the nearest workspace's
-`.quasipilot/artifacts/execute/`, and returns its path and exit code. Each log keeps
+stdout/stderr to a private log in a session-specific directory under the nearest
+workspace's `.quasipilot/artifacts/execute/`, and returns its path and exit code. Each log keeps
 up to 10 MiB; excess output is drained and flagged as truncated. Failures include
 the last 4 KiB of output, even if it falls beyond the saved prefix. Timeouts and
 async cancellation terminate the command's process group on POSIX and retain the
-partial log. Logs remain until manually removed; there is no automatic retention
-policy. Stash requires the local, non-virtual shell backend used by the driver.
+partial log. Stash requires the local, non-virtual shell backend used by the driver.
 Use targeted `rg`, `jq`, or `tail` queries to inspect logs rather than dumping them
 back into context.
+
+After a successful turn, the driver removes its session's logs only when
+`completed_interaction_at - artifact_created_at > execute_retention_days` (7 by
+default; 0 disables cleanup). Idle time alone never triggers deletion: there is
+no startup or background sweep, and a resumed turn can read its old logs before
+cleanup. Creation timestamps are embedded in filenames rather than inferred from
+modification times. Active writers hold cross-process locks; cleanup skips locked
+files and leaves other sessions, unowned legacy logs, and unknown files untouched.
+Cleanup failures only warn; platforms without file locking retain logs. Preserve
+important findings in session memory: logs are temporary and cleanup is not
+reference-aware. Dormant sessions and unowned logs still require manual cleanup.
 
 Configure reasoning and compaction in the nearest workspace's `.quasipilot/config.toml`
 (defaults shown):
@@ -129,6 +139,9 @@ Configure reasoning and compaction in the nearest workspace's `.quasipilot/confi
 ```toml
 [reasoning]
 eagerness = "high" # low, medium, or high (default)
+
+[artifacts]
+execute_retention_days = 7 # age relative to completed session interaction; 0 disables
 
 [compaction]
 offloading = ["lfs"] # ordered destinations; [] disables offloading

@@ -26,6 +26,7 @@ from langgraph.types import Command
 from pydantic import Field, create_model
 
 from core.utilities.execution import STASH_TAIL_BYTES, stash_command
+from core.utilities.execution_artifacts import ExecutionArtifacts
 from core.utilities.workspace import workspace_directory
 
 MAKE_FILE_TOOL_NAME = "make_file"
@@ -41,6 +42,7 @@ For ambiguous matches, include more context or use replace_all=True to replace e
 
 EXECUTE_TOOL_DESCRIPTION = """Runs a shell command locally and waits for completion, returning its exit code.
 Use output_mode='stash' for noisy builds, tests, or installs: save output to a bounded log and return its path, with a short tail on failure.
+Logs are temporary; preserve important findings in session memory.
 Prefer targeted rg/jq/tail extraction when you know what signal you need; use read_file for source files.
 Quote paths with spaces; use && for dependent commands. The optional timeout overrides the command time limit."""
 
@@ -68,8 +70,10 @@ class HarnessFilesystemMiddleware(FilesystemMiddleware):
         tool_token_limit_before_evict: int | None = 20000,
         human_message_token_limit_before_evict: int | None = 50000,
         max_execute_timeout: int = 3600,
+        execution_artifacts: ExecutionArtifacts | None = None,
         _permissions: list[Any] | None = None,
     ) -> None:
+        self.execution_artifacts = execution_artifacts
         descriptions = {
             "write_file": MAKE_FILE_TOOL_DESCRIPTION,
             "edit_file": EDIT_FILE_TOOL_DESCRIPTION,
@@ -116,7 +120,8 @@ class HarnessFilesystemMiddleware(FilesystemMiddleware):
                 result = await stash_command(
                     command, cwd=backend.cwd, env=backend._env,
                     timeout=timeout if timeout is not None else backend._default_timeout,
-                    directory=workspace_directory(backend.cwd) / "artifacts" / "execute",
+                    directory=(self.execution_artifacts.directory if self.execution_artifacts is not None
+                               else workspace_directory(backend.cwd) / "artifacts" / "execute"),
                 )
             except (OSError, ValueError) as exc:
                 return error(str(exc))

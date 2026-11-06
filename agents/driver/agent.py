@@ -38,6 +38,7 @@ from core.trajectory.compactor import TrajectoryCompactor
 from core.trajectory.coordinator import TrajectoryCompactionCoordinator
 from core.trajectory.policy import TrajectoryCompactionPolicy
 from core.utilities.defaults import get_default_driver_model
+from core.utilities.execution_artifacts import ExecutionArtifacts
 
 @dataclass(frozen=True)
 class DriverAgentConfig:
@@ -92,7 +93,13 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         telemetry_store=telemetry_store,
     )
     live_steering_controller = config.live_steering_controller or LiveSteeringController()
-    session_dump = SessionDumpMiddleware(manager, python_interpreter=config.python_interpreter)
+    execution_artifacts = ExecutionArtifacts(
+        cwd, manager.dump_path, retention_days=settings.artifacts.execute_retention_days,
+    )
+    session_dump = SessionDumpMiddleware(
+        manager, python_interpreter=config.python_interpreter,
+        on_turn_complete=execution_artifacts.prune,
+    )
     hooks = load_hooks(cwd)
     middleware = [
         # Middleware order is load-bearing. LangChain runs before_* hooks
@@ -113,7 +120,7 @@ def create_driver_agent(config: DriverAgentConfig) -> Any:
         PreferencesMiddleware(cwd=cwd, manager=manager, session_dump=session_dump),
         SkillsMiddleware(cwd=cwd),
         RuntimeContextMiddleware(cwd=cwd, python_interpreter=config.python_interpreter),
-        HarnessFilesystemMiddleware(backend=backend),
+        HarnessFilesystemMiddleware(backend=backend, execution_artifacts=execution_artifacts),
         session_dump,
         # Completion hooks can return to the model before SessionDump closes
         # the logical turn and the outer compaction hooks run.

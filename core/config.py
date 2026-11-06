@@ -19,6 +19,12 @@ class ReasoningConfig(BaseModel):
     eagerness: ReasoningEagerness = "high"
 
 
+class ArtifactsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    execute_retention_days: int = Field(default=7, ge=0, strict=True)
+
+
 class SessionCompactionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -52,6 +58,7 @@ class HarnessConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
+    artifacts: ArtifactsConfig = Field(default_factory=ArtifactsConfig)
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
 
 
@@ -66,6 +73,7 @@ def ensure_config(cwd: Path) -> Path:
         with path.open("x", encoding="utf-8") as handle:
             handle.write(
                 f'[reasoning]\neagerness = "{defaults.reasoning.eagerness}"\n\n'
+                f"[artifacts]\nexecute_retention_days = {defaults.artifacts.execute_retention_days}\n\n"
                 f'[compaction]\noffloading = {json.dumps(defaults.compaction.offloading)}\n\n'
                 f"[compaction.session]\ntrigger_tokens = {session.trigger_tokens}\n"
                 f"keep_last_turns = {session.keep_last_turns}\n"

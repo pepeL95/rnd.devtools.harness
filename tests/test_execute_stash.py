@@ -160,7 +160,7 @@ def test_capture_setup_failure_does_not_run_command(execute, tmp_path):
 
 
 def test_capture_write_failure_terminates_process(execute):
-    with patch("core.utilities.execution.NamedTemporaryFile") as temporary:
+    with patch("core.utilities.execution.NamedTemporaryFile") as temporary, patch("core.utilities.execution.lock_execution_log"):
         temporary.return_value.__enter__.return_value.write.side_effect = OSError("disk full")
         result = invoke(execute, python_command("print('data', flush=True); import time; time.sleep(30)"), False)
     assert result.status == "error"
