@@ -14,6 +14,8 @@ from deepagents.middleware.filesystem import (
     FilesystemMiddleware,
     _check_fs_permission,
     _parallel_file_mutation_error,
+    _permission_error,
+    _resolve_real_path,
 )
 from langchain.tools import ToolRuntime
 from langchain_core.messages import AIMessage, ToolMessage
@@ -72,7 +74,7 @@ class HarnessFilesystemMiddleware(FilesystemMiddleware):
             human_message_token_limit_before_evict=human_message_token_limit_before_evict,
             max_execute_timeout=max_execute_timeout,
             tools=list(self.tool_allowlist),
-            _permissions=_permissions,
+            permissions=_permissions,
         )
         self.tools = [
             self._create_make_file_tool(tool) if getattr(tool, "name", None) == "write_file" else tool
@@ -83,10 +85,10 @@ class HarnessFilesystemMiddleware(FilesystemMiddleware):
         def make_file(file_path: str, content: str, runtime: ToolRuntime) -> ToolMessage:
             try:
                 validated_path = validate_path(file_path)
-                if _check_fs_permission(self._permissions, "write", validated_path) == "deny":
-                    raise PermissionError(f"permission denied for write on {validated_path}")
                 if not isinstance(self.backend, FilesystemBackend):
                     raise ValueError("make_file requires a local filesystem backend")
+                if error := _permission_error(self._permissions, "write", self.backend, validated_path):
+                    raise PermissionError(error.removeprefix("Error: "))
                 # Resolve the parent only: exclusive creation must reject even dangling symlinks.
                 key = Path(validated_path)
                 path = self.backend._resolve_path(str(key.parent)) / key.name
@@ -179,13 +181,16 @@ class HarnessFilesystemMiddleware(FilesystemMiddleware):
             # Diagnostics must not disclose content denied or gated behind approval.
             if _check_fs_permission(self._permissions, "read", path) != "allow":
                 return result
+            real_path = _resolve_real_path(self.backend, path)
+            if _check_fs_permission(self._permissions, "read", real_path) != "allow":
+                return result
             fd = os.open(self.backend._resolve_path(path), os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
             with os.fdopen(fd, "rb") as handle:
                 raw = handle.read(128 * 1024 + 1)
             if len(raw) > 128 * 1024:
                 return result
             content = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-        except (OSError, ValueError):
+        except (OSError, ValueError, RuntimeError):
             return result
 
         def normalize(line: str) -> str:

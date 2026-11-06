@@ -94,6 +94,34 @@ def test_make_file_preserves_virtual_paths_and_permission_denials(tmp_path):
     assert make_file.func(file_path="/../escape", content="bad", runtime=runtime()).status == "error"
 
 
+@pytest.mark.parametrize("use_async", [False, True])
+def test_make_file_checks_symlink_parent_permissions(tmp_path, use_async):
+    (tmp_path / "denied").mkdir()
+    (tmp_path / "alias").symlink_to(tmp_path / "denied", target_is_directory=True)
+    filesystem = HarnessFilesystemMiddleware(
+        backend=FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True),
+        _permissions=[FilesystemPermission(operations=["write"], paths=["/denied/**"], mode="deny")],
+    )
+    create = tool(filesystem, "make_file")
+    args = dict(file_path="/alias/new.txt", content="secret", runtime=runtime())
+    result = asyncio.run(create.coroutine(**args)) if use_async else create.func(**args)
+    assert result.status == "error"
+    assert "permission denied" in result.content
+    assert not (tmp_path / "denied/new.txt").exists()
+
+
+@pytest.mark.parametrize("use_async", [False, True])
+def test_edit_file_preserves_non_utf8_file_on_error(filesystem, tmp_path, use_async):
+    path = tmp_path / "binary.dat"
+    original = b"hello\xffworld"
+    path.write_bytes(original)
+    edit = tool(filesystem, "edit_file")
+    args = dict(file_path=str(path), old_string="hello", new_string="changed", runtime=runtime())
+    result = asyncio.run(edit.coroutine(**args)) if use_async else edit.func(**args)
+    assert result.status == "error"
+    assert path.read_bytes() == original
+
+
 def test_invalid_content_does_not_leave_an_empty_file(filesystem, tmp_path):
     path = tmp_path / "invalid.txt"
     result = tool(filesystem, "make_file").func(file_path=str(path), content="\ud800", runtime=runtime())
@@ -112,6 +140,17 @@ def test_execute_preserves_output_and_exit_code(tmp_path, use_async):
     result = asyncio.run(execute.coroutine(**args)) if use_async else execute.func(**args)
     assert "ready" in result.content
     assert result.artifact["exit_code"] == 7
+    assert result.artifact["truncated"] is False
+
+
+@pytest.mark.parametrize("use_async", [False, True])
+def test_shell_output_limit_counts_utf8_bytes(tmp_path, use_async):
+    backend = LocalShellBackend(root_dir=str(tmp_path), virtual_mode=False, max_output_bytes=5)
+    command = "printf '\\303\\251\\303\\251\\303\\251'"
+    result = asyncio.run(backend.aexecute(command)) if use_async else backend.execute(command)
+    assert result.exit_code == 0
+    assert result.truncated is True
+    assert result.output.split("\n\n", 1)[0] == "\u00e9\u00e9"
 
 
 @pytest.mark.parametrize("use_async", [False, True])

@@ -93,6 +93,21 @@ def test_diagnostic_respects_read_permissions(tmp_path, mode):
     assert "Whitespace-only candidate" not in result.content
 
 
+@pytest.mark.parametrize("use_async", [False, True])
+@pytest.mark.parametrize("mode", ["deny", "interrupt"])
+def test_diagnostic_checks_symlink_target_permissions(tmp_path, mode, use_async):
+    (tmp_path / "private.txt").write_text("\tvalue = 1\n")
+    (tmp_path / "sample.txt").symlink_to(tmp_path / "private.txt")
+    middleware = HarnessFilesystemMiddleware(
+        backend=FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True),
+        _permissions=[FilesystemPermission(operations=["read"], paths=["/private.txt"], mode=mode)],
+    )
+    result = edit(middleware, "    value = 1", use_async=use_async)
+    assert result.status == "error"
+    assert "Whitespace-only candidate" not in result.content
+    assert (tmp_path / "private.txt").read_text() == "\tvalue = 1\n"
+
+
 def test_diagnostic_is_bounded_and_read_failure_preserves_error(middleware, tmp_path):
     path = tmp_path / "sample.txt"
     path.write_text("\tvalue = 1\n" + "x" * (128 * 1024))

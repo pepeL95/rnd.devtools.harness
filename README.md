@@ -40,8 +40,8 @@ The script activates `quasipilot-harness`, installs the editable project and
 pinned agent stack, validates dependencies, and runs the test suite. Pass a
 different environment name when needed: `./sync-env.sh my-environment`.
 
-The validated stack is DeepAgents 0.7.23, LangChain 1.4.4, LangGraph 1.2.14,
-and the Google GenAI adapter 4.4.1. When upgrading it, update the minimum
+The validated stack is DeepAgents 0.7.34, LangChain 1.4.9 (Core 1.7.6),
+LangGraph 1.2.20, and the Google GenAI adapter 4.4.3. When upgrading it, update the minimum
 versions in `pyproject.toml` and exact pins in `sync-env.sh` together, then
 run the synchronization script in `quasipilot-harness`.
 

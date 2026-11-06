@@ -19,6 +19,24 @@ class SessionIOTests(TestCase):
             self.assertEqual(manager.read_dump()[0].payload["content"], "hello")
             self.assertEqual(manager.read_curated()[0].payload["content"], "hello")
 
+    def test_refusal_is_preserved_in_both_sessions(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = SessionManager(session_id="s1", root=Path(directory))
+            message = AIMessage(
+                content="",
+                response_metadata={
+                    "model_provider": "google_genai",
+                    "finish_reason": "SAFETY",
+                    "finish_message": "I cannot fulfill that request.",
+                },
+            )
+            manager.append(manager.events_from_messages([message], turn=1))
+
+            for events in (manager.read_dump(), manager.read_curated()):
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].type, EventType.ASSISTANT)
+                self.assertEqual(events[0].payload["content"], "I cannot fulfill that request.")
+
     def test_load_curated_messages_round_trips_roles(self) -> None:
         with TemporaryDirectory() as directory:
             manager = SessionManager(session_id="s1", root=Path(directory))

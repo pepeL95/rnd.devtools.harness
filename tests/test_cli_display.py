@@ -675,6 +675,21 @@ class RuntimeConfigTests(TestCase):
 
 
 class StreamingTests(TestCase):
+    def test_iter_agent_turn_returns_provider_refusal(self) -> None:
+        from langchain_core.messages import AIMessage
+        from cli.utilities.streaming import iter_agent_turn
+
+        message = AIMessage(
+            content="",
+            response_metadata={"model_provider": "google_genai", "finish_reason": "SAFETY"},
+        )
+        stream = iter([("updates", {"agent": {"messages": [message]}})])
+        agent = type("FakeAgent", (), {"stream": lambda self, inputs, stream_mode: stream})()
+        self.assertEqual(
+            iter_agent_turn(agent, "request", lambda *_: None),
+            "The model declined this request.",
+        )
+
     def test_steering_checkpoint_is_displayed_as_reasoning(self) -> None:
         from langchain_core.messages import AIMessage, ToolMessage
         from cli.utilities.streaming import iter_agent_turn

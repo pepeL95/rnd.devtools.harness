@@ -7,7 +7,8 @@ from core.utilities.messages import (
     normalize_message_content,
     system_message_with_appended_text,
 )
-from langchain_core.messages import SystemMessage
+from cli.utilities.messages import message_text
+from langchain_core.messages import AIMessage, SystemMessage
 
 
 class UtilitiesMessagesTests(TestCase):
@@ -32,6 +33,24 @@ class UtilitiesMessagesTests(TestCase):
             ]
 
         self.assertEqual(message_text_content(FakeMessage()), "hello\nworld")
+
+    def test_refusal_is_visible_in_core_and_cli_without_reasoning(self) -> None:
+        message = AIMessage(content=[
+            {"type": "reasoning", "reasoning": "private"},
+            {"type": "refusal", "refusal": "I cannot fulfill that request."},
+        ])
+        for extract in (message_text_content, message_text):
+            self.assertEqual(extract(message), "I cannot fulfill that request.")
+
+    def test_gemini_metadata_only_refusal_is_not_silent(self) -> None:
+        for metadata in (
+            {"finish_reason": "SAFETY"},
+            {"prompt_feedback": {"block_reason": "SAFETY"}},
+        ):
+            message = AIMessage(content="", response_metadata={"model_provider": "google_genai", **metadata})
+            for extract in (message_text_content, message_text):
+                with self.subTest(metadata=metadata, extract=extract):
+                    self.assertEqual(extract(message), "The model declined this request.")
 
     def test_system_message_with_appended_text_preserves_existing_blocks(self) -> None:
         base = SystemMessage(content="Base")

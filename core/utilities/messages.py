@@ -71,15 +71,21 @@ def message_reasoning_blocks(message: Any) -> list[dict[str, Any]]:
 def message_text_content(message: Any) -> str:
     """Extract only assistant-visible text from a message content payload."""
 
-    content = getattr(message, "content", "")
+    # Standard blocks also expose provider refusals carried only in metadata.
+    content = message.content_blocks if isinstance(message, AIMessage) else getattr(message, "content", "")
     if isinstance(content, str):
         return content.strip()
     if isinstance(content, list):
         parts: list[str] = []
         for block in content:
-            if not isinstance(block, dict) or block.get("type") != "text":
+            if not isinstance(block, dict):
                 continue
-            text = block.get("text")
+            if block.get("type") == "text":
+                text = block.get("text")
+            elif block.get("type") == "refusal":
+                text = block.get("refusal") or "The model declined this request."
+            else:
+                continue
             if text:
                 parts.append(str(text))
         return "\n".join(parts).strip()

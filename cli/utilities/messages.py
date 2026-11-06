@@ -4,23 +4,13 @@ from typing import Any
 
 from core.utilities.messages import (
     message_reasoning_blocks as core_message_reasoning_blocks,
+    message_text_content,
     message_tool_calls as core_message_tool_calls,
 )
 
 
 def message_text(message: Any) -> str:
-    content = getattr(message, "content", "")
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = block.get("text")
-                if text:
-                    parts.append(str(text))
-        return "\n".join(parts).strip()
-    return str(content).strip()
+    return message_text_content(message)
 
 
 def message_reasoning(message: Any) -> str | None:
