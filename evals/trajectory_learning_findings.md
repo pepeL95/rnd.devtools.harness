@@ -23,6 +23,65 @@ pending work. Restored context is 560 -> 409 tokens. The semantics are better al
 with the requested scope, not demonstrated to be fully faithful or leaner than the
 prior prompt (339 tokens in this pair). No further mechanism was introduced.
 
+## Positive Versus Negative Examples
+
+Compared the unchanged `88c4a85` prompt against positive-only and negative-only
+examples. Both example variants share the same upload-diagnosis source in
+`evals/trajectory_example_polarity.json`. The positive variant demonstrates a
+grounded synthesis; the negative variant labels and explains invented retries,
+claims about an unseen helper, and an unjustified credential-rotation task.
+
+The three evaluation trajectories differ from the teaching example. Variant order
+rotates across cases; model, settings, footer, and input serialization stay fixed.
+These are familiar development cases, not independent validation. I directly read
+the sources, syntheses, and relevant continuations, without an automated judge or
+semantic score. The temporary driver reused the existing `run_case`, recorder, and
+comparison helpers; no new runtime or permanent evaluation machinery was added.
+
+| Case | Original context | Baseline | Positive only | Negative only |
+| --- | ---: | ---: | ---: | ---: |
+| Noisy startup | 560 | 437 | 345 | 386 |
+| Captured partial investigation | 2,735 | 993 | 844 | 865 |
+| Captured sanitization | 1,979 | 1,109 | 1,211 | 1,021 |
+
+Counts describe estimated restored context. All nine syntheses were published by
+the size guard; none were skips. Smaller is not a fidelity verdict.
+
+- Startup: both examples remove the baseline's invented authentication follow-up,
+  discard repeated INFO lines, and retain the exact diagnostic, tabbed diff, and
+  mocked-test result. Positive-only is more concise; negative-only also retains
+  the diagnostic and test commands. Both are useful improvements on this case.
+- Partial investigation: positive-only explicitly says tests and the compaction
+  loop were not run. Negative-only lacks that qualification. All three still claim
+  prompt, quality-code, and test changes that were not established by a diff or
+  inspection of those files. Negative-only also normalizes the quoted status lines.
+- Sanitization: all three present the quality-issue reporting code as proof of
+  non-destructive, agent-remediated sanitization. The partial read does not show
+  that behavior. Negative examples about unseen helpers did not correct this;
+  positive-only instead expands the code excerpts. The negative continuation
+  repeats the unsupported interpretation and proposes reviewing unobserved
+  "resolved QualityIssue" logs.
+
+An important distinction: these captured turns already contain overconfident
+interpretations in their historical reasoning and final answers. The compactor
+often carries those interpretations forward as established mechanics. They are
+not all newly invented facts. The evaluation concern is lost attribution and
+evidential limits, not a requirement to independently repair the original code
+analysis. The retained final answer is not rewritten by trajectory compaction.
+
+Decision: neither example package is adopted. Negative-only did not establish an
+advantage over positive-only, and neither reliably addressed the captured cases.
+This is evidence about these prompts and cases, not a general claim that negative
+examples cannot help. Runtime stays unchanged; the example definitions are retained
+only as evaluation evidence, with no runtime import.
+
+Bundle: `eval_results/trajectory_example_polarity/20261114T170558Z`, containing exact
+prompts, sources, nine drafts, and nine continuation responses. All 18 calls returned
+responses: 35,394 reported input and 7,278 output tokens. Example overhead per
+synthesis was 279 input tokens for positive-only and 276 for negative-only. Only the
+previously approved captured turns were used. Regression suite: 545 tests and
+14 subtests passed in `quasipilot-harness`; `git diff --check` passed.
+
 ## First-Person Instructions
 
 The prompt itself now opens with "I must synthesize the following completed
