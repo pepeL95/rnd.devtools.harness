@@ -23,6 +23,21 @@ pending work. Restored context is 560 -> 409 tokens. The semantics are better al
 with the requested scope, not demonstrated to be fully faithful or leaner than the
 prior prompt (339 tokens in this pair). No further mechanism was introduced.
 
+## First-Person Instructions
+
+The prompt itself now opens with "I must synthesize the following completed
+trajectory" and consistently uses first-person instructions. The request footer
+uses the same perspective. Scope, model, and mechanics are unchanged; no examples
+were added. This adopts the requested phrasing, not a demonstrated fidelity gain.
+
+Direct review of the noisy-log pair in `20261114T165933Z` found the exact diagnostic,
+complete tabbed diff including its hunk header, and literal mocked-test result in
+the candidate. Repetitive INFO output was removed. It still overstated regression
+coverage and proposed unrequested authentication work. Context was 560 -> 437 tokens,
+versus 427 for the prior system prompt. Both legs used the new first-person footer;
+this one-case comparison does not isolate the footer change or establish a general
+improvement. Four model calls; 545 tests and 14 subtests pass in `quasipilot-harness`.
+
 ## Paired-Example Experiment
 
 One good/bad startup example was appended to the `76a613d` prompt, with the good
