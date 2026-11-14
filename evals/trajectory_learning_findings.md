@@ -23,6 +23,64 @@ pending work. Restored context is 560 -> 409 tokens. The semantics are better al
 with the requested scope, not demonstrated to be fully faithful or leaner than the
 prior prompt (339 tokens in this pair). No further mechanism was introduced.
 
+## Paired-Example Experiment
+
+One good/bad startup example was appended to the `76a613d` prompt, with the good
+example last. Its source was a local `api-key`/`api_key` mismatch before a provider
+request, an exact tabbed diff, and three passing mocked tests. The bad example
+invented frequency, a standing rule, and verified authentication; the good example
+preserved the hypothesis, decisive evidence, exact patch, and unverified live auth.
+The example was explicitly labeled as style guidance, not facts to import.
+
+I directly reviewed four different trajectories, their drafts, and continuations.
+No automated semantic scores or judges. Model, effort, input serialization, and
+delimiters were identical between legs; only the appended example differed. These
+are familiar development cases, not a held-out benchmark. The startup case used
+to teach the prompt was not used to judge it.
+
+| Case | Original context | Without example | With example |
+| --- | ---: | ---: | ---: |
+| Cancellation | 351 | 351 (skipped) | 351 (skipped) |
+| Stale snapshot | 363 | 363 (skipped) | 363 (skipped) |
+| Captured sanitization | 1,979 | 1,333 | 990 |
+| Captured partial investigation | 2,735 | 950 | 910 |
+
+These are estimated restored-context tokens, not scores. Both dense synthetic
+cases retained their source because neither draft saved context. Their continuation
+answers therefore cannot demonstrate synthesis quality. I inspected the rejected
+drafts in the recorded calls as well as the published captured-turn syntheses.
+
+- Cancellation: the example shortened the draft while retaining the failed wrapper,
+  native async cancellation, same-turn state, side effects, and mocked/live boundary.
+  It still omitted the uncommitted status and explicit interruption-role distinction.
+- Stale snapshot: the example removed the invented comment from the quoted excerpt
+  and the baseline's suggested cleanup utility. But it invented an earlier attempt
+  to force a merge and omitted the observed exact-retrieval rejection. Shorter did
+  not mean a more faithful trajectory.
+- Sanitization: the example explicitly acknowledged that helper implementations
+  had not been observed, unlike baseline, and avoided speculative truncation work.
+  However, it still asserted a diagnostic-only, agent-remediated sanitization
+  process that the partial read does not establish. This is a real improvement in
+  one boundary, not a resolved fidelity problem.
+- Partial investigation: the smaller draft still asserted prompt and test changes
+  without a diff or test-file read. It lost baseline's explicit statement that tests
+  had not been run, substituting a weaker statement about unverified live behavior.
+  Both versions overclaim what the limited inspection established.
+
+No startup-specific facts appeared in these unrelated drafts. The example added
+223 reported input tokens per synthesis; synthesis output fell by 597 tokens across
+the four pairs. Including continuations, this experiment used 16 recorded calls,
+all with responses: 28,175 input tokens and 6,220 output tokens. Only previously
+approved captured turns were sent to Gemini.
+
+Decision: do not adopt this paired example. It improved brevity and one evidence
+boundary, but not fidelity consistently enough to justify replacing the prompt.
+The runtime remains unchanged; no new evaluation or runtime machinery was added.
+The exact prompts, raw drafts, sources, and continuations remain in local bundles
+`20261114T165445Z`, `20261114T165509Z`, and `20261114T165549Z` under
+`eval_results/trajectory_compaction_ab/`. Regression suite: 545 tests and 14 subtests
+passed in `quasipilot-harness`; this is mechanical verification, not semantic evidence.
+
 ## Earlier Simplified Contract
 
 The subsequent simplification adopts a shorter prompt: first-person synthesis of
