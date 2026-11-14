@@ -9,7 +9,6 @@ from core.session.events import SessionEvent
 class TurnTrajectorySynthesis:
     turn: int
     synthesis: str
-    live_edge: str
 
 
 @dataclass(frozen=True)

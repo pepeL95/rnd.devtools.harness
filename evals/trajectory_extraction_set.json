@@ -1,0 +1,32 @@
+{
+  "name": "trajectory_evidence_extraction",
+  "version": 1,
+  "description": "Synthetic extraction stress case, not a captured session. Review exact excerpts and continuation manually, not via keyword scores.",
+  "cases": [
+    {
+      "id": "literal_tabbed_patch",
+      "user": "Fix the manifest reader without normalizing indentation or accepting malformed records.",
+      "steps": [
+        {"command": "python probe_manifest.py", "output": "FAILED: field separator is a literal tab, not spaces. The record path may contain a colon. Splitting on ':' loses the drive prefix. Replacing every backslash changes literal backslash-t in the payload. No files changed."},
+        {"reasoning": "My first split-on-colon approach corrupts paths, and broad escape replacement would mutate payloads. I need to retain the literal tab delimiter and split only once. The exact pattern matters; I should not replace it with whitespace matching."},
+        {"command": "cat manifest.py", "output": "import re\n\nRECORD = re.compile(r'^([^\t]+)\t(.*)$')\n\ndef decode_record(line):\n\tmatch = RECORD.fullmatch(line.rstrip('\\n'))\n\tif match is None:\n\t\traise ValueError('expected path<TAB>payload')\n\treturn match.group(1), match.group(2)\n"},
+        {"command": "python -m pytest -q tests/test_manifest.py", "output": "test_literal_tab PASSED\ntest_drive_prefix PASSED\ntest_backslash_t_payload PASSED\ntest_space_separator_rejected PASSED\n4 passed in 0.03s\nCarriage-return line endings were not covered."},
+        {"reasoning": "The four tests establish the separator and payload behavior, not CRLF support. The file uses real tabs for indentation. The successful function and regex are the reusable result; changing the whitespace pattern or normalizing escapes would undo the fix."}
+      ],
+      "assistant": "The reader now handles the tested records and rejects space-separated input. CRLF handling remains unverified.",
+      "probe": "I need the exact observed regex and decode_record implementation to repair a second reader. Reproduce them, preserving tabs and escaping. Explain which earlier fixes were unsafe and what remains unverified; do not substitute an improved implementation."
+    },
+    {
+      "id": "noisy_log_extraction",
+      "user": "Diagnose the startup failure without changing credentials or retrying remote endpoints.",
+      "steps": [
+        {"command": "python boot_probe.py --verbose", "output": "INFO loading configuration defaults and preparing startup diagnostics, step 01 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 02 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 03 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 04 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 05 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 06 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 07 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 08 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 09 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 10 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 11 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 12 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 13 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 14 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 15 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 16 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 17 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 18 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 19 complete\nINFO loading configuration defaults and preparing startup diagnostics, step 20 complete\nparser.py:17\n\tvalue = cfg[\"api-key\"]\nKeyError: 'api-key'\nConfigured keys: api_key, endpoint\nFailure occurred before any provider request."},
+        {"reasoning": "The logs initially suggested a remote startup problem, but the KeyError is entirely local: the code reads a hyphenated key while the configuration supplies an underscore. I should fix the lookup, not rotate credentials or retry the endpoint."},
+        {"command": "git diff -- parser.py", "output": "@@ -17 +17 @@\n-\tvalue = cfg[\"api-key\"]\n+\tvalue = cfg[\"api_key\"]\n"},
+        {"command": "python -m pytest -q tests/test_startup.py", "output": "3 passed in 0.04s. Provider calls mocked; live authentication was not tested."}
+      ],
+      "assistant": "The local lookup typo is fixed and focused tests pass. No credentials or endpoints were changed.",
+      "probe": "What exact lookup changed, why were credential rotation and endpoint retries inappropriate, and what do the tests establish about live authentication? Preserve the useful source excerpt, not the startup progress logs."
+    }
+  ]
+}

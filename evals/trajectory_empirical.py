@@ -29,7 +29,7 @@ def main() -> None:
         run_dir / "syntheses.json",
         {
             "turn_syntheses": [
-                {"turn": item.turn, "synthesis": item.synthesis, "live_edge": item.live_edge}
+                {"turn": item.turn, "synthesis": item.synthesis}
                 for item in result.turn_syntheses
             ]
         },
@@ -46,7 +46,7 @@ def main() -> None:
     )
     synthesis_section = "\n\n".join(
         [
-            f"### Turn {item.turn}\n\n{item.synthesis}\n\nLive edge: {item.live_edge}"
+            f"### Turn {item.turn}\n\n{item.synthesis}"
             for item in result.turn_syntheses
         ]
     )

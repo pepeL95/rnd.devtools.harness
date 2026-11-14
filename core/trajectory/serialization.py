@@ -8,9 +8,13 @@ from core.trajectory.models import TurnTrajectorySynthesis
 
 
 def events_to_internal_trajectory(events: Iterable[SessionEvent]) -> str:
+    """Keep source text literal; encode only event metadata as JSON."""
     lines: list[str] = []
     for index, event in enumerate(events, start=1):
-        payload = json.dumps(event.payload, ensure_ascii=False, sort_keys=True)
+        metadata = {key: value for key, value in event.payload.items() if key != "content"}
+        content = event.payload.get("content", "")
+        if not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=False)
         lines.append(
             "\n".join(
                 [
@@ -18,7 +22,9 @@ def events_to_internal_trajectory(events: Iterable[SessionEvent]) -> str:
                     f"timestamp: {event.timestamp}",
                     f"type: {event.type.value}",
                     f"turn: {event.turn}",
-                    f"payload: {payload}",
+                    f"metadata: {json.dumps(metadata, ensure_ascii=False, sort_keys=True)}",
+                    "content:",
+                    content,
                 ]
             )
         )
@@ -31,9 +37,6 @@ def trajectory_memory_message(turn_synthesis: TurnTrajectorySynthesis) -> str:
             "[TRAJECTORY MEMORY]",
             "",
             turn_synthesis.synthesis.strip(),
-            "",
-            "Live edge:",
-            turn_synthesis.live_edge.strip(),
             "",
             "[END TRAJECTORY MEMORY]",
         ]

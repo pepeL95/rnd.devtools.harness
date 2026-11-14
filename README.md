@@ -169,6 +169,19 @@ may be zero. Explicitly supplied session or trajectory compaction coordinators
 retain their own policies. Larger trajectory intervals delay memory synthesis;
 the default preserves a trajectory after every completed turn.
 
+Trajectory compaction extracts a Markdown memory per selected turn: reasoning
+lineage and decisive source excerpts, rather than model-generated JSON. Source
+content is supplied with its original whitespace; live user corrections are included.
+The final answer remains verbatim in the session and supplies task context, not
+independent evidence of success. Larger intervals issue one
+request per selected turn, not one batch request. A note must reduce the estimated
+restored-context tokens for its turn; otherwise the original events stay in place.
+When no turn shrinks, trajectory telemetry records a no-savings skip and model usage.
+Empty or provider-reported
+incomplete responses leave the source context intact; raw sessions and existing
+memories are unchanged. Excerpt selection and semantic fidelity remain model-dependent.
+See the [extraction evaluation](evals/trajectory_extraction_findings.md) for results and limits.
+
 At the highest reasoning setting (`high`), the next model request requires
 `reasoning` after every completed action-tool batch, including failures and single
 calls, using named tool choice (the model adapter must support it). Checkpoints

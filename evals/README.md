@@ -11,29 +11,36 @@ there is no regex rubric, numeric semantic score, or additional judge-model call
 
 ```sh
 conda activate quasipilot-harness
-python evals/trajectory_compaction_ab.py --candidate /path/to/proposed-prompt.txt
+python evals/trajectory_compaction_ab.py
 ```
 
-This uses the configured trajectory model and incurs 20 model requests: two prompts,
-five cases, one repeat, with one continuation probe per synthesis. Both variants use
-identical inputs, temperature, and thinking settings; request order alternates.
+This uses the configured trajectory model and incurs 20 model requests: two variants,
+five cases, one repeat, with one continuation probe per synthesis. Source events and
+continuation questions are shared; request order alternates. The baseline reproduces
+the old nested-JSON input, final-response inclusion, and JSON output contract. The
+candidate uses current production extraction with decoded content and Markdown output.
 `--case-id exact_whitespace --repeats 1` runs a four-request pilot. The baseline is
-frozen in `trajectory_compaction_baseline.txt`; required `--candidate` selects an experimental
-prompt without changing production. No extra review stage or input-selection change
-is introduced into the harness.
+frozen in `trajectory_compaction_baseline.txt`; optional `--candidate /path/to/prompt.txt`
+overrides the Markdown prompt without changing production. `--baseline-format markdown`
+compares two prompts using the current mechanism instead of the legacy JSON adapter.
 
 Run the captured-session comparison from the repository root (12 requests):
 
 ```sh
-python evals/trajectory_compaction_ab.py --candidate /path/to/proposed-prompt.txt \
+python evals/trajectory_compaction_ab.py \
   --fixture evals/trajectory_compaction_captured_set.json
 ```
 
+These commands send fixture contents to the configured provider. Confirm authorization
+before using captured sessions. The separate `trajectory_extraction_set.json` is a
+synthetic tabs/regex/code-reuse and noisy-startup-log set (eight requests, or four
+with `--case-id literal_tabbed_patch` or `--case-id noisy_log_extraction`).
+
 `--synthesis-thinking low` changes only synthesis effort; the probe retains its
-configured default. `--structured-events` tests native event objects rather than
-nested serialized strings for both prompts. These are eval-only ablations, not
-harness configuration. Compare a single changed factor against its saved control;
-neither alternative demonstrated a fidelity improvement in the recorded trials.
+configured default. `--baseline-model` and `--candidate-model` override individual
+synthesis models without changing the probe; `--candidate-thinking low` isolates
+candidate effort. These are eval-only ablations, not
+harness configuration. Compare a single changed factor against its saved control.
 
 Timestamped `eval_results/trajectory_compaction_ab/` bundles retain fixtures, prompt
 texts/hashes, source events, raw requests/responses, memories, continuation answers,
@@ -47,11 +54,15 @@ omissions or inventions, accept equivalent wording, and allow mixed verdicts.
 Continuation answers are a resumability proxy, not measured coding-task performance.
 Repeated temperature-zero outputs are not independent statistical evidence. Track
 format failures and per-case weaknesses, not just smaller notes.
+No-savings skips are counted separately, retain their original context-token count,
+and give that retained source to the continuation probe; zero memory tokens do not
+mean a successful compression. Inspect raw recorded synthesis output for skipped notes.
 See [the initial synthetic findings](trajectory_compaction_findings.md) and
 [the captured-session follow-up](trajectory_compaction_transfer_findings.md).
 The rejected candidate was removed: smaller memories still overclaimed what the
 source established. Its prompts remain in saved experiment bundles and Git history.
-Production synthesis instructions have not changed.
+The current Markdown mechanism and remaining fidelity issues are reviewed in
+[the extraction findings](trajectory_extraction_findings.md).
 
 ## Compaction Semantic Richness
 

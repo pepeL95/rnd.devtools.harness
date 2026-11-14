@@ -101,6 +101,12 @@ class TrajectoryCompactionCoordinator:
         self.telemetry.start(payload)
         try:
             result = self.compactor.compact(snapshot_events)
+            if not result.compacted_turns:
+                self.telemetry.skip({
+                    **payload, "reason": "no_context_reduction",
+                    "token_usage": {**dict(payload["token_usage"]), **result.token_usage},
+                })
+                return
             pending = PendingTrajectoryCompaction(
                 result_events=result.events,
                 snapshot_latest_turn=snapshot_latest_turn,
