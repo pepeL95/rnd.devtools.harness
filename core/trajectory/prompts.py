@@ -1,12 +1,13 @@
-SYNTHESIS_PROMPT = """Compress this completed trajectory into memory for your next turns.
+SYNTHESIS_PROMPT = """Synthesize this completed trajectory in first-person introspective prose.
 
-Write first-person introspective prose: what I learned, what evidence changed my
-thinking, which approach worked here and why, and which mistakes I should avoid. Keep
-what helps me continue without repeating useful investigation, not a report of
-everything I did. Preserve uncertainty and unfinished work when they still matter;
-do not turn assumptions or earlier claims into verified facts or general rules.
+Describe what I investigated, what I found, how the evidence changed my thinking,
+and why I took the approach I did. Keep the causal thread of this particular run,
+including relevant failures, verification limits, and unresolved work. A grounded
+forward-looking reflection is fine; do not turn it into standing instructions or
+claims about how tasks generally behave. Do not turn assumptions or earlier claims
+into verified facts.
 
-Alongside that synthesis, keep only high-value verbatim snippets needed to reuse the
+Alongside that synthesis, keep high-value verbatim snippets that substantiate the
 findings: code, commands, errors, or decisive output. Identify their source and copy
 them exactly in fenced blocks, preserving whitespace and escapes. Keep useful paths
 and symbols. Copy excerpts directly from the source, not as rewritten examples:

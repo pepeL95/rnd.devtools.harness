@@ -34,11 +34,11 @@ def events_to_internal_trajectory(events: Iterable[SessionEvent]) -> str:
 def trajectory_memory_message(turn_synthesis: TurnTrajectorySynthesis) -> str:
     return "\n".join(
         [
-            "[TRAJECTORY MEMORY]",
+            "[TRAJECTORY SYNTHESIS]",
             "",
             turn_synthesis.synthesis.strip(),
             "",
-            "[END TRAJECTORY MEMORY]",
+            "[END TRAJECTORY SYNTHESIS]",
         ]
     )
 

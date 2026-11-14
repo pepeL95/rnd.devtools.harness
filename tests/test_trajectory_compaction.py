@@ -16,6 +16,7 @@ from core.session.manager import SessionManager
 from core.telemetry.store import TelemetryStore
 from core.trajectory.compactor import TrajectoryCompactor
 from core.trajectory.coordinator import TrajectoryCompactionCoordinator
+from core.trajectory.models import TurnTrajectorySynthesis
 from core.trajectory.policy import TrajectoryCompactionPolicy
 from core.trajectory.serialization import format_turn_interval, trajectory_memory_message
 from core.utilities.defaults import get_model_name
@@ -532,6 +533,13 @@ class TrajectoryCompactionTests(TestCase):
         self.assertIn("claims, not independent evidence", request)
         self.assertIn("Unverified final claim.", request)
         self.assertIn("Unverified final claim.", [item.payload.get("content") for item in result.events])
+
+    def test_synthesis_wrapper_preserves_verbatim_content(self) -> None:
+        content = 'I found the mismatch.\n\n```diff\n-\tvalue = cfg["api-key"]\n+\tvalue = cfg["api_key"]\n```'
+        self.assertEqual(
+            trajectory_memory_message(TurnTrajectorySynthesis(turn=1, synthesis=content)),
+            f"[TRAJECTORY SYNTHESIS]\n\n{content}\n\n[END TRAJECTORY SYNTHESIS]",
+        )
 
     def test_existing_memories_need_no_migration_or_resynthesis(self) -> None:
         policy, model = scripted_trajectory_policy("Should not be called", trigger_every_turns=1)

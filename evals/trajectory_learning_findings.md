@@ -1,6 +1,29 @@
-# Agent-First Working Memory: 2026-11-14
+# Trajectory Synthesis Iterations: 2026-11-14
 
-## Simplified Contract
+## Current Scope
+
+Trajectory compaction is first-person synthesis of the run, not extraction of
+generalizable memories. Preserve investigation, evidence, changes in understanding,
+and high-value verbatim snippets. A grounded forward-looking reflection is useful;
+standing behavioral rules and claims about how tasks generally behave are not the
+objective. The earlier transfer-oriented framing below is historical, not the
+current acceptance criterion.
+
+The system prompt and request footer now ask for trajectory synthesis. New outputs
+use `[TRAJECTORY SYNTHESIS]` delimiters. Internal persistence identifiers remain
+unchanged so existing sessions require no migration. Regression verification:
+545 tests and 14 subtests pass in `quasipilot-harness`, including literal snippet
+preservation by the wrapper and compatibility with older session records.
+
+Direct review of `20261114T164750Z` found first-person analysis of the specific
+startup investigation, exact diagnostic and tabbed diff excerpts, and no repeated
+INFO logs or broad frequency claim. It still invents an initial environment-isolation
+step and proposes checking credential formatting without evidence that this was
+pending work. Restored context is 560 -> 409 tokens. The semantics are better aligned
+with the requested scope, not demonstrated to be fully faithful or leaner than the
+prior prompt (339 tokens in this pair). No further mechanism was introduced.
+
+## Earlier Simplified Contract
 
 The subsequent simplification adopts a shorter prompt: first-person synthesis of
 what was learned, plus high-value verbatim snippets for future turns. No new stages,
