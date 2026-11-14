@@ -10,10 +10,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "chromadb>=1.0",
-  "deepagents>=0.7.34",
-  "langchain>=1.4.9,<2",
-  "langchain-google-genai>=4.4.3",
-  "langgraph>=1.2.20",
+  "deepagents>=0.7.38",
+  "langchain>=1.5.0,<2",
+  "langchain-google-genai>=4.5.0",
+  "langgraph>=1.2.22",
   "pydantic>=2.0",
   "python-dotenv>=1.0",
   "textual>=6.0",
