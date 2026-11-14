@@ -1,9 +1,30 @@
 # Agent-First Working Memory: 2026-11-14
 
-## Decision
+## Simplified Contract
 
-Do not adopt either prompt rewrite from this follow-up. The runtime prompt remains
-the one in `89fab24`; neither candidate demonstrated better agent memory. This does
+The subsequent simplification adopts a shorter prompt: first-person synthesis of
+what was learned, plus high-value verbatim snippets for future turns. No new stages,
+schemas, validators, model changes, or configuration. This is a simpler behavioral
+contract, not a claim that the model's fidelity problems are solved.
+
+Direct review of the final noisy-log sample (`20261114T164036Z`) found first-person
+introspection, no repeated INFO output, and the exact tabbed patch. Restored context
+fell from 560 to 340 estimated tokens, versus 246 for baseline. The memory still
+overgeneralizes from one failure and introduces `AttributeError`, which was not in
+the source. The continuation correctly distinguishes the new HTTP 401 from the old
+local key mismatch. This supports the requested output shape, not a general quality
+win or better compression than baseline.
+
+The initial simplified prompt was also inspected on the captured sanitization turn
+(`20261114T163949Z`); it retained the known unsupported claims and reconstructed
+excerpts. The final copy-exactly clarification was rechecked on the noisy-log case,
+not on that captured turn. The first noisy-log run is `20261114T163917Z`. These three
+paired runs used 12 model calls; outputs are in the existing local eval bundles.
+
+## Earlier Comparison
+
+Neither prompt rewrite from the earlier follow-up was adopted; at that point the
+runtime prompt remained the one in `89fab24`. Neither demonstrated better memory. This does
 not establish that the baseline is adequate: its captured-code memory also invents
 behavior. Model, request format, Markdown parsing, and publication safeguards are
 unchanged. No additional runtime calls, configuration, or semantic validators.
