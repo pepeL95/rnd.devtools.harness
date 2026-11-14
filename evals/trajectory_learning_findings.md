@@ -9,6 +9,11 @@ standing behavioral rules and claims about how tasks generally behave are not th
 objective. The earlier transfer-oriented framing below is historical, not the
 current acceptance criterion.
 
+Evaluation must distinguish inherited mistakes from compaction errors: retaining
+an earlier interpretation is not itself a failure. Added evidence, strengthened
+certainty, or dropped qualifications are. Compaction is not an independent
+fact-checking stage and does not rewrite the retained final answer.
+
 The system prompt and request footer now ask for trajectory synthesis. New outputs
 use `[TRAJECTORY SYNTHESIS]` delimiters. Internal persistence identifiers remain
 unchanged so existing sessions require no migration. Regression verification:
@@ -22,6 +27,24 @@ step and proposes checking credential formatting without evidence that this was
 pending work. Restored context is 560 -> 409 tokens. The semantics are better aligned
 with the requested scope, not demonstrated to be fully faithful or leaner than the
 prior prompt (339 tokens in this pair). No further mechanism was introduced.
+
+## Attribution-Only Trial
+
+Replaced the existing observation/inference instruction with an explicit reminder
+that earlier conclusions remain attributed conclusions and must not be strengthened
+into verified facts or lose qualifications. No new mechanism or output structure.
+In the approved captured sanitization pair (`20261114T171848Z`), both variants still
+presented the historical interpretation as confirmed behavior. The candidate also
+replaced source code with an abbreviated reconstruction containing invented
+comments and elisions, despite the unchanged verbatim requirement. Context was
+1,979 -> 1,093 tokens versus 1,109 for baseline; that small saving is not a fidelity
+win. This single comparison does not establish causation or a general failure rate.
+
+The experimental wording was not adopted. The existing first-person prompt still
+requires distinguishing evidence from assumptions and earlier claims. The user
+explicitly requested promotion to main; that delivery decision does not erase the
+observed limitations or establish that attribution is solved. Four live model calls;
+545 tests and 14 subtests passed in `quasipilot-harness` during the trial.
 
 ## Positive Versus Negative Examples
 

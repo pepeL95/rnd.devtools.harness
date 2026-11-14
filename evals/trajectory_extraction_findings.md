@@ -1,12 +1,16 @@
 # Trajectory Extraction: 2026-11-14
 
-## Decision
+## Initial Evaluation Decision
 
-Keep this implementation on `feature/trajectory-extraction`; do not promote it to
-main as a demonstrated semantic-fidelity improvement. Markdown removes model-output
+The initial decision was to keep this on `feature/trajectory-extraction`, not promote
+it as a demonstrated semantic-fidelity improvement. Markdown removes model-output
 JSON parsing, and literal input enables better excerpts, but extraction still
 overclaims on captured evidence. The branch is a tested foundation, not a solved
 catastrophic-forgetting mechanism.
+
+The user subsequently requested promotion to main. That delivery decision does not
+change these findings; later prompt experiments and their limits are recorded in
+[the synthesis iteration notes](trajectory_learning_findings.md).
 
 The production model selection is unchanged: `gemini-3.1-flash-lite`, minimal effort.
 There is no new configuration, critic loop, structural rubric, or session migration.
