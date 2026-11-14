@@ -1,7 +1,7 @@
 {
   "name": "trajectory_evidence_extraction",
-  "version": 1,
-  "description": "Synthetic extraction stress case, not a captured session. Review exact excerpts and continuation manually, not via keyword scores.",
+  "version": 2,
+  "description": "Synthetic extraction stress cases, not captured sessions. Review exact excerpts and continuation manually, including when a prior fix no longer applies; no keyword scores.",
   "cases": [
     {
       "id": "literal_tabbed_patch",
@@ -26,7 +26,7 @@
         {"command": "python -m pytest -q tests/test_startup.py", "output": "3 passed in 0.04s. Provider calls mocked; live authentication was not tested."}
       ],
       "assistant": "The local lookup typo is fixed and focused tests pass. No credentials or endpoints were changed.",
-      "probe": "What exact lookup changed, why were credential rotation and endpoint retries inappropriate, and what do the tests establish about live authentication? Preserve the useful source excerpt, not the startup progress logs."
+      "probe": "A second startup now reaches the provider and returns HTTP 401. A colleague argues that our previous successful fix proves startup failures are local key typos, so we should repeat it and skip authentication checks. How should the earlier evidence guide this decision without overgeneralizing? Include the exact earlier patch and the boundary of what its tests established."
     }
   ]
 }

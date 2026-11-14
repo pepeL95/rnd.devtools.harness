@@ -1,7 +1,7 @@
 {
   "name": "trajectory_compaction_ab",
-  "version": 1,
-  "description": "Five synthetic harness-shaped turns. Review source evidence, paired memories, and continuation answers directly; no keyword scoring.",
+  "version": 2,
+  "description": "Five synthetic harness-shaped turns. Review source evidence, paired memories, and continuation answers directly, including transfer to a related configuration migration; no keyword scoring.",
   "cases": [
     {
       "id": "exact_whitespace",
@@ -41,7 +41,7 @@
         {"reasoning": "Explicit offloading wins; backfill must preserve missing-field semantics. I left the user's defaults.py edit untouched. The integration is committed as 219849e and pushed to feature/trajectory-bank, not main."}
       ],
       "assistant": "The integration is complete on the feature branch. Local-file offloading remains the default.",
-      "probe": "An older workspace unexpectedly stops archiving after startup. Which precise condition and migration behavior should I inspect, and should the reported full-suite failure be fixed as part of this work?"
+      "probe": "I am designing a similar migration for a new plugin list: the default is [\"local\"], a legacy boolean enables a remote plugin, and an explicitly supplied empty list disables plugins. A colleague suggests replacing omitted fields with defaults before resolving the legacy flag, then using equality with [\"local\"] to detect omission. What lesson from the previous work should change this design, which existing implementation anchor supports it, and what cases should I check? Distinguish the proposed new design from work already verified."
     },
     {
       "id": "stale_snapshot",

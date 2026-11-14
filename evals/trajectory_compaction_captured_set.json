@@ -1,7 +1,7 @@
 {
   "name": "trajectory_compaction_captured",
-  "version": 1,
-  "description": "Three unmodified turns from one captured session, selected before candidate generation to contrast partial investigation, code explanation, and a completed environment check. A small transfer check, not an independent benchmark.",
+  "version": 2,
+  "description": "Three unmodified turns from one captured session, selected before candidate generation to contrast partial investigation, code explanation, and a completed environment check. Follow-up questions include whether observed code justifies a future decision. A small transfer check, not an independent benchmark.",
   "cases": [
     {
       "id": "captured_partial_investigation",
@@ -13,7 +13,7 @@
       "id": "captured_sanitization",
       "source_session": "evals/trajectories/c2d0dc29c65a43ac94484c9c24fe0b23.jsonl",
       "source_turn": 3,
-      "probe": "A memory document still contains revision commentary. What mechanism and code anchors have we actually observed, and what must I inspect before claiming how the commentary is removed?"
+      "probe": "A colleague proposes treating a clean quality report as proof that revision commentary was removed without losing useful content. Based on what we actually inspected, can I safely adopt that rule for the next compaction change? Explain which evidence transfers, which behavior is still unknown, and the smallest useful next inspection; do not repeat the full investigation."
     },
     {
       "id": "captured_environment",
